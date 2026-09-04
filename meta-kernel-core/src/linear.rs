@@ -1,61 +1,68 @@
-//! 线性引擎 —— 等步长变化模式的调度内核。
+//! 线性引擎 —— 等步长"平稳消耗"变化模式。
 //!
-//! 概念：以恒定步长推进的状态变化器，是三种"生命感"变化模式中最平稳的一种
-//! （对应呼吸、节拍器、匀速心跳）。
+//! 白皮书定义：`output = input + 0.01`，强制归一化到 `[0, 1]`。
+//! 含义：惯性、恒常、可预测的平稳消耗。
 //!
-//! ⚠️ **Phase 0 空壳**：本模块仅提供稳定的占位 API，数值语义待
-//! 《数学规范白皮书》（0 锚点 + 模糊饱和运算）定稿后实现，见 TODO(数学规范)。
+//! 实现采用**饱和加法**：`output = input ⊕ 0.01 = min(1.0, input + 0.01)`。
 
 /// 线性引擎。
 ///
-/// 空壳阶段：`step` 为"直通"占位——输入什么种子就返回什么，尚未做任何
-/// 锚定/饱和运算。**勿用于生产。**
-#[derive(Debug, Clone, PartialEq)]
-pub struct LinearEngine {
-    /// 最近一次输入的种子值。
-    seed: f32,
-}
+/// 无内部状态：输出仅由输入决定（纯函数式变化模式）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LinearEngine;
 
 impl LinearEngine {
-    /// 以初始种子构造引擎。
-    pub const fn new(seed: f32) -> Self {
-        Self { seed }
+    /// 每次步进固定的推进量（公式中的 0.01）。
+    pub const INCREMENT: f32 = 0.01;
+
+    /// 构造引擎（状态无关）。
+    pub const fn new() -> Self {
+        Self
     }
 
-    /// 读取当前种子。
-    pub const fn seed(&self) -> f32 {
-        self.seed
-    }
-
-    /// 推入一个种子并推进一步，返回本步输出。
-    ///
-    /// TODO(数学规范)：替换为"0 锚点 + 模糊饱和"定义下的线性步进。
-    pub fn step(&mut self, seed: f32) -> f32 {
-        self.seed = seed;
-        seed
+    /// 推入种子并推进一步：`output = input ⊕ 0.01`。
+    pub fn step(&mut self, input: f32) -> f32 {
+        crate::math::sat_add(input, Self::INCREMENT)
     }
 }
 
 impl Default for LinearEngine {
     fn default() -> Self {
-        Self::new(0.0)
+        Self::new()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::math::is_valid;
 
     #[test]
-    fn new_holds_seed() {
-        let e = LinearEngine::new(0.5);
-        assert_eq!(e.seed(), 0.5);
+    fn step_adds_increment() {
+        let mut e = LinearEngine::new();
+        assert_eq!(e.step(0.5), 0.51);
     }
 
     #[test]
-    fn step_passthrough_placeholder() {
+    fn saturates_at_one() {
+        let mut e = LinearEngine::new();
+        assert_eq!(e.step(0.99), 1.0);
+        assert_eq!(e.step(1.0), 1.0);
+    }
+
+    #[test]
+    fn anchor_zero_restarts_from_increment() {
+        let mut e = LinearEngine::new();
+        assert_eq!(e.step(0.0), 0.01);
+    }
+
+    #[test]
+    fn stays_in_unit_interval_for_10000_steps() {
         let mut e = LinearEngine::default();
-        assert_eq!(e.step(1.25), 1.25);
-        assert_eq!(e.seed(), 1.25);
+        for i in 0..10_000 {
+            let input = if i % 100 == 0 { 0.0 } else { 0.8 };
+            let out = e.step(input);
+            assert!(is_valid(out), "iter {i}: {out}");
+        }
     }
 }
