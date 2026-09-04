@@ -284,13 +284,18 @@ mod tests {
     fn long_run_stays_valid_and_bounded() {
         let mut h = BubbleHourglass::new();
         for i in 0..10_000 {
+            // 周期性突发（同 tick 两粒 → 触发瓶颈破坏性干涉）
+            if i % 31 == 0 {
+                h.push(0.8);
+                h.push(0.7);
+            }
             let ext = if i % 7 == 0 { Some(0.9) } else { None };
             let out = h.tick(ext);
             for v in out {
                 assert!(is_valid(v), "iter {i}: {v}");
             }
         }
-        assert!(h.interference_events > 0);
+        assert!(h.interference_events > 0, "bursts never interfered");
         assert!(h.emitted > 0);
         assert_eq!(h.backlog(), h.upper.len() + h.ring.len() + h.lower.len());
     }

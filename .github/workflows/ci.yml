@@ -18,7 +18,10 @@ jobs:
           profile: minimal
 
       - name: Run tests (10000-iteration stability included)
-        run: cargo test --workspace 2>&1 | tee phase1-test.log
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --workspace 2>&1 | tee phase1-test.log
 
       - name: Upload test log
         if: always()

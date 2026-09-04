@@ -152,13 +152,21 @@ mod tests {
     #[test]
     fn echoes_stay_valid_for_10000_ticks() {
         let mut p = MirrorPool::new();
-        for i in 0..10_000 {
+        // 阶段 A：活跃期（周期脉冲喂入）——验证数值合法性与回显
+        for i in 0..3000 {
             let ext = if i % 50 == 0 { Some(0.8) } else { None };
             if let Some(e) = p.tick(ext) {
                 assert!(is_valid(e), "iter {i}: {e}");
             }
         }
-        assert!(p.reflections > 0);
-        assert!(p.kicks > 0); // 多次生命周期
+        assert!(p.reflections > 0, "no reflection during active phase");
+
+        // 阶段 B：长静默期（不再喂入）——回显逐级衰减耗尽 → 真空重启
+        for i in 3000..10_000 {
+            if let Some(e) = p.tick(None) {
+                assert!(is_valid(e), "iter {i}: {e}");
+            }
+        }
+        assert!(p.kicks > 0, "echo never exhausted into vacuum restart");
     }
 }
