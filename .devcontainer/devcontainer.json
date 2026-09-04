@@ -5,6 +5,9 @@
     "ghcr.io/devcontainers/features/rust:1": {
       "version": "stable",
       "profile": "minimal"
+    },
+    "ghcr.io/devcontainers/features/sshd:1": {
+      "version": "latest"
     }
   },
   "postCreateCommand": "rustc --version && cargo --version && cargo build --workspace && cargo test --workspace && echo PHASE0_SMOKE_OK",
