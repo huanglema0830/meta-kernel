@@ -1,0 +1,11 @@
+[package]
+name = "meta-kernel-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Meta-Kernel core: a pure-mathematics, hardware-free thinking kernel driven by linear/fibonacci/exponential change patterns."
+keywords = ["kernel", "mathematics", "scheduling", "attention", "zen"]
+categories = ["algorithms", "science"]
+
+[dependencies]
+# 零第三方依赖 —— 纯数学内核
