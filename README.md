@@ -7,14 +7,16 @@
 
 ## 状态 · Status
 
-🚧 **Phase 0 — 启动与地基**（2026-09 起）：仓库脚手架 + 三引擎空壳已就位；核心算法数学规范整理中。
+✅ **Phase 1 — 核心引擎闭环**（2026-09-05 完成）：三引擎按《数学规范白皮书 v0.1》实现，
+气泡沙漏拓扑（瓶颈破坏性干涉）+ 镜像池（摩擦源）就位，**10000 次迭代不溢出测试通过**（25 单测 + 2 集成）。
+数学规范见 [`docs/MATH_SPEC.md`](docs/MATH_SPEC.md)，测试报告见 [`docs/PHASE1_TEST_REPORT.log`](docs/PHASE1_TEST_REPORT.log)。
 
 ## 路线图 · Roadmap
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| 0 | 启动与地基：仓库 / workspace / 三引擎空壳 | 🚧 进行中 |
-| 1 | 核心引擎闭环：气泡沙漏拓扑 / 瓶颈干涉 / 镜像池 / 10000 次迭代不溢出测试 | ⬜ |
+| 0 | 启动与地基：仓库 / workspace / 三引擎空壳 | ✅ 完成 |
+| 1 | 核心引擎闭环：气泡沙漏拓扑 / 瓶颈干涉 / 镜像池 / 10000 次迭代不溢出测试 | ✅ 完成 |
 | 2 | NPB 桥接器：`push_seed(f32)` / `pop_result(f32)` / `get_entropy()` + DOSBox、WASM 示例 | ⬜ |
 | 3 | 禅境示波器（官方示例应用，GitHub Pages 托管） | ⬜ |
 | 4 | 社区化与生态：NPB 挂载协议 / Discussions 专区 / 多设备演示 | ⬜ |
@@ -24,9 +26,14 @@
 
 ```
 meta-kernel-core/   ★ 核心代码库（Rust lib，零第三方依赖）
-  src/linear.rs     线性引擎（空壳）
-  src/fib.rs        斐波那契引擎（空壳）
-  src/expo.rs       指数引擎（空壳）
+  src/math.rs       模糊饱和运算（a⊕b=min(1,a+b)）与 0-1 归一化
+  src/linear.rs     线性引擎（input ⊕ 0.01）
+  src/fib.rs        斐波那契引擎（(a+b)×0.5 自参照递归）
+  src/expo.rs       指数引擎（input×e^(λΔt)，>0.99 回退 0.5）
+  src/hourglass.rs  气泡沙漏：上锥体→瓶颈环形缓冲(破坏性干涉)→下锥体
+  src/mirror.rs     镜像池（摩擦源）：回显衰减 + 真空重启
+  tests/            Phase 1 闭环 10000 迭代稳定性测试
+docs/MATH_SPEC.md   数学规范白皮书 v0.1
 npb/                NPB 桥接器（规划中，Phase 2）
 examples/           示例（规划中，Phase 2/3）
 ```

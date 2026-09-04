@@ -1,0 +1,47 @@
+[1m[92m   Compiling[0m meta-kernel-core v0.1.0 (/home/runner/work/meta-kernel/meta-kernel/meta-kernel-core)
+[1m[92m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.29s
+[1m[92m     Running[0m unittests src/lib.rs (target/debug/deps/meta_kernel_core-80eebd284a077b18)
+
+running 25 tests
+test expo::tests::collapses_to_half_when_above_threshold ... ok
+test expo::tests::grows_but_stays_below_collapse_when_small ... ok
+test expo::tests::huge_lambda_guarded_no_overflow ... ok
+test fib::tests::anchor_vacuum_stays_zero ... ok
+test expo::tests::vacuum_stays_zero ... ok
+test fib::tests::first_positive_input_ignites ... ok
+test fib::tests::recurrence_sequence_matches_formula ... ok
+test expo::tests::stays_valid_for_10000_steps ... ok
+test fib::tests::stays_bounded_for_10000_steps ... ok
+test hourglass::tests::burst_pair_destructively_interferes ... ok
+test hourglass::tests::overflow_drops_are_counted ... ok
+test hourglass::tests::ring_buffer_roundtrip ... ok
+test hourglass::tests::odd_burst_keeps_one_survivor ... ok
+test linear::tests::saturates_at_one ... ok
+test hourglass::tests::single_seed_trickles_through_in_one_tick ... ok
+test linear::tests::anchor_zero_restarts_from_increment ... ok
+test hourglass::tests::long_run_stays_valid_and_bounded ... ok
+test math::tests::sat_add_basic ... ok
+test mirror::tests::echoes_decay_to_exhaustion_then_restart ... ok
+test linear::tests::stays_in_unit_interval_for_10000_steps ... ok
+test linear::tests::step_adds_increment ... ok
+test math::tests::clamp_and_valid ... ok
+test mirror::tests::reflects_with_friction_decay ... ok
+test mirror::tests::vacuum_restart_injects_first_perturbation ... ok
+test mirror::tests::echoes_stay_valid_for_10000_ticks ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[92m     Running[0m tests/phase1_stability.rs (target/debug/deps/phase1_stability-5355e42e67f5b77f)
+
+running 2 tests
+test each_engine_alone_10000_steps_stays_bounded ... ok
+test closed_loop_10000_iterations_never_overflow ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[92m   Doc-tests[0m meta_kernel_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
