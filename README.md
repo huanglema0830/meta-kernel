@@ -10,7 +10,10 @@
 ✅ **Phase 1 — 核心引擎闭环（已验收）**（2026-09-05）：发起人复核通过，A2/A4/A5 升格正式设计
 （见 [`docs/PHASE1_REVIEW.md`](docs/PHASE1_REVIEW.md)）。三引擎按数学规范 v1.0 实现，气泡沙漏 +
 镜像池就位，**10000 次迭代不溢出测试通过**（25 单测 + 2 集成）。
-🚧 **Phase 2 — NPB 桥接器**进行中：安全阀 / 0-10 元标尺 / 能量判定 / 正源系统框架已实现，桥接器与示例开发中。
+🚧 **Phase 2 — NPB 桥接器（代码完成，待发起人验收）**（2026-09-05）：
+安全阀 / 0-10 元标尺 / 能量判定 / 正源系统框架 ✅；`npb/` C FFI 桥（cdylib + wasm32 双目标）✅；
+DOSBox 概念演示 ✅；WASM Canvas 浏览器示例 ✅；**跨平台一致性验证通过**
+（原生与 WASM 确定性摘要同为 `4251318995`，CI run #3393…/ commit `fd562ef`）。
 
 ## 路线图 · Roadmap
 
@@ -18,7 +21,7 @@
 |---|---|---|
 | 0 | 启动与地基：仓库 / workspace / 三引擎空壳 | ✅ 完成 |
 | 1 | 核心引擎闭环：气泡沙漏拓扑 / 瓶颈干涉 / 镜像池 / 10000 次迭代不溢出测试 | ✅ 已验收 |
-| 2 | NPB 桥接器：`push_seed` / `pop_result` / `get_entropy` + DOSBox 概念演示、WASM Canvas 示例；新增：安全阀 / 0-10 元标尺 / 能量判定 / 正源系统 | 🚧 进行中 |
+| 2 | NPB 桥接器 + 安全阀 / 0-10 元标尺 / 能量判定 / 正源系统 + DOS/WASM 双示例 + 跨平台验证 | 🧪 待验收 |
 | 3 | 禅境示波器（官方示例应用，GitHub Pages 托管） | ⬜ |
 | 4 | 社区化与生态：NPB 挂载协议 / Discussions 专区 / 多设备演示 | ⬜ |
 | 5 | 自发传播与交付：《元内核极简创世录》等 | ⬜ |
@@ -31,11 +34,13 @@
 | 三引擎：线性 / 斐波那契 / 指数 | `src/linear.rs` `src/fib.rs` `src/expo.rs` | ✅ |
 | 气泡沙漏（瓶颈破坏性干涉） | `src/hourglass.rs` | ✅ |
 | 镜像池（摩擦源 / 真空重启） | `src/mirror.rs` | ✅ |
-| 负扰动过滤与安全阀 | `src/sanitizer.rs` | 🚧 已实现 |
-| 0-10 元通用标尺 | `src/ontology.rs`（规范见 `docs/ONTOLOGY_SPEC.md`） | 🚧 已实现 |
-| 能量层级判定 | `src/energy.rs` | 🚧 已实现 |
-| 正源系统（拆解-分析-重编循环） | `src/positive_source.rs` | 🚧 已实现 |
-| NPB 桥接器（C FFI） | `npb/bridge.h` | ⬜ 规划中 |
+| 负扰动过滤与安全阀 | `src/sanitizer.rs` | ✅ |
+| 0-10 元通用标尺 | `src/ontology.rs`（规范见 `docs/ONTOLOGY_SPEC.md`） | ✅ |
+| 能量层级判定 | `src/energy.rs` | ✅ |
+| 正源系统（拆解-分析-重编循环） | `src/positive_source.rs` | ✅ |
+| NPB 桥接器（C FFI：`push_seed`/`pop_result`/`get_entropy`） | `npb/bridge.h` + `npb/src/lib.rs`（cdylib+wasm） | ✅ |
+| DOSBox 虚拟喇叭概念演示（C） | `examples/dos_concept/main.c` | ✅ |
+| WASM Canvas 呼吸演示（浏览器） | `examples/wasm_canvas/` | ✅ 待浏览器目验 |
 
 ## 仓库结构
 
@@ -47,10 +52,15 @@ meta-kernel-core/   ★ 核心代码库（Rust lib，零第三方依赖）
   src/expo.rs       指数引擎（input×e^(λΔt)，>0.99 回退 0.5）
   src/hourglass.rs  气泡沙漏：上锥体→瓶颈环形缓冲(破坏性干涉)→下锥体
   src/mirror.rs     镜像池（摩擦源）：回显衰减 + 真空重启
-  tests/            Phase 1 闭环 10000 迭代稳定性测试
-docs/MATH_SPEC.md   数学规范白皮书 v0.1
-npb/                NPB 桥接器（规划中，Phase 2）
-examples/           示例（规划中，Phase 2/3）
+  src/sanitizer.rs  负扰动过滤与安全阀（软钳位/配额休眠/合作奖励/末那识监控）
+  src/ontology.rs   0-10 元通用标尺（analyze/decompose/abstract/recompose）
+  src/energy.rs     能量层级判定（活力指数 + 四档处置）
+  src/positive_source.rs  正源系统（颗粒度/Searcher/Analyzer/Weaver/功德池）
+  tests/            Phase1 稳定性 + Phase2 安全集成测试
+npb/                ★ NPB 桥接器：bridge.h + cdylib/wasm32 实现 + 自检摘要
+examples/dos_concept/   C 概念演示（虚拟喇叭）
+examples/wasm_canvas/   WASM + JS Canvas 呼吸演示
+docs/               数学规范 v1.0 / 0-10 标尺规范 / 阶段验收与测试报告
 ```
 
 ## 许可 · License

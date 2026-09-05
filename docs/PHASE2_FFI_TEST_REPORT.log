@@ -1,0 +1,34 @@
+test	Run workspace tests	2026-09-05T02:37:56.8724752Z test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test	Run workspace tests	2026-09-05T02:37:56.8771863Z test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test	Run workspace tests	2026-09-05T02:37:56.8790703Z test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test	Run workspace tests	2026-09-05T02:37:56.8815614Z test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test	Run workspace tests	2026-09-05T02:37:56.9055635Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test	Run workspace tests	2026-09-05T02:37:56.9212716Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:37:57.6749132Z ^[[36;1mgrep -q "KERNEL_DEMO_DONE" dos_demo.log^[[0m
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4009869Z [SPEAKER] BEEP @ 880.0 Hz  (kernel out=1.000 ent=-0.000)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4010541Z [SPEAKER] BEEP @ 733.3 Hz  (kernel out=0.900 ent=0.333)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4011190Z [SPEAKER] BEEP @ 667.5 Hz  (kernel out=0.900 ent=0.483)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4011798Z [SPEAKER] BEEP @ 675.8 Hz  (kernel out=1.000 ent=0.464)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4012367Z [SPEAKER] BEEP @ 680.4 Hz  (kernel out=0.900 ent=0.454)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4012921Z [SPEAKER] BEEP @ 687.2 Hz  (kernel out=0.900 ent=0.438)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4013703Z [SPEAKER] BEEP @ 659.2 Hz  (kernel out=0.900 ent=0.502)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4014303Z [SPEAKER] BEEP @ 659.2 Hz  (kernel out=1.000 ent=0.502)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4014880Z [SPEAKER] BEEP @ 663.3 Hz  (kernel out=0.900 ent=0.492)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4015566Z [SPEAKER] BEEP @ 663.3 Hz  (kernel out=0.900 ent=0.492)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4016148Z [SPEAKER] BEEP @ 653.2 Hz  (kernel out=1.000 ent=0.515)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4016759Z [SPEAKER] BEEP @ 653.2 Hz  (kernel out=0.900 ent=0.515)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4017368Z [SPEAKER] BEEP @ 653.2 Hz  (kernel out=0.900 ent=0.515)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4017961Z [SPEAKER] BEEP @ 651.0 Hz  (kernel out=1.000 ent=0.520)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4018721Z [SPEAKER] BEEP @ 653.2 Hz  (kernel out=0.900 ent=0.515)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4019321Z [SPEAKER] BEEP @ 653.2 Hz  (kernel out=0.900 ent=0.515)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4019918Z [SPEAKER] BEEP @ 653.2 Hz  (kernel out=0.900 ent=0.515)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4020518Z [SPEAKER] BEEP @ 653.2 Hz  (kernel out=1.000 ent=0.515)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4021111Z [SPEAKER] BEEP @ 660.0 Hz  (kernel out=0.900 ent=0.500)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4021702Z [SPEAKER] BEEP @ 660.0 Hz  (kernel out=0.900 ent=0.500)
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4022249Z --- demo complete: 48 beep(s) produced ---
+test	Build & run DOSBox concept demo (C via bridge.h)	2026-09-05T02:38:00.4022720Z KERNEL_DEMO_DONE
+test	Native self-test digest	2026-09-05T02:38:01.0969689Z DIGEST=4251318995
+test	Cross-platform consistency (native vs wasm digest)	2026-09-05T02:38:03.5435153Z ^[[36;1mecho CROSS_PLATFORM_CONSISTENT^[[0m
+test	Cross-platform consistency (native vs wasm digest)	2026-09-05T02:38:03.8011062Z DIGEST=4251318995
+test	Cross-platform consistency (native vs wasm digest)	2026-09-05T02:38:03.8011543Z WASM_SMOKE_OK out=1.0000 ent=0.0000
+test	Cross-platform consistency (native vs wasm digest)	2026-09-05T02:38:03.8367506Z CROSS_PLATFORM_CONSISTENT
