@@ -28,6 +28,18 @@ jobs:
           name: phase1-test-log
           path: phase1-test.log
 
+      - name: Guard site files exist (anti accidental deletion)
+        shell: bash
+        run: |
+          test -f npb/bridge.h
+          test -f examples/dos_concept/main.c
+          test -f examples/wasm_canvas/self_test.js
+          test -f examples/wasm_canvas/index.html
+          test -f examples/zen-oscilloscope/index.html
+          test -f examples/zen-oscilloscope/zen.js
+          test -f examples/tools/serve.py
+          echo SITE_FILES_OK
+
       - name: Build NPB cdylib (native)
         run: cargo build -p npb
 
