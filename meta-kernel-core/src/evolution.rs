@@ -167,8 +167,8 @@ mod tests {
             log.record_compound(i as f32 / 100.0);
         }
         assert_eq!(log.len(), EvolutionLog::CAP);
-        // 最早事件被挤出，最新仍在（step 从 51..1074 保留尾部）
-        assert_eq!(log.last().unwrap().step, EvolutionLog::CAP as u64 + 49);
+        // 最早事件被挤出，最新仍在（step 从 51..1074 保留尾部，共 1024 条）
+        assert_eq!(log.last().unwrap().step, EvolutionLog::CAP as u64 + 50);
     }
 
     #[test]

@@ -110,12 +110,21 @@ mod tests {
 
     #[test]
     fn phase_at_matches_known_shift() {
+        // DFT(e^{-jθ}) 口径下，sin(θ+p) 的相位 = p - π/2（正交偏移为常数，
+        // 差值与相位累积仍正确；interference 中该偏移自然抵消）
         let n = 64;
         let p = 1.0f32;
         let x = sine(4, n, p);
         let phi = phase_at(&x, 4);
-        let d = ((phi - p).abs()).min((phi - p + 2.0 * PI).abs()).min((phi - p - 2.0 * PI).abs());
-        assert!(d < 1e-2, "phase {phi} vs {p}");
+        let expected = p - PI / 2.0;
+        let d = ((phi - expected).abs())
+            .min((phi - expected + 2.0 * PI).abs())
+            .min((phi - expected - 2.0 * PI).abs());
+        assert!(d < 1e-2, "phase {phi} vs expected {expected}");
+        // 相位差（两列波）与真实差一致（偏移抵消）
+        let y = sine(4, n, 0.0);
+        let d2 = (phase_at(&x, 4) - phase_at(&y, 4) - p).abs();
+        assert!(d2 < 1e-2, "relative phase error {d2}");
     }
 
     #[test]
