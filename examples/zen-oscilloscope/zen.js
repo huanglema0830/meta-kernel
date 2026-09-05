@@ -2,10 +2,11 @@
  * examples/zen-oscilloscope/zen.js
  *
  * 禅境示波器逻辑：WASM 内核直驱。
- * - 圆：半径 = pop_result()（内核输出）；色温/晕圈 = get_entropy()；
+ * - 圆：半径 = pop_result()（内核输出）；色温随熵联动（低熵冷青 ↔ 高熵暖金）；
  * - 数据区：思考链长度（get_thinking_len）、推演节点数（get_thinking_nodes）、
  *   双链诊断（get_diag_formation / get_diag_resolution / get_diag_solved）；
- * - 底部：输出波形（呼吸痕迹）。
+ * - 底部波形：输出时间序列，颜色随熵值联动（与主圆同色调）；
+ * - 加载即呼吸：注入 0.01 初始扰动并立即渲染首帧（不静置在 0）。
  * wasm 来源：支持内嵌 base64（双击 file:// 场景）或 fetch（服务器场景）。
  */
 (function () {
@@ -18,6 +19,13 @@
   var outBuf = [];
   var MAX = 96;
   var tick = 0;
+  var lastEnt = 0;
+
+  var REQUIRED_EXPORTS = [
+    "push_seed", "pop_result", "get_entropy",
+    "get_thinking_len", "get_thinking_nodes",
+    "get_diag_formation", "get_diag_resolution", "get_diag_solved"
+  ];
 
   function base64ToBytes(b64) {
     var bin = atob(b64);
@@ -27,27 +35,31 @@
   }
 
   function loadWasm() {
-    if (window.NPB_B64) {
-      return Promise.resolve(base64ToBytes(window.NPB_B64));
-    }
-    return fetch("npb.wasm")
-      .then(function (r) { return r.arrayBuffer(); })
+    if (window.NPB_B64) return Promise.resolve(base64ToBytes(window.NPB_B64));
+    return fetch("npb.wasm").then(function (r) { return r.arrayBuffer(); })
       .then(function (b) { return new Uint8Array(b); });
   }
 
   function stat(id, text) { document.getElementById(id).textContent = text; }
 
+  /* 熵 → 色调：ent=0 冷青(190°) ↔ ent=1 暖金(28°)，主圆与波形共用 */
+  function tint(ent) {
+    var hue = 190 - 162 * ent;
+    return { hue: hue, fill: "hsl(" + hue + ",68%,60%)", glow: "hsla(" + hue + ",68%,50%," + (0.10 + ent * 0.16) + ")" };
+  }
+
   function drawWave() {
     var w = spark.width.baseVal.value, h = spark.height.baseVal.value;
     sparkCtx.clearRect(0, 0, w, h);
     if (outBuf.length < 2) return;
+    var c = tint(lastEnt);
     sparkCtx.beginPath();
     for (var i = 0; i < outBuf.length; i++) {
       var x = (i / (MAX - 1)) * w;
       var y = h - 4 - outBuf[i] * (h - 8);
       if (i === 0) sparkCtx.moveTo(x, y); else sparkCtx.lineTo(x, y);
     }
-    sparkCtx.strokeStyle = "rgba(29,158,117,.9)";
+    sparkCtx.strokeStyle = c.fill;
     sparkCtx.lineWidth = 1.5;
     sparkCtx.stroke();
   }
@@ -67,6 +79,7 @@
     var f = api.get_diag_formation();
     var r = api.get_diag_resolution();
     var solved = api.get_diag_solved();
+    lastEnt = ent;
 
     stat("out", out.toFixed(3));
     stat("ent", ent.toFixed(3));
@@ -77,17 +90,16 @@
 
     var cx = canvas.width / 2, cy = canvas.height / 2;
     var radius = 8 + out * 125;
+    var c = tint(ent);
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.beginPath();
     ctx.arc(cx, cy, radius + 20 + ent * 24, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(29,158,117," + (0.08 + ent * 0.12) + ")";
+    ctx.fillStyle = c.glow;
     ctx.fill();
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    var g = Math.round(150 + 90 * (1 - ent));
-    var b = Math.round(110 + 130 * ent);
-    ctx.fillStyle = "rgb(" + Math.round(80 + 80 * (1 - ent)) + "," + g + "," + b + ")";
+    ctx.fillStyle = c.fill;
     ctx.fill();
     ctx.beginPath(); // 0 锚点常在
     ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
@@ -100,16 +112,22 @@
   }
 
   loadWasm()
-    .then(function (bytes) {
-      return WebAssembly.instantiate(bytes, {});
-    })
+    .then(function (bytes) { return WebAssembly.instantiate(bytes, {}); })
     .then(function (res) {
       api = res.instance.exports;
-      api.push_seed(1.0); // 第一扰动点燃
+      var missing = REQUIRED_EXPORTS.filter(function (k) { return typeof api[k] !== "function"; });
+      if (missing.length) {
+        stat("out", "缺导出: " + missing.join(","));
+        throw new Error("missing exports: " + missing.join(","));
+      }
+      // 加载即呼吸：0 锚点 → 0.01 初始扰动（柔和起搏）→ 1.0 点燃 → 立即渲染首帧
+      api.push_seed(0.01);
+      api.push_seed(1.0);
+      frame();
       setInterval(frame, 120);
     })
     .catch(function (err) {
-      stat("out", "wasm 加载失败");
+      if (err && err.message && err.message.indexOf("missing") !== 0) stat("out", "wasm 加载失败");
       console.error(err);
     });
 

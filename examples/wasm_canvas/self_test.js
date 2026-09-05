@@ -15,11 +15,15 @@ const bytes = fs.readFileSync(wasmPath);
 WebAssembly.instantiate(bytes, {})
   .then(({ instance }) => {
     const ex = instance.exports;
-    if (typeof ex.push_seed !== "function" ||
-        typeof ex.pop_result !== "function" ||
-        typeof ex.get_entropy !== "function" ||
-        typeof ex.mk_self_test !== "function") {
-      console.error("WASM_EXPORTS_MISSING");
+    const required = [
+      "push_seed", "pop_result", "get_entropy",
+      "get_thinking_len", "get_thinking_nodes",
+      "get_diag_formation", "get_diag_resolution", "get_diag_solved",
+      "mk_self_test"
+    ];
+    const missing = required.filter((k) => typeof ex[k] !== "function");
+    if (missing.length) {
+      console.error("WASM_EXPORTS_MISSING: " + missing.join(","));
       process.exit(1);
     }
 
@@ -32,9 +36,19 @@ WebAssembly.instantiate(bytes, {})
       process.exit(1);
     }
 
+    // 思考链自动递增校验：5 次注入后 length 应增长且非 0
+    for (let i = 0; i < 5; i++) ex.push_seed(0.01 + i * 0.2);
+    const chainLen = ex.get_thinking_len() >>> 0;
+    const chainNodes = ex.get_thinking_nodes() >>> 0;
+    if (chainLen < 1 || chainNodes < 1 || chainNodes > chainLen) {
+      console.error("CHAIN_STATS_FAIL len=" + chainLen + " nodes=" + chainNodes);
+      process.exit(1);
+    }
+
     const digest = ex.mk_self_test() >>> 0;
     console.log("DIGEST=" + digest);
-    console.log("WASM_SMOKE_OK out=" + out.toFixed(4) + " ent=" + ent.toFixed(4));
+    console.log("WASM_SMOKE_OK out=" + out.toFixed(4) + " ent=" + ent.toFixed(4) +
+      " chain=" + chainLen + "/" + chainNodes);
   })
   .catch((err) => {
     console.error("WASM_LOAD_FAIL:", err);
