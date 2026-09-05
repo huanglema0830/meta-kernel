@@ -44,12 +44,18 @@ impl PositiveSource {
         self.add_schema(schema);
     }
 
+    /// 当前库容。
     pub fn len(&self) -> usize {
         self.library.len()
     }
 
     pub fn is_empty(&self) -> bool {
         self.library.is_empty()
+    }
+
+    /// 只读访问库内容（供搜索器/外部检索）。
+    pub fn library(&self) -> &[AbstractSchema] {
+        &self.library
     }
 }
 
@@ -368,7 +374,7 @@ mod tests {
         src.add_schema(schema_a.clone());
         src.add_schema(schema_b);
         let q = ontology::abstract_pattern(vec![e(2, 0.45), e(2, 0.55)]);
-        let hit = Searcher::search(&src.library, &q).expect("found");
+        let hit = Searcher::search(src.library(), &q).expect("found");
         assert_eq!(hit.nodes, schema_a.nodes, "应命中互补对骨架");
     }
 

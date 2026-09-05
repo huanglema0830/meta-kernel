@@ -80,7 +80,7 @@ fn resource_exhaustion_sleeps_then_positive_source_recycles() {
 
     // ---- 阶段 3：正源库可被检索（回收材料可复用）----
     let query_schema = ontology::abstract_pattern(vec![e(1, 0.05), e(1, 0.05)]);
-    let hit = Searcher::search(&source.library, &query_schema);
+    let hit = Searcher::search(source.library(), &query_schema);
     assert!(hit.is_some(), "回收的基础元素应能被再次检索到");
 
     // ---- 阶段 4：配额可被唤醒（未被杀死，可重新服役）----
