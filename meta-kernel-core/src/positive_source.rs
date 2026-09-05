@@ -519,9 +519,10 @@ mod tests {
         let b = mk(vec![LevelNode::new(2, 10)]);
         let q = mk(vec![LevelNode::new(2, 10)]);
         let schemas = [a.clone(), b.clone()];
+        let catalysts = [a.clone()];
         let plain = Searcher::search(&schemas, &q).unwrap();
         assert_eq!(plain.nodes, b.nodes, "无催化剂时 b 胜出");
-        let catalyzed = Searcher::search_catalyzed(&schemas, &[a], &q).unwrap();
+        let catalyzed = Searcher::search_catalyzed(&schemas, &catalysts, &q).unwrap();
         assert_eq!(catalyzed.nodes, a.nodes, "催化剂 a 加权 1.2 后胜出");
     }
 
