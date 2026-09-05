@@ -271,6 +271,12 @@ pub fn signature(p: &Pattern) -> u64 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReachMask(u32);
 
+impl Default for ReachMask {
+    fn default() -> Self {
+        Self::base()
+    }
+}
+
 impl ReachMask {
     pub const L0_SELF: u32 = 1 << 0;
     pub const L1_LOCAL: u32 = 1 << 1;
@@ -498,7 +504,8 @@ mod tests {
         let a = ontology::abstract_pattern(vec![e(2, 0.4), e(2, 0.6)]);
         let b = ontology::abstract_pattern(vec![e(3, 0.2), e(3, 0.5), e(3, 0.8)]);
         let q = ontology::abstract_pattern(vec![e(3, 0.45), e(3, 0.7)]);
-        let hit = Searcher::search(&[a, b], &q).expect("found");
+        let schemas = [a.clone(), b.clone()];
+        let hit = Searcher::search(&schemas, &q).expect("found");
         assert_eq!(hit.nodes, b.nodes);
     }
 
