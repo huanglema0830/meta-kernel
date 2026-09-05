@@ -10,10 +10,12 @@
 ✅ **Phase 1 — 核心引擎闭环（已验收）**（2026-09-05）：发起人复核通过，A2/A4/A5 升格正式设计
 （见 [`docs/PHASE1_REVIEW.md`](docs/PHASE1_REVIEW.md)）。三引擎按数学规范 v1.0 实现，气泡沙漏 +
 镜像池就位，**10000 次迭代不溢出测试通过**（25 单测 + 2 集成）。
-🚧 **Phase 2 — NPB 桥接器（代码完成，待发起人验收）**（2026-09-05）：
-安全阀 / 0-10 元标尺 / 能量判定 / 正源系统框架 ✅；`npb/` C FFI 桥（cdylib + wasm32 双目标）✅；
-DOSBox 概念演示 ✅；WASM Canvas 浏览器示例 ✅；**跨平台一致性验证通过**
-（原生与 WASM 确定性摘要同为 `4251318995`，CI run #3393…/ commit `fd562ef`）。
+✅ **Phase 2 — NPB 桥接器（已验收）**（2026-09-05）：
+安全阀 / 0-10 元标尺 / 能量判定 / 正源系统 ✅；`npb/` C FFI 桥（cdylib + wasm32 双目标）✅；
+DOSBox 概念演示 ✅；WASM Canvas 浏览器示例 ✅；**跨平台一致性验证通过**（摘要 `4251318995`）。
+✅ **Phase 3 — 禅境示波器（已验收，含增补轮次）**（2026-09-05）：应用上线
+**https://huanglema0830.github.io/meta-kernel/**；思考链/双链/物态/化学变化层/正源场域/轨迹 3D·螺旋度
+全部验收通过（见 [`docs/PHASE4_ACCEPTANCE_REPORT.md`](docs/PHASE4_ACCEPTANCE_REPORT.md)，累计 81 测试全绿）。
 
 ## 路线图 · Roadmap
 
@@ -22,11 +24,11 @@ DOSBox 概念演示 ✅；WASM Canvas 浏览器示例 ✅；**跨平台一致性
 | 0 | 启动与地基：仓库 / workspace / 三引擎空壳 | ✅ 完成 |
 | 1 | 核心引擎闭环：气泡沙漏拓扑 / 瓶颈干涉 / 镜像池 / 10000 次迭代不溢出测试 | ✅ 已验收 |
 | 2 | NPB 桥接器 + 安全阀 / 0-10 元标尺 / 能量判定 / 正源系统 + DOS/WASM 双示例 + 跨平台验证 | ✅ 已验收 |
-| 3 | 禅境示波器（官方示例应用，GitHub Pages 托管；含思考链/双链诊断显示） | 🚧 进行中 |
+| 3 | 禅境示波器（官方示例应用，GitHub Pages 托管；思考链/双链/物态/化学层/场域/轨迹 3D·螺旋度） | ✅ 已验收 |
+| 4 | 社区化与生态：NPB 挂载协议 / Discussions 专区 / 多设备演示 | ⬜ |
+| 5 | 自发传播与交付：《元内核极简创世录》等（素材见 [`docs/CREATION_LOG.md`](docs/CREATION_LOG.md)） | 🚧 进行中 |
 
 > 🔗 禅境示波器在线预览：**https://huanglema0830.github.io/meta-kernel/**
-| 4 | 社区化与生态：NPB 挂载协议 / Discussions 专区 / 多设备演示 | ⬜ |
-| 5 | 自发传播与交付：《元内核极简创世录》等 | ⬜ |
 
 ## 核心模块 · Core Modules
 
@@ -47,8 +49,9 @@ DOSBox 概念演示 ✅；WASM Canvas 浏览器示例 ✅；**跨平台一致性
 | 正源场域（自动搜索解构/缓存去重/催化剂+20%/触达 L0-L4 分层） | `src/positive_source.rs`（含 Searcher 催化剂加权） | ✅ |
 | NPB 桥接器（C FFI：`push_seed`/`pop_result`/`get_entropy`） | `npb/bridge.h` + `npb/src/lib.rs`（cdylib+wasm） | ✅ |
 | DOSBox 虚拟喇叭概念演示（C） | `examples/dos_concept/main.c` | ✅ |
-| WASM Canvas 呼吸演示（浏览器） | `examples/wasm_canvas/` | ✅ 待浏览器目验 |
-| 禅境示波器（官方应用，含思考链/节点显示） | `examples/zen-oscilloscope/`（GitHub Pages 部署中） | 🚧 Phase 3 |
+| WASM Canvas 呼吸演示（浏览器） | `examples/wasm_canvas/` | ✅ 已验收 |
+| 禅境示波器（物态/触达/螺旋度 + 轨迹 3D-2D/声音） | `examples/zen-oscilloscope/`（GitHub Pages 已上线） | ✅ 已验收 |
+| 螺旋度纯函数（浏览器/Node 共用 + CI 校验） | `examples/zen-oscilloscope/spiral.js` `spiral_test.js` | ✅ |
 
 ## 仓库结构
 
@@ -63,16 +66,19 @@ meta-kernel-core/   ★ 核心代码库（Rust lib，零第三方依赖）
   src/sanitizer.rs  负扰动过滤与安全阀（软钳位/配额休眠/合作奖励/末那识监控）
   src/ontology.rs   0-10 元通用标尺（analyze/decompose/abstract/recompose）
   src/energy.rs     能量层级判定（活力指数 + 四档处置）
-  src/positive_source.rs  正源系统（颗粒度/Searcher/Analyzer/Weaver/功德池）
-  src/thinking_chain.rs   思考链（存量+变量+补充增量=创新增量；自动降维）
+  src/positive_source.rs  正源场域（自动搜索-解构-吸收/缓存/催化剂/触达 L0-L4）
+  src/thinking_chain.rs   思考链（存量+变量+补充增量=创新增量；化合/线性；自动降维）
   src/double_chain.rs     双链诊断（问题形成过程 + 解决过程）
-  tests/            Phase1 稳定性 + Phase2 安全集成测试
+  src/state.rs            物态判定（固态/液态/气态/等离子态）
+  src/evo_deconstructor.rs 进化解构（时间三量 + 空间编码 → 层级1 胶粒）
+  tests/            Phase1 稳定性 + Phase2 安全集成 + 10000 迭代
 npb/                ★ NPB 桥接器：bridge.h + cdylib/wasm32 实现 + 自检摘要
 examples/dos_concept/   C 概念演示（虚拟喇叭）
 examples/wasm_canvas/   WASM + JS Canvas 呼吸演示
-examples/zen-oscilloscope/  ★ 禅境示波器（官方应用，Phase 3）
+examples/zen-oscilloscope/  ★ 禅境示波器（官方应用，含 spiral.js 螺旋度）
+examples/wasm_canvas/        WASM 呼吸演示（含 self_test.js 无头校验）
 examples/tools/          serve.py（一键预览）/ embed_wasm.py（双击直开版）
-docs/               数学规范 v1.0 / 0-10 标尺规范 v1.1 / 阶段验收与测试报告
+docs/               数学规范 v1.0 / 0-10 标尺规范 v1.1 / 各阶段验收报告 / 创世录素材
 ```
 
 ## 许可 · License
