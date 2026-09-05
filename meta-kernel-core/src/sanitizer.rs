@@ -192,11 +192,12 @@ mod tests {
     #[test]
     fn quota_sleeps_instead_of_killing() {
         let mut q = ObserverQuota::new(1, 10, 1024);
-        for _ in 0..9 {
-            assert_eq!(q.charge(1, 0), QuotaStatus::Active);
+        // 8 次 charge：bytes 8×128=1024 = 预算，仍 Active
+        for i in 0..8 {
+            assert_eq!(q.charge(1, 128), QuotaStatus::Active, "charge {i}");
         }
-        // 第 10 tick 超预算 → 强制休眠而非杀死
-        assert_eq!(q.charge(1, 0), QuotaStatus::Dormant);
+        // 第 9 次：bytes 1152 > 1024 → 强制休眠而非杀死
+        assert_eq!(q.charge(1, 128), QuotaStatus::Dormant);
         assert!(q.is_dormant());
         // 休眠期 charge 仍返回 Dormant（未被杀死，可被唤醒）
         let st = q.charge(0, 0);

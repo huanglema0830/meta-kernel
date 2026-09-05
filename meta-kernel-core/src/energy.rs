@@ -110,9 +110,20 @@ mod tests {
     #[test]
     fn collapse_maps_bands() {
         let p = Pattern::new(vec![e(6, 0.8)]);
-        // 高活力 → 保留结构
-        let high = energy_level_evaluate(&Pattern::new(vec![e(10, 1.0), e(5, 0.5), e(5, 0.5)]));
-        assert!(high > 0.8);
+        // 高活力（近白结构）→ 保留结构
+        let hp = Pattern::new(vec![
+            e(2, 0.4),
+            e(2, 0.6),
+            e(3, 0.2),
+            e(3, 0.5),
+            e(3, 0.8),
+            e(5, 0.5),
+            e(5, 0.5),
+            e(8, 0.9),
+        ])
+        .with_history(vec![0.1, 0.101, 0.102, 0.103, 0.104, 0.105]);
+        let high = energy_level_evaluate(&hp);
+        assert!(high > 0.8, "近白结构活力应>0.8: {high}");
         assert_eq!(collapse_negative(high, &p), p.elements);
 
         // 极低 → 拆到胶粒（level<=1）

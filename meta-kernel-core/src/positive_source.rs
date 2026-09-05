@@ -218,7 +218,7 @@ impl MeritPool {
     }
 }
 
-/// 归一化香农熵（8 桶直方图；空输入 → 0）。
+/// 归一化香农熵（8 桶直方图，除以 log2(8)=3 归一化到 [0,1]；空输入 → 0）。
 pub fn entropy_of(values: &[f32]) -> f64 {
     if values.is_empty() {
         return 0.0;
@@ -229,13 +229,15 @@ pub fn entropy_of(values: &[f32]) -> f64 {
         bins[i] += 1;
     }
     let n = values.len() as f64;
-    bins.iter()
+    let h: f64 = bins
+        .iter()
         .filter(|c| **c > 0)
         .map(|c| {
             let p = *c as f64 / n;
             -p * p.log2()
         })
-        .sum()
+        .sum();
+    (h / 3.0).min(1.0) // log2(8) = 3
 }
 
 /// 编织器：沙盒验证（默认 100 次迭代）。
