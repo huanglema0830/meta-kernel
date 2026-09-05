@@ -20,6 +20,7 @@ WebAssembly.instantiate(bytes, {})
       "get_thinking_len", "get_thinking_nodes",
       "get_diag_formation", "get_diag_resolution", "get_diag_solved",
       "get_state", "get_reach_levels", "get_reach_paths",
+      "get_interfere_count", "get_interfere_layer", "get_evolution_len",
       "mk_self_test"
     ];
     const missing = required.filter((k) => typeof ex[k] !== "function");
@@ -59,11 +60,21 @@ WebAssembly.instantiate(bytes, {})
       process.exit(1);
     }
 
+    // 波动层导出：干涉计数/层级/进化长度类型与范围
+    const interfere = ex.get_interfere_count() >>> 0;
+    const layer = ex.get_interfere_layer() >>> 0;
+    const evoLen = ex.get_evolution_len() >>> 0;
+    if (layer > 4 || typeof interfere !== "number" || typeof evoLen !== "number") {
+      console.error("WAVE_LAYER_FAIL interfere=" + interfere + " layer=" + layer + " evo=" + evoLen);
+      process.exit(1);
+    }
+
     const digest = ex.mk_self_test() >>> 0;
     console.log("DIGEST=" + digest);
     console.log("WASM_SMOKE_OK out=" + out.toFixed(4) + " ent=" + ent.toFixed(4) +
       " chain=" + chainLen + "/" + chainNodes +
-      " state=" + state + " reach=" + reach + " paths=" + paths);
+      " state=" + state + " reach=" + reach + " paths=" + paths +
+      " interfere=" + interfere + "/" + layer + " evo=" + evoLen);
   })
   .catch((err) => {
     console.error("WASM_LOAD_FAIL:", err);

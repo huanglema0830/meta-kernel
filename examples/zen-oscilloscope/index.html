@@ -3,34 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>元内核 · 禅境示波器（Phase 4）</title>
+<title>元内核 · 禅境示波器（存在论·波动层）</title>
 <style>
   body { margin:0; min-height:100vh; background:#07090d; color:#cfe3d8;
          font-family:ui-monospace,Menlo,Consolas,monospace;
          display:flex; align-items:center; justify-content:center; }
-  .wrap { width:700px; padding:16px 12px; }
+  .wrap { width:700px; padding:14px 10px; }
   header { display:flex; justify-content:space-between; align-items:baseline; }
-  h1 { font-size:15px; font-weight:500; letter-spacing:.24em; color:#7fd7b4; margin:0; }
+  h1 { font-size:15px; font-weight:500; letter-spacing:.2em; color:#7fd7b4; margin:0; }
   .sub { font-size:11px; color:#5f6d7c; }
-  .stage { display:flex; gap:14px; margin-top:14px; }
+  .stage { display:flex; gap:12px; margin-top:12px; }
   canvas#scope { border:1px solid #1a2430; border-radius:14px; background:#0a0f15; }
-  .side { flex:1; display:flex; flex-direction:column; gap:7px; }
-  .stat { border:1px solid #16202b; border-radius:10px; padding:6px 12px; background:#0c1219; }
+  .side { flex:1; display:flex; flex-direction:column; gap:6px; }
+  .stat { border:1px solid #16202b; border-radius:10px; padding:5px 10px; background:#0c1219; }
   .stat .k { font-size:11px; color:#7c8b99; }
-  .stat .v { font-size:19px; color:#9fe1cb; font-weight:500; }
+  .stat .v { font-size:17px; color:#9fe1cb; font-weight:500; }
   .stat .v.dim { color:#c9b37e; }
-  .stat .v.state { font-size:16px; }
   .mini { display:flex; justify-content:space-between; font-size:11px; color:#5f6d7c; }
-  button { margin-top:10px; padding:7px 14px; border:1px solid #1d9e75; border-radius:8px;
+  button { margin-top:6px; padding:6px 12px; border:1px solid #1d9e75; border-radius:8px;
            background:#0d231c; color:#9fe1cb; cursor:pointer; font:inherit; }
   button:active { background:#123529; }
   button.sound-on { border-color:#ef9f27; color:#fac775; }
-  .panels { display:flex; gap:14px; margin-top:10px; }
-  .panel { border:1px solid #16202b; border-radius:10px; background:#0c1219; padding:6px 10px; }
-  .panel .pk { font-size:11px; color:#7c8b99; margin-bottom:4px; }
-  canvas#traj { width:330px; height:150px; }
-  canvas#spark { width:342px; height:150px; }
-  #err { display:none; margin-top:10px; padding:8px 12px; border:1px solid #a32d2d;
+  .panels { display:flex; gap:12px; margin-top:8px; }
+  .panel { border:1px solid #16202b; border-radius:10px; background:#0c1219; padding:5px 8px; }
+  .panel .pk { font-size:11px; color:#7c8b99; margin-bottom:3px; }
+  canvas#traj { width:320px; height:132px; }
+  canvas#spark { width:332px; height:132px; }
+  canvas#pattern { width:672px; height:56px; }
+  .tl { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  input[type=range] { flex:1; accent-color:#1d9e75; }
+  #tlLabel { font-size:11px; color:#5f6d7c; min-width:150px; }
+  #err { display:none; margin-top:8px; padding:8px 12px; border:1px solid #a32d2d;
          border-radius:8px; background:#2a0f0f; color:#f09595; font-size:12px;
          white-space:pre-wrap; word-break:break-all; }
 </style>
@@ -39,41 +42,53 @@
 <div class="wrap">
   <header>
     <h1>META-KERNEL · 禅境示波器</h1>
-    <span class="sub">同一内核 · WASM 直驱 · 化学变化层 + 正源场域（Phase 4）</span>
+    <span class="sub">0 锚点存在论 · 黄金尺度 · 波粒二象性 · 进化时间线</span>
   </header>
   <div class="stage">
-    <canvas id="scope" width="330" height="330"></canvas>
+    <canvas id="scope" width="322" height="322"></canvas>
     <div class="side">
       <div class="stat"><div class="k">内核输出 pop_result</div><div class="v" id="out">0.000</div></div>
       <div class="stat"><div class="k">系统熵 get_entropy</div><div class="v dim" id="ent">1.000</div></div>
-      <div class="stat"><div class="k">当前物态（化学变化层）</div><div class="v state" id="state">—</div></div>
+      <div class="stat"><div class="k">当前物态（能量→气→液→固）</div><div class="v" id="state">能量态</div></div>
       <div class="stat"><div class="k">思考链长度 / 推演节点</div><div class="v" id="chainMeta">0 / 0</div></div>
       <div class="stat"><div class="k">双链诊断</div>
         <div class="mini"><span id="diag">形成 0 步 · 解决 0 步</span><span id="diagState">未启动</span></div>
       </div>
+      <div class="stat"><div class="k">螺旋度 spirality</div><div class="v dim" id="spiral">0.000</div></div>
+      <div class="stat"><div class="k">驻点粒子（色声香味触法）</div>
+        <div class="mini"><span id="partsCount">0 粒</span><span id="partsLayer">层:—</span></div>
+      </div>
       <div class="stat"><div class="k">正源触达范围 / 路径</div>
         <div class="mini"><span id="reach">L0</span><span id="reachPaths">0 路径</span></div>
       </div>
-      <div class="stat"><div class="k">螺旋度 spirality（0~1）</div><div class="v dim" id="spiral">0.000</div></div>
       <button id="seedBtn">注入扰动 (1.0)</button>
       <button id="modeBtn">轨迹模式: 3D 投影</button>
-      <button id="soundBtn" class="">声音模式: 关</button>
+      <button id="soundBtn">声音模式: 关</button>
     </div>
   </div>
   <div class="panels">
     <div class="panel">
       <div class="pk">轨迹图（3D 旋转投影 · 黄虚线=斐波那契参考螺旋）</div>
-      <canvas id="traj" width="330" height="150"></canvas>
+      <canvas id="traj" width="320" height="132"></canvas>
     </div>
     <div class="panel">
       <div class="pk">时间波形（呼吸痕迹）</div>
-      <canvas id="spark" width="342" height="150"></canvas>
+      <canvas id="spark" width="332" height="132"></canvas>
     </div>
   </div>
+  <div class="panel" style="margin-top:8px">
+    <div class="pk">干涉图案（驻点 = 波动冻结处 · 亮块=驻点层级）</div>
+    <canvas id="pattern" width="672" height="56"></canvas>
+  </div>
+  <div class="tl">
+    <button id="replayBtn">⏸ 暂停回放</button>
+    <input id="tl" type="range" min="0" max="0" value="0" step="1">
+    <span id="tlLabel">时间线 t=0 · 累计 0 步</span>
+  </div>
   <div id="err"></div>
-  <p class="sub" style="text-align:center;margin-top:8px">
-    打开即呼吸 · 轨迹 3D/2D 可切换 · 参考线=斐波那契螺旋(r=输出均值, θ=t×黄金角137.5°) ·
-    声音开关需点击一次（浏览器策略）
+  <p class="sub" style="text-align:center;margin-top:6px">
+    0 = 待激发的纯粹存在 · 1 = 第一扰动｜能量态→气→液→固（黄金阈值 0.618/0.309/0.206）｜
+    声音需点击一次 · 拖动滑杆回放进化过程
   </p>
 </div>
 <script src="spiral.js"></script>

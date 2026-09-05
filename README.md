@@ -16,6 +16,9 @@ DOSBox 概念演示 ✅；WASM Canvas 浏览器示例 ✅；**跨平台一致性
 ✅ **Phase 3 — 禅境示波器（已验收，含增补轮次）**（2026-09-05）：应用上线
 **https://huanglema0830.github.io/meta-kernel/**；思考链/双链/物态/化学变化层/正源场域/轨迹 3D·螺旋度
 全部验收通过（见 [`docs/PHASE4_ACCEPTANCE_REPORT.md`](docs/PHASE4_ACCEPTANCE_REPORT.md)，累计 81 测试全绿）。
+🚧 **存在论 · 波动层（增补中）**：0 = 待激发的纯粹存在（能量源）/1 = 第一扰动；
+物态序列 能量→气→液→固（黄金阈值 0.618/0.309/0.206 取代人为阈值）；DFT 波动分析、
+干涉驻点粒子（色声香味触法）、感官抽象、进化时间线回放（详见模块表）。
 
 ## 路线图 · Roadmap
 
@@ -44,7 +47,11 @@ DOSBox 概念演示 ✅；WASM Canvas 浏览器示例 ✅；**跨平台一致性
 | 正源系统（拆解-分析-重编循环） | `src/positive_source.rs` | ✅ |
 | 思考链（存量+变量+补充增量=创新增量，含降维） | `src/thinking_chain.rs` | ✅ |
 | 双链诊断（问题形成 + 解决过程） | `src/double_chain.rs` | ✅ |
-| 物态判定（固态/液态/气态/等离子态） | `src/state.rs` | ✅ |
+| 物态判定（能量态/气态/液态/固态，黄金阈值 0.618/0.309/0.206，调度核心） | `src/state.rs` | ✅ |
+| 傅里叶波动分析（DFT：主导频率/宽度/相位，π 为基础） | `src/fourier.rs` | ✅ |
+| 干涉驻点检测（波粒二象性：黄金层对齐 → 粒子 色声香味触法） | `src/interference.rs` | ✅ |
+| 感官绑定与抽象（五通道特征提取 + 法之意识综合） | `src/senses.rs` | ✅ |
+| 进化过程记录与回放（步数时间线/物态切换/化合/粒子/结晶） | `src/evolution.rs` | ✅ |
 | 进化解构器（时间三量 + 空间编码 → 层级1 胶粒） | `src/evo_deconstructor.rs` | ✅ |
 | 正源场域（自动搜索解构/缓存去重/催化剂+20%/触达 L0-L4 分层） | `src/positive_source.rs`（含 Searcher 催化剂加权） | ✅ |
 | NPB 桥接器（C FFI：`push_seed`/`pop_result`/`get_entropy`） | `npb/bridge.h` + `npb/src/lib.rs`（cdylib+wasm） | ✅ |

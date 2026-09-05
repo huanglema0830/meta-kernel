@@ -35,7 +35,13 @@ pub mod double_chain; // 问题形成过程 + 解决过程 的双链诊断
 
 // ===== Phase 4 新增核心模块（化学变化层 + 场域解构）=====
 pub mod evo_deconstructor; // 进化解构：时间三量 + 空间编码 → 层级1 胶粒
-pub mod state; // 物态判定：固态/液态/气态/等离子态（按熵分界）
+pub mod state; // 物态判定：能量态/气态/液态/固态（黄金阈值，调度核心）
+
+// ===== 存在论/波动层新增模块（波粒二象性 + 感官 + 进化时间线）=====
+pub mod evolution; // 进化过程记录与回放（步数为底层时间线）
+pub mod fourier; // DFT 波动分析（主导频率/宽度/相位，π 为基础）
+pub mod interference; // 干涉驻点检测（黄金层对齐 → 粒子生成）
+pub mod senses; // 色声香味触法感官绑定与抽象
 
 /// 库当前版本（与 Cargo.toml 保持一致）。
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

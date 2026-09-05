@@ -26,6 +26,9 @@ pub const W_VARIABLE: f32 = 0.33;
 /// 线性模式权重：补充增量。
 pub const W_SUPPLEMENT: f32 = 0.33;
 
+/// 波粒催化增益（4.2：驻点强度对化合产物的放大系数）。
+pub const CATALYST_GAIN: f32 = 0.25;
+
 /// 化合模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blend {
@@ -121,6 +124,30 @@ impl ThinkingChain {
         self.push(stock, variable, supplement).innovation
     }
 
+    /// 波粒催化推演（3.2/4.2）：化合产物的生成考虑干涉驻点的强度。
+    ///
+    /// 化合模式下：`I = clamp01(S·V·Δ·(1 + CATALYST_GAIN·驻点强度))`——
+    /// 驻点（粒子）作为"催化位"，在其位置与强度上放大化合产物；
+    /// 线性模式等价（叠加后按驻点强度放大）。驻点强度 0 时与 `step` 等价。
+    pub fn step_catalyzed(&mut self, variable: f32, supplement: f32, particle_strength: f32) -> f32 {
+        let stock = self.nodes.back().map(|n| n.innovation).unwrap_or(0.0);
+        let s = soft_clamp(stock);
+        let v = soft_clamp(variable);
+        let d = soft_clamp(supplement);
+        let gain = 1.0 + CATALYST_GAIN * soft_clamp(particle_strength);
+        let innovation = match self.mode {
+            Blend::Compound => clamp01(s * v * d * gain),
+            Blend::Linear => clamp01((s * W_STOCK + v * W_VARIABLE + d * W_SUPPLEMENT) * gain),
+        };
+        self.seq += 1;
+        let node = ChainNode { seq: self.seq, stock: s, variable: v, supplement: d, innovation };
+        if self.nodes.len() == self.cap {
+            self.nodes.pop_front();
+        }
+        self.nodes.push_back(node);
+        node.innovation
+    }
+
     /// 当前最新节点（真空态 None）。
     pub fn latest(&self) -> Option<&ChainNode> {
         self.nodes.back()
@@ -189,6 +216,27 @@ mod tests {
         assert!((v2 - v1 * 0.34).abs() < 1e-5);
         assert_eq!(c.length(), 2);
         assert_eq!(c.nodes(), 2);
+    }
+
+    #[test]
+    fn catalyzed_step_amplifies_on_particle_site() {
+        // 先种入存量（prev innovation = 0.5）
+        let mut base = ThinkingChain::new();
+        base.push(0.5, 1.0, 1.0);
+        let plain = base.step_catalyzed(0.8, 0.8, 0.0); // 无驻点
+
+        let mut boosted = ThinkingChain::new();
+        boosted.push(0.5, 1.0, 1.0);
+        let strong = boosted.step_catalyzed(0.8, 0.8, 0.9); // 驻点强度 0.9
+
+        assert!(strong > plain, "驻点催化应放大: {strong} vs {plain}");
+        assert!((plain - 0.5 * 0.8 * 0.8).abs() < 1e-5);
+        assert!((strong - plain * (1.0 + CATALYST_GAIN * 0.9)).abs() < 1e-5);
+
+        // 任一因子为 0 仍产出 0（即使有驻点催化）
+        let mut zero = ThinkingChain::new();
+        zero.push(0.5, 1.0, 1.0);
+        assert_eq!(zero.step_catalyzed(0.0, 0.8, 0.9), 0.0);
     }
 
     #[test]

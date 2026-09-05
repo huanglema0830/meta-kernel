@@ -23,14 +23,16 @@ use std::collections::VecDeque;
 
 use meta_kernel_core::{
     double_chain::DoubleChain,
+    evolution::EvolutionLog,
     fib::FibEngine,
     hourglass::BubbleHourglass,
+    interference::{self},
     linear::LinearEngine,
     mirror::MirrorPool,
     ontology::{Element, Pattern},
     positive_source::PositiveSource,
     sanitizer::soft_clamp,
-    state::state_of_entropy,
+    state::{state_of_entropy, state_pace, State},
     thinking_chain::ThinkingChain,
 };
 
@@ -53,6 +55,11 @@ struct Kernel {
     avg: f32,
     source: PositiveSource,
     pulse: u64,
+    state_now: State,
+    evo: EvolutionLog,
+    interference_total: u64,
+    interference_layer: u8,
+    particle_hint: f32,
 }
 
 impl Kernel {
@@ -69,13 +76,28 @@ impl Kernel {
             avg: 0.0,
             source: PositiveSource::new(),
             pulse: 0,
+            state_now: State::Energy, // 待激发存在态（0 = 潜在能量源）
+            evo: EvolutionLog::new(),
+            interference_total: 0,
+            interference_layer: 0,
+            particle_hint: 0.0,
         }
     }
 
-    /// 注入扰动并推进一步。
+    /// 注入扰动并推进一步（存在论调度：按当前物态调制种子节奏）。
     fn push(&mut self, value: f32) {
-        let seed = soft_clamp(value);
-        let outs = self.hg.tick(Some(seed));
+        // ① 物态调度（1.2）：高能态给更活跃扰动；固态平稳微扰
+        let (bias, burst_prob) = state_pace(self.state_now);
+        let mut seed = soft_clamp(value) * bias;
+        // 能量态倾向成对突发（促进干涉/驻点生成）
+        let do_burst = self.pulse % 7 == 0 && self.rand01() < burst_prob;
+        let outs = if do_burst {
+            self.hg.push(0.9);
+            self.hg.push(0.85);
+            self.hg.tick(Some(seed))
+        } else {
+            self.hg.tick(Some(seed))
+        };
         for o in outs {
             // 活动回喂镜像池（摩擦源）
             self.pool.observe(o);
@@ -94,16 +116,18 @@ impl Kernel {
             }
             self.recent.push(o);
 
-            // 思考链：每轮活动 = 一次推演（存量=上轮创新增量降维，变量=注入，补充=滑动均值）
+            // 思考链（波粒催化：以最近驻点强度为催化位）
             self.avg = self.avg * 0.95 + o * 0.05;
-            self.chain.step(seed, self.avg);
+            let innovation = self.chain.step_catalyzed(seed, self.avg, self.particle_hint);
+            if innovation > 0.25 {
+                self.evo.record_compound(innovation);
+            }
 
-            // 双链观测：活动值写入"问题形成"轨迹；对锚点(0.5)的贴近度写入"解决"轨迹
+            // 双链观测
             self.dc.push_formation(o);
             self.dc.push_resolution(1.0 - (o - 0.5).abs() * 2.0);
 
-            // 正源场域：周期性对最近窗口做自动搜索-解构（层级0 自状态），
-            // 让"可触达路径"随运行逐步扩展（2.3/2.5 演示用）
+            // 正源场域周期性搜索-解构
             self.pulse += 1;
             if self.pulse % 17 == 0 && self.recent.len() >= 4 {
                 let hist: Vec<f64> = self.recent.iter().map(|x| *x as f64).collect();
@@ -117,6 +141,37 @@ impl Kernel {
                 let _ = self.source.search_and_deconstruct(&p);
             }
         }
+
+        // ② 物态刷新（调度决策依据 = 熵窗口）并记录状态演化
+        let new_state = state_of_entropy(self.entropy());
+        if new_state != self.state_now {
+            self.evo.record_state_change(self.state_now, new_state);
+            self.state_now = new_state;
+        }
+        self.evo.tick();
+
+        // ③ 干涉驻点检测（自干涉：窗口前半 vs 后半）
+        if self.pulse % 5 == 0 && self.recent.len() >= 16 {
+            let parts = interference::detect_single(&self.recent);
+            if !parts.is_empty() {
+                let mut hint = 0.0f32;
+                for p in &parts {
+                    self.interference_total += 1;
+                    self.interference_layer = p.layer;
+                    hint = hint.max(p.strength);
+                    self.evo.record_particle(p);
+                }
+                self.particle_hint = (self.particle_hint * 0.9 + hint * 0.1).clamp(0.0, 1.0);
+            } else {
+                self.particle_hint *= 0.9;
+            }
+        }
+    }
+
+    /// 确定性小随机（0..1）用于突发概率。
+    fn rand01(&mut self) -> f32 {
+        self.pulse = self.pulse.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((self.pulse >> 33) as u32 as f32) / (u32::MAX as f32)
     }
 
     /// FIFO 取输出。
@@ -264,6 +319,24 @@ pub extern "C" fn get_reach_levels() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn get_reach_paths() -> u32 {
     KERNEL.with(|k| k.borrow().source.path_count())
+}
+
+/// 累计干涉驻点粒子数。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_interfere_count() -> u32 {
+    KERNEL.with(|k| k.borrow().interference_total as u32)
+}
+
+/// 最近粒子的感官层级（0 色 /1 声 /2 香 /3 味 /4 触；法为综合层）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_interfere_layer() -> u32 {
+    KERNEL.with(|k| k.borrow().interference_layer as u32)
+}
+
+/// 进化时间线事件数（物态切换/化合/粒子/结晶）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_evolution_len() -> u32 {
+    KERNEL.with(|k| k.borrow().evo.len() as u32)
 }
 
 #[cfg(test)]
