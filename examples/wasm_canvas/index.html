@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN" data-page-node-id="xZzM9mFl5jIJOg1BTGGxIW">
+<head data-page-node-id="sVRJ0lYcH2OnNBd4TVS1QQ">
+<meta charset="utf-8" data-page-node-id="udOn4kWHYAtTYTgfFEpWlV">
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="Y7cvSW5LoGr56NEIzACwUg">
+<title>元内核 · 禅息演示（WASM Canvas）</title>
+<style>
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#0b0e14; color:#cfe3d8; font-family:ui-monospace,Menlo,Consolas,monospace; }
+  .card { text-align:center; }
+  canvas { border:1px solid #223; border-radius:14px; background:#0e131a; display:block; }
+  .row { display:flex; gap:2.2rem; justify-content:center; margin-top:1rem; }
+  .stat { font-size:13px; color:#8aa; }
+  .stat b { display:block; font-size:22px; color:#9fe1cb; font-weight:500; }
+  h1 { font-size:15px; font-weight:500; letter-spacing:.2em; color:#7fd7b4; }
+  button { margin-top:1rem; padding:.5rem 1.2rem; border:1px solid #1d9e75; border-radius:8px;
+           background:#0f2a22; color:#9fe1cb; cursor:pointer; }
+  button:active { background:#12352b; }
+</style>
+</head>
+<body data-page-node-id="oW9H3vzpcT7JVu9tJewECt">
+<div class="card" data-page-node-id="x9zeSlMCXmM4zWZCf2DxCH">
+  <h1 data-page-node-id="NtP5THZn1aB4MZaxcWrBm5">META-KERNEL · 呼吸演示（同一内核，WASM 直驱）</h1>
+  <canvas id="breath" width="360" height="360" data-page-node-id="38BpVQPGrU5RAGA6IMhKKs"></canvas>
+  <div class="row" data-page-node-id="0tqNDfmm67qCndvgjbrYDC">
+    <div class="stat" data-page-node-id="CChwOrZKooqocyOIpMWjfG">内核输出<b id="out" data-page-node-id="N9opZ2174U6HT74dxCJUrQ">0.000</b></div>
+    <div class="stat" data-page-node-id="wG8M8XzCLPDageWhPXR5Jv">系统熵<b id="ent" data-page-node-id="0JNvRBABPGCxQW4EzeKhrS">1.000</b></div>
+    <div class="stat" data-page-node-id="eL0CZ2dZ1aKsh6j2tlEYex">心跳计数<b id="beat" data-page-node-id="S8rXics2Oaw69TjhuxDXAx">0</b></div>
+  </div>
+  <button id="seedBtn" data-page-node-id="du0KIhkPIhi5NUwiMKKZjA">注入一次扰动 (1.0)</button>
+  <p class="stat" style="margin-top:1rem" data-page-node-id="o6lUrHGHys7d3wIFddbUfy">服务方式：<code data-page-node-id="zNheTIhpf47WkAtsDKffnL">python3 -m http.server 8000</code> 后访问
+    本目录；或双击 index.html（需浏览器允许 file:// 加载 wasm）。</p>
+</div>
+<script src="wasm_canvas.js"></script>
+</body>
+</html>

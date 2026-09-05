@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>元内核 · 禅境示波器（Phase 3）</title>
+<style>
+  body { margin:0; min-height:100vh; background:#07090d; color:#cfe3d8;
+         font-family:ui-monospace,Menlo,Consolas,monospace;
+         display:flex; align-items:center; justify-content:center; }
+  .wrap { width:640px; padding:18px 12px; }
+  header { display:flex; justify-content:space-between; align-items:baseline; }
+  h1 { font-size:15px; font-weight:500; letter-spacing:.24em; color:#7fd7b4; margin:0; }
+  .sub { font-size:11px; color:#5f6d7c; }
+  .stage { display:flex; gap:16px; margin-top:14px; }
+  canvas#scope { border:1px solid #1a2430; border-radius:14px; background:#0a0f15; }
+  .side { flex:1; display:flex; flex-direction:column; gap:8px; }
+  .stat { border:1px solid #16202b; border-radius:10px; padding:8px 12px; background:#0c1219; }
+  .stat .k { font-size:11px; color:#7c8b99; }
+  .stat .v { font-size:20px; color:#9fe1cb; font-weight:500; }
+  .stat .v.dim { color:#c9b37e; }
+  .mini { display:flex; justify-content:space-between; font-size:11px; color:#5f6d7c; }
+  button { margin-top:12px; padding:8px 16px; border:1px solid #1d9e75; border-radius:8px;
+           background:#0d231c; color:#9fe1cb; cursor:pointer; font:inherit; }
+  button:active { background:#123529; }
+  canvas#spark { width:640px; height:46px; margin-top:10px; border:1px solid #16202b;
+                 border-radius:10px; background:#0a0f15; }
+  #err { display:none; margin-top:10px; padding:8px 12px; border:1px solid #a32d2d;
+         border-radius:8px; background:#2a0f0f; color:#f09595; font-size:12px;
+         white-space:pre-wrap; word-break:break-all; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>META-KERNEL · 禅境示波器</h1>
+    <span class="sub">同一内核 · WASM 直驱 · 0 锚点呼吸</span>
+  </header>
+  <div class="stage">
+    <canvas id="scope" width="340" height="340"></canvas>
+    <div class="side">
+      <div class="stat"><div class="k">内核输出 pop_result</div><div class="v" id="out">0.000</div></div>
+      <div class="stat"><div class="k">系统熵 get_entropy</div><div class="v dim" id="ent">1.000</div></div>
+      <div class="stat"><div class="k">思考链长度（推演步数）</div><div class="v" id="chainLen">0</div></div>
+      <div class="stat"><div class="k">推演节点数（窗口）</div><div class="v" id="chainNodes">0</div></div>
+      <div class="stat"><div class="k">双链诊断</div>
+        <div class="mini"><span id="diag">形成 0 步 · 解决 0 步</span><span id="diagState">未启动</span></div>
+      </div>
+      <button id="seedBtn">注入扰动 (1.0)</button>
+    </div>
+  </div>
+  <canvas id="spark" width="640" height="46"></canvas>
+  <div id="err"></div>
+  <p class="sub" style="text-align:center;margin-top:8px">
+    波形 = 内核输出时间序列（呼吸痕迹）｜ 部署：GitHub Pages 或
+    <code>python3 examples/tools/serve.py examples/zen-oscilloscope</code>
+  </p>
+</div>
+<script src="zen.js"></script>
+</body>
+</html>
