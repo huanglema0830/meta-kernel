@@ -23,6 +23,7 @@ WebAssembly.instantiate(bytes, {})
       "get_interfere_count", "get_interfere_layer", "get_evolution_len",
       "get_self_intensity",
       "get_trace_wind", "get_trace_fire", "get_trace_water", "get_trace_earth",
+      "get_energy_absorbed", "get_energy_spent", "get_energy_ratio", "get_product_energy",
       "mk_self_test"
     ];
     const missing = required.filter((k) => typeof ex[k] !== "function");
@@ -84,13 +85,24 @@ WebAssembly.instantiate(bytes, {})
       process.exit(1);
     }
 
+    // 能量流导出：入/出/比/产物均为有限数值，比值>0
+    const ea = ex.get_energy_absorbed();
+    const es = ex.get_energy_spent();
+    const er = ex.get_energy_ratio();
+    const pe = ex.get_product_energy();
+    if (![ea, es, er, pe].every(Number.isFinite) || er <= 0) {
+      console.error("ENERGY_EXPORT_FAIL ea/es/er/pe=" + ea + "/" + es + "/" + er + "/" + pe);
+      process.exit(1);
+    }
+
     const digest = ex.mk_self_test() >>> 0;
     console.log("DIGEST=" + digest);
     console.log("WASM_SMOKE_OK out=" + out.toFixed(4) + " ent=" + ent.toFixed(4) +
       " chain=" + chainLen + "/" + chainNodes +
       " state=" + state + " reach=" + reach + " paths=" + paths +
       " interfere=" + interfere + "/" + layer + " evo=" + evoLen +
-      " self=" + selfI.toFixed(3) + " trace=" + tw + "/" + tfire + "/" + twater + "/" + tearth);
+      " self=" + selfI.toFixed(3) + " trace=" + tw + "/" + tfire + "/" + twater + "/" + tearth +
+      " energy=" + ea.toFixed(3) + "/" + es.toFixed(3) + " r=" + er.toFixed(2) + " prod=" + pe.toFixed(3));
   })
   .catch((err) => {
     console.error("WASM_LOAD_FAIL:", err);

@@ -71,6 +71,98 @@ pub fn collapse_negative(score: f64, p: &Pattern) -> Vec<Element> {
     }
 }
 
+// =====================================================================
+// 能量池（Energy Pool）— 内核真实能量流状态源
+// =====================================================================
+//
+// "能量流动"是内核的真实状态（不再是可视化参数）：
+// - absorb()：能量流入（0 锚点/外部输入/镜像池回注）→ 滚动入流；
+// - consume()：能量流出（摩擦/引擎耗散/输出沉降）→ 滚动出流；
+// - ratio()：入/出比值，驱动物态判定（state_of_flow）与化合吸收率。
+
+/// 能量流滚动衰减（最近流量权重，0<decay<1）。
+pub const FLOW_DECAY: f32 = 0.9;
+/// 比值防除零。
+pub const FLOW_EPS: f32 = 1e-4;
+
+/// 能量池：滚动入/出流累积器。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EnergyPool {
+    /// 滚动能量流入（absorbed 口径）。
+    pub flow_in: f32,
+    /// 滚动能量流出（spent 口径）。
+    pub flow_out: f32,
+}
+
+impl Default for EnergyPool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl EnergyPool {
+    pub fn new() -> Self {
+        Self { flow_in: 0.0, flow_out: 0.0 }
+    }
+
+    /// 能量流入（0-1 归一；来自注入/锚点回注）。
+    pub fn absorb(&mut self, energy: f32) {
+        self.flow_in = self.flow_in * FLOW_DECAY + energy.clamp(0.0, 1.0);
+    }
+
+    /// 能量流出（耗散；输出活动回落时产生摩擦消耗）。
+    pub fn consume(&mut self, energy: f32) {
+        self.flow_out = self.flow_out * FLOW_DECAY + energy.clamp(0.0, 1.0);
+    }
+
+    /// 已吸收能量（入流现值，化合时读取此值，非模拟）。
+    pub fn absorbed(&self) -> f32 {
+        self.flow_in
+    }
+
+    /// 已耗散能量（出流现值）。
+    pub fn spent(&self) -> f32 {
+        self.flow_out
+    }
+
+    /// 入/出比（∞ 有界化：出流为 0 时视为大流量比 9）。
+    pub fn ratio(&self) -> f32 {
+        let out = self.flow_out.max(FLOW_EPS);
+        let r = (self.flow_in + FLOW_EPS) / out;
+        if r.is_finite() { r.min(9.0) } else { 9.0 }
+    }
+}
+
+#[cfg(test)]
+mod flow_tests {
+    use super::*;
+
+    #[test]
+    fn ratio_responds_to_in_and_out() {
+        let mut p = EnergyPool::new();
+        assert!((p.ratio() - 1.0).abs() < 1e-3, "空池比≈1: {}", p.ratio());
+        p.absorb(0.5);
+        p.absorb(0.5);
+        assert!(p.ratio() > 1.0, "净流入比>1: {}", p.ratio());
+        for _ in 0..40 {
+            p.absorb(0.02);
+            p.consume(0.5);
+        }
+        assert!(p.ratio() < 1.0, "净流出比<1: {}", p.ratio());
+    }
+
+    #[test]
+    fn flow_is_rolling_not_cumulative() {
+        let mut p = EnergyPool::new();
+        for _ in 0..100 {
+            p.absorb(1.0);
+        }
+        // 滚动入流饱和于约 1/(1-decay) 上限附近 → 不为累计无限大
+        assert!(p.absorbed() <= 10.5, "滚动有界: {}", p.absorbed());
+        assert!(p.absorbed() > 9.0, "接近稳态: {}", p.absorbed());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

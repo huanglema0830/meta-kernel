@@ -39,7 +39,8 @@
     "get_state", "get_reach_levels", "get_reach_paths",
     "get_interfere_count", "get_interfere_layer", "get_evolution_len",
     "get_self_intensity",
-    "get_trace_wind", "get_trace_fire", "get_trace_water", "get_trace_earth"
+    "get_trace_wind", "get_trace_fire", "get_trace_water", "get_trace_earth",
+    "get_energy_absorbed", "get_energy_spent", "get_energy_ratio", "get_product_energy"
   ];
 
   var api = null;
@@ -282,6 +283,11 @@
     var tfire = api.get_trace_fire() >>> 0;
     var twater = api.get_trace_water() >>> 0;
     var tearth = api.get_trace_earth() >>> 0;
+    // 能量流 / 产物：全部直接投影内核实际状态（无独立动画）
+    var ea = api.get_energy_absorbed();
+    var es = api.get_energy_spent();
+    var er = api.get_energy_ratio();
+    var pe = api.get_product_energy();
     lastEnt = ent;
 
     var spirality = SPIRAL && outBuf.length >= 12 ? SPIRAL.spirality(outBuf) : 0;
@@ -289,6 +295,8 @@
     stat("out", out.toFixed(3));
     stat("ent", ent.toFixed(3));
     stat("state", STATE_NAMES[stateCode] || "未知");
+    stat("energyFlow", ea.toFixed(3) + " / " + es.toFixed(3) + " · " + er.toFixed(2));
+    stat("productEnergy", pe.toFixed(3));
     stat("chainMeta", clen + " / " + cnodes);
     stat("diag", "形成 " + f + " 步 · 解决 " + r + " 步");
     stat("diagState", solved === 1 ? "已收敛" : "收敛中");

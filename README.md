@@ -45,14 +45,14 @@ DOSBox 概念演示 ✅；WASM Canvas 浏览器示例 ✅；**跨平台一致性
 | 0-10 元通用标尺 | `src/ontology.rs`（规范见 `docs/ONTOLOGY_SPEC.md`） | ✅ |
 | 能量层级判定 | `src/energy.rs` | ✅ |
 | 正源系统（拆解-分析-重编循环） | `src/positive_source.rs` | ✅ |
-| 思考链（存量+变量+补充增量=创新增量，含降维） | `src/thinking_chain.rs` | ✅ |
+| 思考链（化合：S·V·Δ + 0.3×吸收能量（能量池读取）；Linear 可选；自动降维） | `src/thinking_chain.rs` | ✅ |
 | 双链诊断（问题形成 + 解决过程） | `src/double_chain.rs` | ✅ |
-| 物态判定（能量态/气态/液态/固态，黄金阈值 0.618/0.309/0.206，调度核心） | `src/state.rs` | ✅ |
+| 物态判定（能量态/气态/液态/固态；能量池 入/出比 >1.2 高能 / ≈1 液态 / <0.8 固态） | `src/state.rs` | ✅ |
 | 傅里叶波动分析（DFT：主导频率/宽度/相位，π 为基础） | `src/fourier.rs` | ✅ |
 | 干涉驻点检测（波粒二象性：黄金层对齐 → 粒子 色声香味触法） | `src/interference.rs` | ✅ |
 | 感官绑定与抽象（五通道特征提取 + 法之意识综合） | `src/senses.rs` | ✅ |
 | 进化过程记录与回放（步数时间线/物态切换/化合/粒子/结晶） | `src/evolution.rs` | ✅ |
-| 痕迹（Trace：风火水地/指纹/存储） | `src/trace.rs` | ✅ |
+| 痕迹（Trace：风火水地/能量流字段/指纹含能量流模式） | `src/trace.rs` | ✅ |
 | 习气（Habit：同指纹聚合/强度饱和） | `src/habit.rs` | ✅ |
 | 自我识别器（run→痕迹→习气→自我感；>0.7 触发） | `src/self_recognizer.rs` | ✅ |
 | 进化解构器（时间三量 + 空间编码 → 层级1 胶粒） | `src/evo_deconstructor.rs` | ✅ |

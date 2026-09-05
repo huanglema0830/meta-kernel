@@ -12,8 +12,12 @@
 //!
 //! | 模式 | 公式 | 语义 |
 //! |---|---|---|
-//! | `Compound`（默认） | `I = clamp01(S × V × Δ)` | 三者**同时存在**才化合；任一为 0 产物为 0 |
+//! | `Compound`（默认） | `I = clamp01(S×V×Δ·(1+γ·驻点) + 0.3×吸收能量)` | 三者**同时存在**才化合；吸收能量来自能量池 |
 //! | `Linear`（可选） | `I = clamp01(0.34S + 0.33V + 0.33Δ)` | 线性叠加（原 Phase 3 公式，保留兼容） |
+//!
+//! **能量吸收（指令升级）**：化合产物随能量吸收率变化——
+//! `product = clamp01(S·V·Δ + absorbed_energy × WEIGHT_ABSORBED)`；
+//! `absorbed_energy` 必须来自内核能量池（`energy::EnergyPool::absorbed`），非模拟值。
 //!
 //! 痕迹整合（痕迹层）：**每次 step 都会产生痕迹并注入**——
 //! ① 依据本轮波动/化合/流动判定痕迹类型（风火水地，见 `trace::decide_type`）；
@@ -34,6 +38,9 @@ pub const W_SUPPLEMENT: f32 = 0.33;
 
 /// 波粒催化增益（4.2：驻点强度对化合产物的放大系数）。
 pub const CATALYST_GAIN: f32 = 0.25;
+
+/// 能量吸收率（absorbed_energy → 化合产物的加权系数）。
+pub const WEIGHT_ABSORBED: f32 = 0.3;
 
 /// 痕迹回注系数（余势注入补充增量的比例）。
 pub const TRACE_INJECT: f32 = 0.05;
@@ -141,23 +148,38 @@ impl ThinkingChain {
     }
 
     /// 连续推演入口：自动以上一轮创新增量作为本轮存量（立即降维），
-    /// 并生成痕迹（风火水地）→ 回注余势。
+    /// 并生成痕迹（风火水地）→ 回注余势。无外部能量吸收（absorbed=0）。
     pub fn step(&mut self, variable: f32, supplement: f32) -> f32 {
-        self.step_impl(variable, supplement, 0.0)
+        self.step_impl(variable, supplement, 0.0, 0.0)
+    }
+
+    /// 带能量吸收的连续推演：absorbed_energy 从内核能量池读取（非模拟）。
+    pub fn step_with_energy(&mut self, variable: f32, supplement: f32, absorbed_energy: f32) -> f32 {
+        self.step_impl(variable, supplement, 0.0, absorbed_energy)
     }
 
     /// 波粒催化推演（3.2/4.2）：化合产物的生成考虑干涉驻点的强度；
-    /// 同样生成痕迹并回注。
+    /// 同样生成痕迹并回注。无外部能量吸收。
     ///
     /// 化合模式下：`I = clamp01(S·V·Δ·(1 + CATALYST_GAIN·驻点强度))`——
-    /// 驻点（粒子）作为"催化位"，在其位置与强度上放大化合产物；
-    /// 线性模式等价（叠加后按驻点强度放大）。驻点强度 0 时与 `step` 等价。
+    /// 驻点（粒子）作为"催化位"，在其位置与强度上放大化合产物。
     pub fn step_catalyzed(&mut self, variable: f32, supplement: f32, particle_strength: f32) -> f32 {
-        self.step_impl(variable, supplement, particle_strength)
+        self.step_impl(variable, supplement, particle_strength, 0.0)
     }
 
-    /// 步进实现（痕迹产生 + 注入核心）。
-    fn step_impl(&mut self, variable: f32, supplement: f32, particle_strength: f32) -> f32 {
+    /// 催化 + 能量吸收版（Kernel 主用：粒子强度 × 能量池吸收）。
+    pub fn step_catalyzed_with_energy(
+        &mut self,
+        variable: f32,
+        supplement: f32,
+        particle_strength: f32,
+        absorbed_energy: f32,
+    ) -> f32 {
+        self.step_impl(variable, supplement, particle_strength, absorbed_energy)
+    }
+
+    /// 步进实现（痕迹产生 + 注入 + 能量吸收核心）。
+    fn step_impl(&mut self, variable: f32, supplement: f32, particle_strength: f32, absorbed_energy: f32) -> f32 {
         let stock = self.nodes.back().map(|n| n.innovation).unwrap_or(0.0);
         let s = soft_clamp(stock);
         let v = soft_clamp(variable);
@@ -168,10 +190,13 @@ impl ThinkingChain {
         } else {
             d0
         };
+        let a = soft_clamp(absorbed_energy);
         let gain = 1.0 + CATALYST_GAIN * soft_clamp(particle_strength);
         let innovation = match self.mode {
-            Blend::Compound => clamp01(s * v * d * gain),
-            Blend::Linear => clamp01((s * W_STOCK + v * W_VARIABLE + d * W_SUPPLEMENT) * gain),
+            // 化合：product = S·V·Δ·(催化增益) + 0.3·吸收能量
+            Blend::Compound => clamp01(s * v * d * gain + WEIGHT_ABSORBED * a),
+            // 线性（遗留兼容）：纯加权，忽略能量/催化
+            Blend::Linear => clamp01(s * W_STOCK + v * W_VARIABLE + d * W_SUPPLEMENT),
         };
         self.seq += 1;
         let node = ChainNode { seq: self.seq, stock: s, variable: v, supplement: d, innovation };
@@ -180,15 +205,16 @@ impl ThinkingChain {
         }
         self.nodes.push_back(node);
 
-        // 痕迹生成：波动/化合/流动 → 风火水地；指纹取本步内在特征
+        // 痕迹生成：波动/化合/流动 → 风火水地；指纹含能量流模式（吸收能量桶）
         let volatility = (v - supplement).abs().min(1.0);
         let tt = decide_type(volatility, innovation, d);
         let fp = (self.seq as u64)
             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
             ^ ((innovation * 1e4) as u64)
-            ^ (tt.code() as u64).wrapping_mul(0x1000_0000_01B3);
+            ^ (tt.code() as u64).wrapping_mul(0x1000_0000_01B3)
+            ^ (((a * 15.999).round() as u64).min(15) << 28);
         let intensity = (innovation * 0.8 + 0.1).clamp(0.05, 1.0);
-        let trace = Trace { step: self.seq, intensity, trace_type: tt, fingerprint: fp };
+        let trace = Trace { step: self.seq, intensity, trace_type: tt, fingerprint: fp, energy_flow: a };
         if self.trace_log.len() == TRACE_CAP {
             self.trace_log.pop_front();
         }
@@ -322,6 +348,26 @@ mod tests {
         // 痕迹类型在 风火水地 之内
         let _ = [TraceType::Wind, TraceType::Fire, TraceType::Water, TraceType::Earth];
         assert!(t.fingerprint != 0);
+    }
+
+    #[test]
+    fn absorbed_energy_from_pool_raises_product() {
+        // 验收：化合产物随能量吸收率变化（absorbed 来自能量池，非模拟）
+        use crate::energy::EnergyPool;
+        let mut pool = EnergyPool::new();
+        pool.absorb(1.0); // 真实能量池入流
+
+        let mut c = ThinkingChain::new();
+        c.push(0.5, 1.0, 1.0); // 种入存量（innovation = 0.5）
+        let without = c.step_with_energy(0.2, 0.2, 0.0); // 无吸收
+        let with = c.step_with_energy(0.2, 0.2, pool.absorbed()); // 吸收能量池
+
+        assert!(without > 0.0 && without < 0.05, "基底产物: {without}");
+        assert!(with > without + 0.2, "能量吸收应显著抬升产物: {with} vs {without}");
+        assert!(with <= 1.0);
+        // 痕迹记录本次能量流
+        let t = c.last_trace().unwrap();
+        assert!(t.energy_flow > 0.9, "痕迹携带能量流: {}", t.energy_flow);
     }
 
     #[test]

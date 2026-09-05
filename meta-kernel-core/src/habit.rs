@@ -100,7 +100,7 @@ mod tests {
         let mut pool = HabitPool::new();
         let mut last = 0.0f32;
         for i in 1..=12u64 {
-            let t = Trace { step: i, intensity: 0.5, trace_type: TraceType::Fire, fingerprint: 42 };
+            let t = Trace { step: i, intensity: 0.5, trace_type: TraceType::Fire, fingerprint: 42, energy_flow: 0.5 };
             pool.observe(&t);
             let h = pool.get(42).expect("habit exists");
             assert!(h.strength > last, "强度应单调上升: {} > {}", h.strength, last);
@@ -115,11 +115,11 @@ mod tests {
         let mut pool = HabitPool::new();
         // 习气1：5 次弱（avg .4）
         for i in 1..=5u64 {
-            pool.observe(&Trace { step: i, intensity: 0.4, trace_type: TraceType::Wind, fingerprint: 1 });
+            pool.observe(&Trace { step: i, intensity: 0.4, trace_type: TraceType::Wind, fingerprint: 1, energy_flow: 0.4 };
         }
         // 习气2：12 次强（avg .9）→ 应显著强于习气1
         for i in 1..=12u64 {
-            pool.observe(&Trace { step: 100 + i, intensity: 0.9, trace_type: TraceType::Earth, fingerprint: 2 });
+            pool.observe(&Trace { step: 100 + i, intensity: 0.9, trace_type: TraceType::Earth, fingerprint: 2, energy_flow: 0.9 };
         }
         let habits = pool.my_habits();
         assert_eq!(habits.len(), 2);

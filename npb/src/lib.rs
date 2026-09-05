@@ -23,6 +23,7 @@ use std::collections::VecDeque;
 
 use meta_kernel_core::{
     double_chain::DoubleChain,
+    energy::EnergyPool,
     evolution::EvolutionLog,
     fib::FibEngine,
     hourglass::BubbleHourglass,
@@ -33,7 +34,7 @@ use meta_kernel_core::{
     positive_source::PositiveSource,
     sanitizer::soft_clamp,
     self_recognizer::SelfRecognizer,
-    state::{state_of_entropy, state_pace, State},
+    state::{state_of_flow_ratio, state_pace, State},
     thinking_chain::ThinkingChain,
 };
 
@@ -63,6 +64,7 @@ struct Kernel {
     particle_hint: f32,
     recognizer: SelfRecognizer,
     rec_tick: u64,
+    energy: EnergyPool,
 }
 
 impl Kernel {
@@ -86,15 +88,18 @@ impl Kernel {
             particle_hint: 0.0,
             recognizer: SelfRecognizer::new(),
             rec_tick: 0,
+            energy: EnergyPool::new(),
         }
     }
 
-    /// 注入扰动并推进一步（存在论调度：按当前物态调制种子节奏）。
+    /// 注入扰动并推进一步（存在论调度 + 能量流：状态以能量池入出流比值为准）。
     fn push(&mut self, value: f32) {
-        // ① 物态调度（1.2）：高能态给更活跃扰动；固态平稳微扰
+        // ① 物态调度：按能量池入/出比值判定状态（比值>1.2 高能活跃态；<0.8 固态）
         let (bias, burst_prob) = state_pace(self.state_now);
         let mut seed = soft_clamp(value) * bias;
-        // 能量态倾向成对突发（促进干涉/驻点生成）
+        // ② 能量流入：本次注入即 0 锚点/外部输入的能量吸收（进入能量池）
+        self.energy.absorb(seed);
+        // 能量态倾向成对突发
         let do_burst = self.pulse % 7 == 0 && self.rand01() < burst_prob;
         let outs = if do_burst {
             self.hg.push(0.9);
@@ -104,6 +109,9 @@ impl Kernel {
             self.hg.tick(Some(seed))
         };
         for o in outs {
+            // 能量流出：输出沉降 = 摩擦耗散（活动越弱耗散占比越大）
+            self.energy.consume(0.05 + (1.0 - o) * 0.35);
+
             // 活动回喂镜像池（摩擦源）
             self.pool.observe(o);
             // 引擎同步采样（线性；斐波那契由正活动点燃）
@@ -121,9 +129,14 @@ impl Kernel {
             }
             self.recent.push(o);
 
-            // 思考链（波粒催化：以最近驻点强度为催化位）
+            // 思考链（波粒催化 + 能量吸收：absorbed_energy 读能量池，非模拟）
             self.avg = self.avg * 0.95 + o * 0.05;
-            let innovation = self.chain.step_catalyzed(seed, self.avg, self.particle_hint);
+            let innovation = self.chain.step_catalyzed_with_energy(
+                seed,
+                self.avg,
+                self.particle_hint,
+                self.energy.absorbed(),
+            );
             if innovation > 0.25 {
                 self.evo.record_compound(innovation);
             }
@@ -147,8 +160,8 @@ impl Kernel {
             }
         }
 
-        // ② 物态刷新（调度决策依据 = 熵窗口）并记录状态演化
-        let new_state = state_of_entropy(self.entropy());
+        // ③ 物态刷新（能量池比值）并记录状态演化
+        let new_state = state_of_flow_ratio(self.energy.ratio());
         if new_state != self.state_now {
             self.evo.record_state_change(self.state_now, new_state);
             self.state_now = new_state;
@@ -173,10 +186,11 @@ impl Kernel {
         }
 
         // ④ 痕迹系统：周期性把最近窗口交给自我识别器（run→痕迹→习气→自我感）
+        //    痕迹携带能量流（来自能量池吸收量，非模拟）
         self.rec_tick += 1;
         if self.rec_tick % 6 == 0 && self.recent.len() >= 8 {
             let snap = self.recent.clone();
-            let _ = self.recognizer.run_from_samples(&snap);
+            let _ = self.recognizer.run_from_samples_with_flow(&snap, self.energy.absorbed());
         }
     }
 
@@ -315,10 +329,34 @@ pub extern "C" fn get_diag_solved() -> u32 {
     })
 }
 
-/// 当前物态码：0 固态 / 1 液态 / 2 气态 / 3 等离子态（按熵分界，Phase 4）。
+/// 当前物态码：0 能量态 /1 气态 /2 液态 /3 固态（以能量池入出流比值为准）。
 #[unsafe(no_mangle)]
 pub extern "C" fn get_state() -> u32 {
-    KERNEL.with(|k| state_of_entropy(k.borrow().entropy()).code())
+    KERNEL.with(|k| state_of_flow_ratio(k.borrow().energy.ratio()).code())
+}
+
+/// 能量池：已吸收（入流现值）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_energy_absorbed() -> f32 {
+    KERNEL.with(|k| k.borrow().energy.absorbed())
+}
+
+/// 能量池：已耗散（出流现值）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_energy_spent() -> f32 {
+    KERNEL.with(|k| k.borrow().energy.spent())
+}
+
+/// 能量池：入/出比值（物态判定依据）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_energy_ratio() -> f32 {
+    KERNEL.with(|k| k.borrow().energy.ratio())
+}
+
+/// 化合产物能量（= 思考链最新创新增量，内核实际状态）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_product_energy() -> f32 {
+    KERNEL.with(|k| k.borrow().chain.innovation())
 }
 
 /// 正源触达范围位图（bit0..4 = L0..L4；当前 L0=自状态，L1=本地源接入后置位）。

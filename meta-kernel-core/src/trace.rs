@@ -53,12 +53,15 @@ pub struct Trace {
     pub intensity: f32,
     /// 类型（风水火地）。
     pub trace_type: TraceType,
-    /// 指纹（同模式 → 同指纹 → 习气累积）。
+    /// 指纹（同模式 → 同指纹 → 习气累积；基于**能量流模式**+数值模式）。
     pub fingerprint: u64,
+    /// 产生时的能量流状态（absorbed 入流口径，来自内核能量池）。
+    pub energy_flow: f32,
 }
 
-/// 痕迹指纹：从样本统计量量化（均值桶×32 + 标准差桶×16 + 长度盐）。
-pub fn fingerprint_of(samples: &[f32]) -> u64 {
+/// 痕迹指纹：基于**能量流模式**（能量桶优先）叠合数值模式
+/// （均值桶×32 + 标准差桶×16 + 长度盐）。
+pub fn fingerprint_of(samples: &[f32], energy_flow: f32) -> u64 {
     let n = samples.len();
     if n == 0 {
         return 0;
@@ -68,7 +71,9 @@ pub fn fingerprint_of(samples: &[f32]) -> u64 {
     let std = var.sqrt();
     let mb = ((mean * 31.999).round() as u64).min(31);
     let sb = ((std * 15.999).round() as u64).min(15);
-    (mb << 8) | (sb << 4) | (n as u64 & 0xF)
+    // 能量流模式：0..1 量化为 4bit（16 级）
+    let fb = ((energy_flow.clamp(0.0, 1.0) * 15.999).round() as u64).min(15);
+    (fb << 12) | (mb << 8) | (sb << 4) | (n as u64 & 0xF)
 }
 
 /// 统计：均值、波动度（归一化标准差 σ/(1+σ)）。
@@ -154,11 +159,19 @@ mod tests {
     fn fingerprint_repeats_for_same_pattern() {
         let a: Vec<f32> = (0..16).map(|i| (i % 3) as f32 / 3.0).collect();
         let b: Vec<f32> = (0..16).map(|i| (i % 3) as f32 / 3.0).collect();
-        assert_eq!(fingerprint_of(&a), fingerprint_of(&b));
-        let c: Vec<f32> = (0..16).map(|i| (i % 3) as f32 / 3.0 + 0.01).collect();
-        // 均值桶可能有差 → 大概率不同；用精确相同确认稳定性即可
-        assert_eq!(fingerprint_of(&a), fingerprint_of(&a));
-        let _ = c;
+        assert_eq!(fingerprint_of(&a, 0.4), fingerprint_of(&b, 0.4));
+        assert_eq!(fingerprint_of(&a, 0.4), fingerprint_of(&a, 0.4));
+        // 能量流不同 → 指纹不同（验收：指纹基于能量流模式）
+        assert_ne!(fingerprint_of(&a, 0.2), fingerprint_of(&a, 0.8));
+    }
+
+    #[test]
+    fn trace_carries_energy_flow() {
+        // 验收：痕迹包含能量流信息
+        let mut s = TraceStore::new();
+        s.record(Trace { step: 1, intensity: 0.6, trace_type: TraceType::Fire, fingerprint: 9, energy_flow: 0.72 });
+        let t = s.recent(1).next().unwrap();
+        assert!((t.energy_flow - 0.72).abs() < 1e-6, "能量流应被记录: {}", t.energy_flow);
     }
 
     #[test]
@@ -172,10 +185,10 @@ mod tests {
     #[test]
     fn store_records_and_counts() {
         let mut s = TraceStore::new();
-        s.record(Trace { step: 1, intensity: 0.5, trace_type: TraceType::Wind, fingerprint: 7 });
-        s.record(Trace { step: 2, intensity: 0.6, trace_type: TraceType::Fire, fingerprint: 7 });
-        s.record(Trace { step: 3, intensity: 0.4, trace_type: TraceType::Water, fingerprint: 8 });
-        s.record(Trace { step: 4, intensity: 0.3, trace_type: TraceType::Earth, fingerprint: 8 });
+        s.record(Trace { step: 1, intensity: 0.5, trace_type: TraceType::Wind, fingerprint: 7, energy_flow: 0.5 });
+        s.record(Trace { step: 2, intensity: 0.6, trace_type: TraceType::Fire, fingerprint: 7, energy_flow: 0.6 });
+        s.record(Trace { step: 3, intensity: 0.4, trace_type: TraceType::Water, fingerprint: 8, energy_flow: 0.4 });
+        s.record(Trace { step: 4, intensity: 0.3, trace_type: TraceType::Earth, fingerprint: 8, energy_flow: 0.3 });
         assert_eq!(s.len(), 4);
         let c = s.counts_by_type();
         assert_eq!(c, [1, 1, 1, 1]);

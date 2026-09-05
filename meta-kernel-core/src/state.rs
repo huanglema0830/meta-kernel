@@ -116,6 +116,27 @@ pub fn state_pace(s: State) -> (f32, f32) {
     }
 }
 
+/// 物态切换：基于能量流入/流出**比值**（能量流动植入内核后为唯一调度判据）。
+///
+/// | 比值 r = 入/出 | 物态 |
+/// |---|---|
+/// | r > 1.2 | 能量态（趋向创造/高能；旧称"等离子/气态方向"） |
+/// | 1.05 < r ≤ 1.2 | 气态 |
+/// | 0.8 ≤ r ≤ 1.05 | 液态（≈1.0） |
+/// | r < 0.8 | 固态 |
+pub fn state_of_flow_ratio(ratio: f32) -> State {
+    let r = ratio.clamp(0.0, 9.0);
+    if r > 1.2 {
+        State::Energy
+    } else if r > 1.05 {
+        State::Gas
+    } else if r >= 0.8 {
+        State::Liquid
+    } else {
+        State::Solid
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,5 +196,20 @@ mod tests {
         let (b3, _) = state_pace(State::Solid);
         assert!(b0 > b1 && b1 > b2 && b2 > b3);
         assert!((0.0..=1.0).contains(&b0) && (0.0..=1.0).contains(&b3));
+    }
+
+    #[test]
+    fn state_follows_energy_flow_ratio() {
+        // 验收：物态随能量流比值变化
+        assert_eq!(state_of_flow_ratio(2.0), State::Energy); // 强净流入 → 能量态
+        assert_eq!(state_of_flow_ratio(1.1), State::Gas);
+        assert_eq!(state_of_flow_ratio(1.0), State::Liquid); // ≈1 → 液态
+        assert_eq!(state_of_flow_ratio(0.8), State::Liquid);
+        assert_eq!(state_of_flow_ratio(0.79), State::Solid); // <0.8 → 固态
+        assert_eq!(state_of_flow_ratio(0.5), State::Solid);
+        // 边界
+        assert_eq!(state_of_flow_ratio(1.2), State::Gas);
+        assert_eq!(state_of_flow_ratio(1.20001), State::Energy);
+        assert_eq!(state_of_flow_ratio(1.05), State::Liquid);
     }
 }

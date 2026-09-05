@@ -41,19 +41,31 @@ impl SelfRecognizer {
     }
 
     /// 从一次运行样本生成痕迹 → 存储 → 更新习气 → 刷新自我感。
-    /// 返回本次产生的痕迹（每次运行必有痕迹）。
+    /// 返回本次产生的痕迹（每次运行必有痕迹）。能量流以样本均值为代理。
     pub fn run_from_samples(&mut self, samples: &[f32]) -> Vec<Trace> {
+        let (mean, _) = trace::stats_of(samples);
+        self.run_from_samples_with_flow(samples, mean)
+    }
+
+    /// 同 `run_from_samples`，但能量流显式来自内核能量池（非模拟值）。
+    pub fn run_from_samples_with_flow(&mut self, samples: &[f32], energy_flow: f32) -> Vec<Trace> {
         self.clock += 1;
         let step = self.clock;
         let (mean, volatility) = trace::stats_of(samples);
         let compound_activity = mean.clamp(0.0, 1.0); // 用平均活性作为转化倾向的代理
         let flow = (1.0 - volatility).clamp(0.0, 1.0);
         let tt = trace::decide_type(volatility, compound_activity, flow);
-        let fingerprint = trace::fingerprint_of(samples);
+        let fingerprint = trace::fingerprint_of(samples, energy_flow);
         // 强度 = 活性 × (类型偏置：地 > 水 > 火 > 风，由均值量折算稳定度)
         let stability = 1.0 - volatility;
         let intensity = (compound_activity * (0.5 + 0.5 * stability)).clamp(0.05, 1.0);
-        let t = Trace { step, intensity, trace_type: tt, fingerprint };
+        let t = Trace {
+            step,
+            intensity,
+            trace_type: tt,
+            fingerprint,
+            energy_flow: energy_flow.clamp(0.0, 1.0),
+        };
         self.store.record(t);
         self.pool.observe(&t);
         self.refresh();
