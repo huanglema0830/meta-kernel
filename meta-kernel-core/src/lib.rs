@@ -22,6 +22,13 @@ pub mod linear;
 pub mod math;
 pub mod mirror;
 
+// ===== Phase 2 新增核心模块（先声明，逐步实现）=====
+pub mod energy; // 能量层级判定（依赖 ontology）
+pub mod ontology; // 0-10 元通用标尺
+pub mod positive_source; // 正源系统（拆解-分析-重编循环，依赖 ontology/energy）
+pub mod sanitizer; // 负扰动过滤与安全阀（前置保险）
+// NPB 桥接器（bridge.h）放在仓库根 npb/ 目录，不作为本 crate 模块。
+
 /// 库当前版本（与 Cargo.toml 保持一致）。
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
