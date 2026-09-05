@@ -42,6 +42,9 @@ DOSBox 概念演示 ✅；WASM Canvas 浏览器示例 ✅；**跨平台一致性
 | 正源系统（拆解-分析-重编循环） | `src/positive_source.rs` | ✅ |
 | 思考链（存量+变量+补充增量=创新增量，含降维） | `src/thinking_chain.rs` | ✅ |
 | 双链诊断（问题形成 + 解决过程） | `src/double_chain.rs` | ✅ |
+| 物态判定（固态/液态/气态/等离子态） | `src/state.rs` | ✅ |
+| 进化解构器（时间三量 + 空间编码 → 层级1 胶粒） | `src/evo_deconstructor.rs` | ✅ |
+| 正源场域（自动搜索解构/缓存去重/催化剂+20%/触达 L0-L4 分层） | `src/positive_source.rs`（含 Searcher 催化剂加权） | ✅ |
 | NPB 桥接器（C FFI：`push_seed`/`pop_result`/`get_entropy`） | `npb/bridge.h` + `npb/src/lib.rs`（cdylib+wasm） | ✅ |
 | DOSBox 虚拟喇叭概念演示（C） | `examples/dos_concept/main.c` | ✅ |
 | WASM Canvas 呼吸演示（浏览器） | `examples/wasm_canvas/` | ✅ 待浏览器目验 |
