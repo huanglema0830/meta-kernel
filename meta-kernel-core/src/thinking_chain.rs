@@ -7,24 +7,39 @@
 //! I 经采纳/验证 → 立即降维为新一轮存量（能量层级降维规则，见 ONTOLOGY_SPEC §6）
 //! ```
 //!
-//! - 存量（stock）：上一轮沉淀下来的稳定成果（降维后的创新增量）；
-//! - 变量（variable）：本轮现场扰动/种子（0 锚点机制下外部注入）；
-//! - 补充增量（supplement）：正源库/镜像池供给的历史智慧；
-//! - 创新增量（innovation）：三者按权重编织的新成果（∈[0,1]，饱和运算）。
+//! Phase 4 升级（化学变化层）：化合公式由**线性叠加**升级为**非线性化合**，
+//! 二选一（默认化合）：
 //!
-//! 工程口径（v1.0）：`I = clamp01(0.34·S + 0.33·V + 0.33·Δ)`，
-//! 即任一输入可主导、整体归一（后续可按运行数据微调权重，策略同 MATH_SPEC A4/A5）。
+//! | 模式 | 公式 | 语义 |
+//! |---|---|---|
+//! | `Compound`（默认） | `I = clamp01(S × V × Δ)` | 三者**同时存在**才化合；任一为 0 产物为 0 |
+//! | `Linear`（可选） | `I = clamp01(0.34S + 0.33V + 0.33Δ)` | 线性叠加（原 Phase 3 公式，保留兼容） |
 
 use crate::math::clamp01;
 use crate::sanitizer::soft_clamp;
 use std::collections::VecDeque;
 
-/// 权重：存量。
+/// 线性模式权重：存量。
 pub const W_STOCK: f32 = 0.34;
-/// 权重：变量。
+/// 线性模式权重：变量。
 pub const W_VARIABLE: f32 = 0.33;
-/// 权重：补充增量。
+/// 线性模式权重：补充增量。
 pub const W_SUPPLEMENT: f32 = 0.33;
+
+/// 化合模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Blend {
+    /// 非线性化合：`S×V×Δ`（默认）。
+    Compound,
+    /// 线性叠加：`0.34S+0.33V+0.33Δ`（可选兼容）。
+    Linear,
+}
+
+impl Default for Blend {
+    fn default() -> Self {
+        Blend::Compound
+    }
+}
 
 /// 单步推演节点。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -47,6 +62,7 @@ pub struct ThinkingChain {
     nodes: VecDeque<ChainNode>,
     cap: usize,
     seq: u64,
+    mode: Blend,
 }
 
 impl Default for ThinkingChain {
@@ -56,7 +72,7 @@ impl Default for ThinkingChain {
 }
 
 impl ThinkingChain {
-    /// 新建思考链。
+    /// 新建思考链（默认化合模式）。
     pub fn new() -> Self {
         Self::default()
     }
@@ -64,15 +80,32 @@ impl ThinkingChain {
     /// 以指定窗口容量新建。
     pub fn with_cap(cap: usize) -> Self {
         assert!(cap >= 1);
-        Self { nodes: VecDeque::with_capacity(cap), cap, seq: 0 }
+        Self { nodes: VecDeque::with_capacity(cap), cap, seq: 0, mode: Blend::Compound }
     }
 
-    /// 推进一步：`I = clamp01(0.34S + 0.33V + 0.33Δ)`，存储节点并返回 I。
+    /// 切换化合模式（默认 `Compound`；需要旧线性行为时显式调用）。
+    pub fn with_mode(mut self, mode: Blend) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// 当前化合模式。
+    pub const fn mode(&self) -> Blend {
+        self.mode
+    }
+
+    /// 推进一步，存储节点并返回 I。
+    ///
+    /// - `Compound`：`I = clamp01(S·V·Δ)`（任一为 0 → 产物为 0）；
+    /// - `Linear`：`I = clamp01(0.34S + 0.33V + 0.33Δ)`。
     pub fn push(&mut self, stock: f32, variable: f32, supplement: f32) -> ChainNode {
         let s = soft_clamp(stock);
         let v = soft_clamp(variable);
         let d = soft_clamp(supplement);
-        let innovation = clamp01(s * W_STOCK + v * W_VARIABLE + d * W_SUPPLEMENT);
+        let innovation = match self.mode {
+            Blend::Compound => clamp01(s * v * d),
+            Blend::Linear => clamp01(s * W_STOCK + v * W_VARIABLE + d * W_SUPPLEMENT),
+        };
         self.seq += 1;
         let node = ChainNode { seq: self.seq, stock: s, variable: v, supplement: d, innovation };
         if self.nodes.len() == self.cap {
@@ -82,8 +115,7 @@ impl ThinkingChain {
         node
     }
 
-    /// 连续推演入口：自动以上一轮创新增量作为本轮存量（立即降维），
-    /// 外部只需给"变量 + 补充增量"。
+    /// 连续推演入口：自动以上一轮创新增量作为本轮存量（立即降维）。
     pub fn step(&mut self, variable: f32, supplement: f32) -> f32 {
         let stock = self.nodes.back().map(|n| n.innovation).unwrap_or(0.0);
         self.push(stock, variable, supplement).innovation
@@ -122,25 +154,39 @@ mod tests {
     use crate::math::is_valid;
 
     #[test]
-    fn equation_blends_weights() {
+    fn compound_requires_all_three_factors() {
+        let mut c = ThinkingChain::new(); // 默认化合
+        assert_eq!(c.push(0.5, 0.0, 0.5).innovation, 0.0);
+        assert_eq!(c.push(0.0, 0.5, 0.5).innovation, 0.0);
+        assert_eq!(c.push(0.5, 0.5, 0.0).innovation, 0.0);
+        assert_eq!(c.push(0.0, 0.0, 0.0).innovation, 0.0);
+    }
+
+    #[test]
+    fn compound_multiplies_when_all_present() {
         let mut c = ThinkingChain::new();
-        // 存量 0.5 + 变量 0.0 + 补充 0.0 → 0.5*0.34 = 0.17
+        let n = c.push(0.5, 0.4, 0.2);
+        assert!((n.innovation - 0.5 * 0.4 * 0.2).abs() < 1e-6, "{}", n.innovation);
+        let n = c.push(1.0, 1.0, 1.0);
+        assert!((n.innovation - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn linear_mode_preserves_legacy_formula() {
+        let mut c = ThinkingChain::new().with_mode(Blend::Linear);
         let n = c.push(0.5, 0.0, 0.0);
-        assert!((n.innovation - 0.17).abs() < 1e-5);
-        // 全 1 → 1.0
+        assert!((n.innovation - 0.17).abs() < 1e-5, "{}", n.innovation);
         let n = c.push(1.0, 1.0, 1.0);
         assert!((n.innovation - 1.0).abs() < 1e-5);
     }
 
     #[test]
     fn step_uses_previous_innovation_as_stock() {
-        let mut c = ThinkingChain::new();
-        // 真空第一推：stock=0
+        let mut c = ThinkingChain::new().with_mode(Blend::Linear);
         let v1 = c.step(1.0, 0.0);
-        assert!((v1 - 0.33).abs() < 1e-5, "0*0.34 + 1*0.33 = 0.33: {v1}");
-        // 第二推：stock = v1（降维），变量 0，补充 0
+        assert!((v1 - 0.33).abs() < 1e-5);
         let v2 = c.step(0.0, 0.0);
-        assert!((v2 - v1 * 0.34).abs() < 1e-5, "连续降维: {v2}");
+        assert!((v2 - v1 * 0.34).abs() < 1e-5);
         assert_eq!(c.length(), 2);
         assert_eq!(c.nodes(), 2);
     }
@@ -149,17 +195,17 @@ mod tests {
     fn window_caps_nodes_but_length_grows() {
         let mut c = ThinkingChain::with_cap(8);
         for i in 0..100u32 {
-            c.step((i % 5) as f32 / 5.0, 0.2);
+            c.push(0.5, (i % 5) as f32 / 5.0, 0.5);
         }
-        assert_eq!(c.nodes(), 8, "窗口封顶");
-        assert_eq!(c.length(), 100, "链长单调不减");
+        assert_eq!(c.nodes(), 8);
+        assert_eq!(c.length(), 100);
         assert!(is_valid(c.innovation()));
     }
 
     #[test]
     fn reset_returns_to_anchor() {
         let mut c = ThinkingChain::new();
-        c.step(1.0, 0.0);
+        c.push(0.5, 0.5, 0.5);
         c.reset_to_anchor();
         assert_eq!(c.length(), 0);
         assert_eq!(c.nodes(), 0);

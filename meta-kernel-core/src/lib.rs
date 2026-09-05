@@ -33,6 +33,10 @@ pub mod sanitizer; // 负扰动过滤与安全阀（前置保险）
 pub mod thinking_chain; // 存量+变量+补充增量=创新增量 的连续推演（思考链）
 pub mod double_chain; // 问题形成过程 + 解决过程 的双链诊断
 
+// ===== Phase 4 新增核心模块（化学变化层 + 场域解构）=====
+pub mod evo_deconstructor; // 进化解构：时间三量 + 空间编码 → 层级1 胶粒
+pub mod state; // 物态判定：固态/液态/气态/等离子态（按熵分界）
+
 /// 库当前版本（与 Cargo.toml 保持一致）。
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

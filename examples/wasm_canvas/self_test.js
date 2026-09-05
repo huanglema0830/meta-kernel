@@ -19,6 +19,7 @@ WebAssembly.instantiate(bytes, {})
       "push_seed", "pop_result", "get_entropy",
       "get_thinking_len", "get_thinking_nodes",
       "get_diag_formation", "get_diag_resolution", "get_diag_solved",
+      "get_state", "get_reach_levels", "get_reach_paths",
       "mk_self_test"
     ];
     const missing = required.filter((k) => typeof ex[k] !== "function");
@@ -45,10 +46,24 @@ WebAssembly.instantiate(bytes, {})
       process.exit(1);
     }
 
+    // Phase 4：物态码 0..3；触达 L0 必在，路径数非负
+    const state = ex.get_state() >>> 0;
+    const reach = ex.get_reach_levels() >>> 0;
+    const paths = ex.get_reach_paths() >>> 0;
+    if (state > 3 || (reach & 1) !== 1) {
+      console.error("STATE_REACH_FAIL state=" + state + " reach=" + reach);
+      process.exit(1);
+    }
+    if (typeof paths !== "number" || paths < 0) {
+      console.error("REACH_PATHS_FAIL paths=" + paths);
+      process.exit(1);
+    }
+
     const digest = ex.mk_self_test() >>> 0;
     console.log("DIGEST=" + digest);
     console.log("WASM_SMOKE_OK out=" + out.toFixed(4) + " ent=" + ent.toFixed(4) +
-      " chain=" + chainLen + "/" + chainNodes);
+      " chain=" + chainLen + "/" + chainNodes +
+      " state=" + state + " reach=" + reach + " paths=" + paths);
   })
   .catch((err) => {
     console.error("WASM_LOAD_FAIL:", err);

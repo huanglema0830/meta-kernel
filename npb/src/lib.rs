@@ -27,7 +27,10 @@ use meta_kernel_core::{
     hourglass::BubbleHourglass,
     linear::LinearEngine,
     mirror::MirrorPool,
+    ontology::{Element, Pattern},
+    positive_source::PositiveSource,
     sanitizer::soft_clamp,
+    state::state_of_entropy,
     thinking_chain::ThinkingChain,
 };
 
@@ -48,6 +51,8 @@ struct Kernel {
     chain: ThinkingChain,
     dc: DoubleChain,
     avg: f32,
+    source: PositiveSource,
+    pulse: u64,
 }
 
 impl Kernel {
@@ -62,6 +67,8 @@ impl Kernel {
             chain: ThinkingChain::new(),
             dc: DoubleChain::new(),
             avg: 0.0,
+            source: PositiveSource::new(),
+            pulse: 0,
         }
     }
 
@@ -94,6 +101,21 @@ impl Kernel {
             // 双链观测：活动值写入"问题形成"轨迹；对锚点(0.5)的贴近度写入"解决"轨迹
             self.dc.push_formation(o);
             self.dc.push_resolution(1.0 - (o - 0.5).abs() * 2.0);
+
+            // 正源场域：周期性对最近窗口做自动搜索-解构（层级0 自状态），
+            // 让"可触达路径"随运行逐步扩展（2.3/2.5 演示用）
+            self.pulse += 1;
+            if self.pulse % 17 == 0 && self.recent.len() >= 4 {
+                let hist: Vec<f64> = self.recent.iter().map(|x| *x as f64).collect();
+                let els: Vec<Element> = self
+                    .recent
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| Element::new((i % 10) as u8, *v as f64))
+                    .collect();
+                let p = Pattern { elements: els, history: hist };
+                let _ = self.source.search_and_deconstruct(&p);
+            }
         }
     }
 
@@ -224,6 +246,24 @@ pub extern "C" fn get_diag_solved() -> u32 {
         meta_kernel_core::double_chain::Verdict::Solved => 1,
         _ => 0,
     })
+}
+
+/// 当前物态码：0 固态 / 1 液态 / 2 气态 / 3 等离子态（按熵分界，Phase 4）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_state() -> u32 {
+    KERNEL.with(|k| state_of_entropy(k.borrow().entropy()).code())
+}
+
+/// 正源触达范围位图（bit0..4 = L0..L4；当前 L0=自状态，L1=本地源接入后置位）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_reach_levels() -> u32 {
+    KERNEL.with(|k| k.borrow().source.reachable_levels())
+}
+
+/// 已发现路径数（解构缓存 + 催化剂）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_reach_paths() -> u32 {
+    KERNEL.with(|k| k.borrow().source.path_count())
 }
 
 #[cfg(test)]
