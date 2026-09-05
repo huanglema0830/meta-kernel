@@ -17,10 +17,17 @@
   let tick = 0;
 
   function loadWasm(url) {
-    return fetch(url)
-      .then((r) => r.arrayBuffer())
-      .then((bytes) => WebAssembly.instantiate(bytes, {}))
-      .then(({ instance }) => (api = instance.exports));
+    // 支持内嵌 base64（双击 file:// 场景，见 tools/embed_wasm.py）或 fetch（服务器场景）
+    let bytesPromise;
+    if (window.NPB_B64) {
+      const bin = atob(window.NPB_B64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      bytesPromise = Promise.resolve(bytes);
+    } else {
+      bytesPromise = fetch(url).then((r) => r.arrayBuffer());
+    }
+    return bytesPromise.then((bytes) => WebAssembly.instantiate(bytes, {})).then(({ instance }) => instance.exports);
   }
 
   // 每个 tick：周期脉冲 + 平稳注入 → 读输出 → 画呼吸圆
@@ -70,7 +77,8 @@
   }
 
   loadWasm("npb.wasm")
-    .then(() => {
+    .then((exports) => {
+      api = exports;
       // 点燃：0 锚点后注入第一扰动
       api.push_seed(1.0);
       api.push_seed(1.0); // 双脉冲演示成对干涉路径

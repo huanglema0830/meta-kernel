@@ -26,3 +26,14 @@ python3 -m http.server 8000
 node self_test.js npb.wasm
 # 输出 DIGEST=<u32>，与原生侧一致即通过跨平台一致性
 ```
+
+## 一键预览 / 双击打开
+
+```bash
+# ① 一键本地服务器（自动开浏览器）
+python3 ../tools/serve.py examples/wasm_canvas        # 仓库根目录执行
+
+# ② 双击直开版：把 wasm 内嵌为 base64（浏览器禁 file:// fetch 的绕行方案）
+python3 ../tools/embed_wasm.py examples/wasm_canvas/index.html examples/wasm_canvas/npb.wasm
+# 生成 examples/wasm_canvas/index_embedded.html —— 双击即可运行
+```

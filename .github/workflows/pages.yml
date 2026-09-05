@@ -1,0 +1,51 @@
+name: pages
+
+on:
+  workflow_dispatch: {}
+  # 也可在推送 main 后手动触发；如需全自动，去掉下行注释
+  # push:
+  #   branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build wasm (same kernel)
+        shell: bash
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo build -p npb --release --target wasm32-unknown-unknown
+
+      - name: Stage site (zen-oscilloscope as root)
+        shell: bash
+        run: |
+          mkdir -p site
+          cp examples/zen-oscilloscope/index.html site/index.html
+          cp examples/zen-oscilloscope/zen.js site/zen.js
+          cp target/wasm32-unknown-unknown/release/npb.wasm site/npb.wasm
+
+      - name: Publish to gh-pages branch
+        shell: bash
+        run: |
+          git config user.name "meta-kernel-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout --orphan gh-pages
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          rm -rf site_existing 2>/dev/null || true
+          mkdir -p deploy && cp -r site/* deploy/ 2>/dev/null || true
+          # 只保留站点文件在分支根
+          find . -maxdepth 1 -not -name '.' -not -name '.git' -not -name 'deploy' -exec rm -rf {} +
+          cp -r deploy/* .
+          rm -rf deploy
+          git add -A
+          git commit -m "deploy: zen-oscilloscope site (built from main @ ${GITHUB_SHA::7})" || echo "no changes"
+          git push --force origin gh-pages

@@ -22,11 +22,13 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use meta_kernel_core::{
+    double_chain::DoubleChain,
     fib::FibEngine,
     hourglass::BubbleHourglass,
     linear::LinearEngine,
     mirror::MirrorPool,
     sanitizer::soft_clamp,
+    thinking_chain::ThinkingChain,
 };
 
 /// 输出队列上限。
@@ -43,6 +45,9 @@ struct Kernel {
     recent: Vec<f32>,
     lin: LinearEngine,
     fib: FibEngine,
+    chain: ThinkingChain,
+    dc: DoubleChain,
+    avg: f32,
 }
 
 impl Kernel {
@@ -54,6 +59,9 @@ impl Kernel {
             recent: Vec::with_capacity(ENTROPY_WINDOW),
             lin: LinearEngine::new(),
             fib: FibEngine::new(),
+            chain: ThinkingChain::new(),
+            dc: DoubleChain::new(),
+            avg: 0.0,
         }
     }
 
@@ -78,6 +86,14 @@ impl Kernel {
                 self.recent.remove(0);
             }
             self.recent.push(o);
+
+            // 思考链：每轮活动 = 一次推演（存量=上轮创新增量降维，变量=注入，补充=滑动均值）
+            self.avg = self.avg * 0.95 + o * 0.05;
+            self.chain.step(seed, self.avg);
+
+            // 双链观测：活动值写入"问题形成"轨迹；对锚点(0.5)的贴近度写入"解决"轨迹
+            self.dc.push_formation(o);
+            self.dc.push_resolution(1.0 - (o - 0.5).abs() * 2.0);
         }
     }
 
@@ -175,6 +191,39 @@ pub extern "C" fn get_entropy() -> f32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn mk_self_test() -> u32 {
     self_test_digest()
+}
+
+/// 思考链长度（累计推演步数）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_thinking_len() -> u32 {
+    KERNEL.with(|k| k.borrow().chain.length() as u32)
+}
+
+/// 推演节点数（窗口内节点）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_thinking_nodes() -> u32 {
+    KERNEL.with(|k| k.borrow().chain.nodes() as u32)
+}
+
+/// 双链诊断：问题形成步数。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_diag_formation() -> u32 {
+    KERNEL.with(|k| k.borrow().dc.formation_steps() as u32)
+}
+
+/// 双链诊断：解决步数。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_diag_resolution() -> u32 {
+    KERNEL.with(|k| k.borrow().dc.resolution_steps() as u32)
+}
+
+/// 双链诊断：是否已收敛（1/0）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_diag_solved() -> u32 {
+    KERNEL.with(|k| match k.borrow().dc.diagnose().verdict {
+        meta_kernel_core::double_chain::Verdict::Solved => 1,
+        _ => 0,
+    })
 }
 
 #[cfg(test)]

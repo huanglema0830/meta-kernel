@@ -3,6 +3,9 @@
 
 # WASM 构建产物复制（由 CI/本地构建生成，不入库）
 examples/wasm_canvas/npb.wasm
+examples/zen-oscilloscope/npb.wasm
+# embed_wasm.py 生成的离线直开版
+examples/*/index_embedded.html
 
 # 编辑器与系统
 .idea/

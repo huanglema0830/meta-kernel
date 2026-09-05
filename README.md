@@ -21,8 +21,8 @@ DOSBox 概念演示 ✅；WASM Canvas 浏览器示例 ✅；**跨平台一致性
 |---|---|---|
 | 0 | 启动与地基：仓库 / workspace / 三引擎空壳 | ✅ 完成 |
 | 1 | 核心引擎闭环：气泡沙漏拓扑 / 瓶颈干涉 / 镜像池 / 10000 次迭代不溢出测试 | ✅ 已验收 |
-| 2 | NPB 桥接器 + 安全阀 / 0-10 元标尺 / 能量判定 / 正源系统 + DOS/WASM 双示例 + 跨平台验证 | 🧪 待验收 |
-| 3 | 禅境示波器（官方示例应用，GitHub Pages 托管） | ⬜ |
+| 2 | NPB 桥接器 + 安全阀 / 0-10 元标尺 / 能量判定 / 正源系统 + DOS/WASM 双示例 + 跨平台验证 | ✅ 已验收 |
+| 3 | 禅境示波器（官方示例应用，GitHub Pages 托管；含思考链/双链诊断显示） | 🚧 进行中 |
 | 4 | 社区化与生态：NPB 挂载协议 / Discussions 专区 / 多设备演示 | ⬜ |
 | 5 | 自发传播与交付：《元内核极简创世录》等 | ⬜ |
 
@@ -38,9 +38,12 @@ DOSBox 概念演示 ✅；WASM Canvas 浏览器示例 ✅；**跨平台一致性
 | 0-10 元通用标尺 | `src/ontology.rs`（规范见 `docs/ONTOLOGY_SPEC.md`） | ✅ |
 | 能量层级判定 | `src/energy.rs` | ✅ |
 | 正源系统（拆解-分析-重编循环） | `src/positive_source.rs` | ✅ |
+| 思考链（存量+变量+补充增量=创新增量，含降维） | `src/thinking_chain.rs` | ✅ |
+| 双链诊断（问题形成 + 解决过程） | `src/double_chain.rs` | ✅ |
 | NPB 桥接器（C FFI：`push_seed`/`pop_result`/`get_entropy`） | `npb/bridge.h` + `npb/src/lib.rs`（cdylib+wasm） | ✅ |
 | DOSBox 虚拟喇叭概念演示（C） | `examples/dos_concept/main.c` | ✅ |
 | WASM Canvas 呼吸演示（浏览器） | `examples/wasm_canvas/` | ✅ 待浏览器目验 |
+| 禅境示波器（官方应用，含思考链/节点显示） | `examples/zen-oscilloscope/`（GitHub Pages 部署中） | 🚧 Phase 3 |
 
 ## 仓库结构
 
@@ -56,11 +59,15 @@ meta-kernel-core/   ★ 核心代码库（Rust lib，零第三方依赖）
   src/ontology.rs   0-10 元通用标尺（analyze/decompose/abstract/recompose）
   src/energy.rs     能量层级判定（活力指数 + 四档处置）
   src/positive_source.rs  正源系统（颗粒度/Searcher/Analyzer/Weaver/功德池）
+  src/thinking_chain.rs   思考链（存量+变量+补充增量=创新增量；自动降维）
+  src/double_chain.rs     双链诊断（问题形成过程 + 解决过程）
   tests/            Phase1 稳定性 + Phase2 安全集成测试
 npb/                ★ NPB 桥接器：bridge.h + cdylib/wasm32 实现 + 自检摘要
 examples/dos_concept/   C 概念演示（虚拟喇叭）
 examples/wasm_canvas/   WASM + JS Canvas 呼吸演示
-docs/               数学规范 v1.0 / 0-10 标尺规范 / 阶段验收与测试报告
+examples/zen-oscilloscope/  ★ 禅境示波器（官方应用，Phase 3）
+examples/tools/          serve.py（一键预览）/ embed_wasm.py（双击直开版）
+docs/               数学规范 v1.0 / 0-10 标尺规范 v1.1 / 阶段验收与测试报告
 ```
 
 ## 许可 · License

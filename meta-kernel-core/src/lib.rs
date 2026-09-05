@@ -29,6 +29,10 @@ pub mod positive_source; // 正源系统（拆解-分析-重编循环，依赖 o
 pub mod sanitizer; // 负扰动过滤与安全阀（前置保险）
 // NPB 桥接器（bridge.h）放在仓库根 npb/ 目录，不作为本 crate 模块。
 
+// ===== Phase 3 新增核心模块（思考/诊断链）=====
+pub mod thinking_chain; // 存量+变量+补充增量=创新增量 的连续推演（思考链）
+pub mod double_chain; // 问题形成过程 + 解决过程 的双链诊断
+
 /// 库当前版本（与 Cargo.toml 保持一致）。
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
