@@ -14,9 +14,15 @@
 //! |---|---|---|
 //! | `Compound`（默认） | `I = clamp01(S × V × Δ)` | 三者**同时存在**才化合；任一为 0 产物为 0 |
 //! | `Linear`（可选） | `I = clamp01(0.34S + 0.33V + 0.33Δ)` | 线性叠加（原 Phase 3 公式，保留兼容） |
+//!
+//! 痕迹整合（痕迹层）：**每次 step 都会产生痕迹并注入**——
+//! ① 依据本轮波动/化合/流动判定痕迹类型（风火水地，见 `trace::decide_type`）；
+//! ② 痕迹回注"余势"（trace_memory），为后续补充增量提供微弱记忆加成；
+//! ③ 痕迹可被上游（self_recognizer）收集成习气。
 
 use crate::math::clamp01;
 use crate::sanitizer::soft_clamp;
+use crate::trace::{decide_type, Trace, TraceType};
 use std::collections::VecDeque;
 
 /// 线性模式权重：存量。
@@ -28,6 +34,13 @@ pub const W_SUPPLEMENT: f32 = 0.33;
 
 /// 波粒催化增益（4.2：驻点强度对化合产物的放大系数）。
 pub const CATALYST_GAIN: f32 = 0.25;
+
+/// 痕迹回注系数（余势注入补充增量的比例）。
+pub const TRACE_INJECT: f32 = 0.05;
+/// 痕迹记忆保留率（每次步进后旧痕迹余势的衰减）。
+pub const TRACE_MEMORY_DECAY: f32 = 0.6;
+/// 链内痕迹窗口。
+pub const TRACE_CAP: usize = 256;
 
 /// 化合模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,13 +72,15 @@ pub struct ChainNode {
     pub innovation: f32,
 }
 
-/// 思考链：连续推演的无环链式存储（窗口有界，链长单调）。
+/// 思考链：连续推演的无环链式存储（窗口有界，链长单调）+ 痕迹余势。
 #[derive(Debug, Clone)]
 pub struct ThinkingChain {
     nodes: VecDeque<ChainNode>,
     cap: usize,
     seq: u64,
     mode: Blend,
+    trace_log: VecDeque<Trace>,
+    trace_mem: f32,
 }
 
 impl Default for ThinkingChain {
@@ -83,7 +98,14 @@ impl ThinkingChain {
     /// 以指定窗口容量新建。
     pub fn with_cap(cap: usize) -> Self {
         assert!(cap >= 1);
-        Self { nodes: VecDeque::with_capacity(cap), cap, seq: 0, mode: Blend::Compound }
+        Self {
+            nodes: VecDeque::with_capacity(cap),
+            cap,
+            seq: 0,
+            mode: Blend::Compound,
+            trace_log: VecDeque::with_capacity(TRACE_CAP.min(1024)),
+            trace_mem: 0.0,
+        }
     }
 
     /// 切换化合模式（默认 `Compound`；需要旧线性行为时显式调用）。
@@ -118,22 +140,34 @@ impl ThinkingChain {
         node
     }
 
-    /// 连续推演入口：自动以上一轮创新增量作为本轮存量（立即降维）。
+    /// 连续推演入口：自动以上一轮创新增量作为本轮存量（立即降维），
+    /// 并生成痕迹（风火水地）→ 回注余势。
     pub fn step(&mut self, variable: f32, supplement: f32) -> f32 {
-        let stock = self.nodes.back().map(|n| n.innovation).unwrap_or(0.0);
-        self.push(stock, variable, supplement).innovation
+        self.step_impl(variable, supplement, 0.0)
     }
 
-    /// 波粒催化推演（3.2/4.2）：化合产物的生成考虑干涉驻点的强度。
+    /// 波粒催化推演（3.2/4.2）：化合产物的生成考虑干涉驻点的强度；
+    /// 同样生成痕迹并回注。
     ///
     /// 化合模式下：`I = clamp01(S·V·Δ·(1 + CATALYST_GAIN·驻点强度))`——
     /// 驻点（粒子）作为"催化位"，在其位置与强度上放大化合产物；
     /// 线性模式等价（叠加后按驻点强度放大）。驻点强度 0 时与 `step` 等价。
     pub fn step_catalyzed(&mut self, variable: f32, supplement: f32, particle_strength: f32) -> f32 {
+        self.step_impl(variable, supplement, particle_strength)
+    }
+
+    /// 步进实现（痕迹产生 + 注入核心）。
+    fn step_impl(&mut self, variable: f32, supplement: f32, particle_strength: f32) -> f32 {
         let stock = self.nodes.back().map(|n| n.innovation).unwrap_or(0.0);
         let s = soft_clamp(stock);
         let v = soft_clamp(variable);
-        let d = soft_clamp(supplement);
+        let d0 = soft_clamp(supplement);
+        // 余势注入：仅在有补充增量流入时，用痕迹记忆微加成（无流入不改纯净口径）
+        let d = if d0 > 0.0 {
+            clamp01(d0 + self.trace_mem * TRACE_INJECT)
+        } else {
+            d0
+        };
         let gain = 1.0 + CATALYST_GAIN * soft_clamp(particle_strength);
         let innovation = match self.mode {
             Blend::Compound => clamp01(s * v * d * gain),
@@ -145,6 +179,23 @@ impl ThinkingChain {
             self.nodes.pop_front();
         }
         self.nodes.push_back(node);
+
+        // 痕迹生成：波动/化合/流动 → 风火水地；指纹取本步内在特征
+        let volatility = (v - supplement).abs().min(1.0);
+        let tt = decide_type(volatility, innovation, d);
+        let fp = (self.seq as u64)
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            ^ ((innovation * 1e4) as u64)
+            ^ (tt.code() as u64).wrapping_mul(0x1000_0000_01B3);
+        let intensity = (innovation * 0.8 + 0.1).clamp(0.05, 1.0);
+        let trace = Trace { step: self.seq, intensity, trace_type: tt, fingerprint: fp };
+        if self.trace_log.len() == TRACE_CAP {
+            self.trace_log.pop_front();
+        }
+        self.trace_log.push_back(trace);
+
+        // 余势记忆更新（痕迹回注）
+        self.trace_mem = self.trace_mem * TRACE_MEMORY_DECAY + intensity * (1.0 - TRACE_MEMORY_DECAY);
         node.innovation
     }
 
@@ -168,9 +219,26 @@ impl ThinkingChain {
         self.nodes.back().map(|n| n.innovation).unwrap_or(0.0)
     }
 
-    /// 清空回 0 锚点。
+    /// 链内痕迹数（每次 step 一条）。
+    pub fn trace_log_len(&self) -> usize {
+        self.trace_log.len()
+    }
+
+    /// 最近一条痕迹（step 生成）。
+    pub fn last_trace(&self) -> Option<Trace> {
+        self.trace_log.back().copied()
+    }
+
+    /// 当前余势（痕迹记忆，0-1）。
+    pub fn trace_memory(&self) -> f32 {
+        self.trace_mem
+    }
+
+    /// 清空回 0 锚点（连痕迹余势一并归零）。
     pub fn reset_to_anchor(&mut self) {
         self.nodes.clear();
+        self.trace_log.clear();
+        self.trace_mem = 0.0;
         self.seq = 0;
     }
 }
@@ -237,6 +305,23 @@ mod tests {
         let mut zero = ThinkingChain::new();
         zero.push(0.5, 1.0, 1.0);
         assert_eq!(zero.step_catalyzed(0.0, 0.8, 0.9), 0.0);
+    }
+
+    #[test]
+    fn each_step_generates_trace_and_memory() {
+        let mut c = ThinkingChain::new();
+        assert_eq!(c.trace_log_len(), 0);
+        c.step(0.6, 0.4);
+        assert_eq!(c.trace_log_len(), 1, "step 必产生痕迹");
+        let t = c.last_trace().expect("trace");
+        assert!(t.intensity > 0.0 && t.intensity <= 1.0);
+        assert_eq!(t.step, 1);
+        c.step(0.6, 0.4);
+        assert_eq!(c.trace_log_len(), 2);
+        assert!(c.trace_memory() > 0.0, "余势记忆应累积");
+        // 痕迹类型在 风火水地 之内
+        let _ = [TraceType::Wind, TraceType::Fire, TraceType::Water, TraceType::Earth];
+        assert!(t.fingerprint != 0);
     }
 
     #[test]

@@ -43,6 +43,11 @@ pub mod fourier; // DFT 波动分析（主导频率/宽度/相位，π 为基础
 pub mod interference; // 干涉驻点检测（黄金层对齐 → 粒子生成）
 pub mod senses; // 色声香味触法感官绑定与抽象
 
+// ===== 痕迹层（习气与自我识别）=====
+pub mod habit; // 习气累积（同类痕迹聚合，my_habits 识别自我习气）
+pub mod self_recognizer; // 自我识别器（run→痕迹→习气→自我感；>0.7 触发）
+pub mod trace; // 痕迹（风/火/水/地 + 指纹/存储）
+
 /// 库当前版本（与 Cargo.toml 保持一致）。
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

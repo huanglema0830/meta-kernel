@@ -37,7 +37,9 @@
     "get_thinking_len", "get_thinking_nodes",
     "get_diag_formation", "get_diag_resolution", "get_diag_solved",
     "get_state", "get_reach_levels", "get_reach_paths",
-    "get_interfere_count", "get_interfere_layer", "get_evolution_len"
+    "get_interfere_count", "get_interfere_layer", "get_evolution_len",
+    "get_self_intensity",
+    "get_trace_wind", "get_trace_fire", "get_trace_water", "get_trace_earth"
   ];
 
   var api = null;
@@ -275,6 +277,11 @@
     var paths = api.get_reach_paths() >>> 0;
     var pc = api.get_interfere_count() >>> 0;
     var layer = api.get_interfere_layer() >>> 0;
+    var selfI = api.get_self_intensity();
+    var twind = api.get_trace_wind() >>> 0;
+    var tfire = api.get_trace_fire() >>> 0;
+    var twater = api.get_trace_water() >>> 0;
+    var tearth = api.get_trace_earth() >>> 0;
     lastEnt = ent;
 
     var spirality = SPIRAL && outBuf.length >= 12 ? SPIRAL.spirality(outBuf) : 0;
@@ -290,6 +297,9 @@
     stat("spiral", spirality.toFixed(3));
     stat("partsCount", pc + " 粒");
     stat("partsLayer", "层:" + (LAYER_NAMES[layer] || "—"));
+    stat("selfInt", selfI.toFixed(3));
+    stat("traceDist", "风" + twind + " · 火" + tfire + " · 水" + twater + " · 地" + tearth);
+    stat("selfFlag", selfI > 0.7 ? "自我识别" : "习气累积");
 
     if (audioOn && audioCtx && audioTick % 2 === 0) beep(200 + out * 1000);
 

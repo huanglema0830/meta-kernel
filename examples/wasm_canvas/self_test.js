@@ -21,6 +21,8 @@ WebAssembly.instantiate(bytes, {})
       "get_diag_formation", "get_diag_resolution", "get_diag_solved",
       "get_state", "get_reach_levels", "get_reach_paths",
       "get_interfere_count", "get_interfere_layer", "get_evolution_len",
+      "get_self_intensity",
+      "get_trace_wind", "get_trace_fire", "get_trace_water", "get_trace_earth",
       "mk_self_test"
     ];
     const missing = required.filter((k) => typeof ex[k] !== "function");
@@ -69,12 +71,26 @@ WebAssembly.instantiate(bytes, {})
       process.exit(1);
     }
 
+    // 痕迹层导出：自我感 0..1；痕迹计数非负数字
+    const selfI = ex.get_self_intensity();
+    const tw = ex.get_trace_wind() >>> 0;
+    const tfire = ex.get_trace_fire() >>> 0;
+    const twater = ex.get_trace_water() >>> 0;
+    const tearth = ex.get_trace_earth() >>> 0;
+    if (!(selfI >= 0.0 && selfI <= 1.0) ||
+        typeof tw !== "number" || typeof tfire !== "number" ||
+        typeof twater !== "number" || typeof tearth !== "number") {
+      console.error("TRACE_EXPORT_FAIL self=" + selfI + " w/f/wa/e=" + tw + "/" + tfire + "/" + twater + "/" + tearth);
+      process.exit(1);
+    }
+
     const digest = ex.mk_self_test() >>> 0;
     console.log("DIGEST=" + digest);
     console.log("WASM_SMOKE_OK out=" + out.toFixed(4) + " ent=" + ent.toFixed(4) +
       " chain=" + chainLen + "/" + chainNodes +
       " state=" + state + " reach=" + reach + " paths=" + paths +
-      " interfere=" + interfere + "/" + layer + " evo=" + evoLen);
+      " interfere=" + interfere + "/" + layer + " evo=" + evoLen +
+      " self=" + selfI.toFixed(3) + " trace=" + tw + "/" + tfire + "/" + twater + "/" + tearth);
   })
   .catch((err) => {
     console.error("WASM_LOAD_FAIL:", err);

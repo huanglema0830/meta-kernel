@@ -52,6 +52,9 @@ DOSBox 概念演示 ✅；WASM Canvas 浏览器示例 ✅；**跨平台一致性
 | 干涉驻点检测（波粒二象性：黄金层对齐 → 粒子 色声香味触法） | `src/interference.rs` | ✅ |
 | 感官绑定与抽象（五通道特征提取 + 法之意识综合） | `src/senses.rs` | ✅ |
 | 进化过程记录与回放（步数时间线/物态切换/化合/粒子/结晶） | `src/evolution.rs` | ✅ |
+| 痕迹（Trace：风火水地/指纹/存储） | `src/trace.rs` | ✅ |
+| 习气（Habit：同指纹聚合/强度饱和） | `src/habit.rs` | ✅ |
+| 自我识别器（run→痕迹→习气→自我感；>0.7 触发） | `src/self_recognizer.rs` | ✅ |
 | 进化解构器（时间三量 + 空间编码 → 层级1 胶粒） | `src/evo_deconstructor.rs` | ✅ |
 | 正源场域（自动搜索解构/缓存去重/催化剂+20%/触达 L0-L4 分层） | `src/positive_source.rs`（含 Searcher 催化剂加权） | ✅ |
 | NPB 桥接器（C FFI：`push_seed`/`pop_result`/`get_entropy`） | `npb/bridge.h` + `npb/src/lib.rs`（cdylib+wasm） | ✅ |

@@ -32,6 +32,7 @@ use meta_kernel_core::{
     ontology::{Element, Pattern},
     positive_source::PositiveSource,
     sanitizer::soft_clamp,
+    self_recognizer::SelfRecognizer,
     state::{state_of_entropy, state_pace, State},
     thinking_chain::ThinkingChain,
 };
@@ -60,6 +61,8 @@ struct Kernel {
     interference_total: u64,
     interference_layer: u8,
     particle_hint: f32,
+    recognizer: SelfRecognizer,
+    rec_tick: u64,
 }
 
 impl Kernel {
@@ -81,6 +84,8 @@ impl Kernel {
             interference_total: 0,
             interference_layer: 0,
             particle_hint: 0.0,
+            recognizer: SelfRecognizer::new(),
+            rec_tick: 0,
         }
     }
 
@@ -165,6 +170,13 @@ impl Kernel {
             } else {
                 self.particle_hint *= 0.9;
             }
+        }
+
+        // ④ 痕迹系统：周期性把最近窗口交给自我识别器（run→痕迹→习气→自我感）
+        self.rec_tick += 1;
+        if self.rec_tick % 6 == 0 && self.recent.len() >= 8 {
+            let snap = self.recent.clone();
+            let _ = self.recognizer.run_from_samples(&snap);
         }
     }
 
@@ -337,6 +349,36 @@ pub extern "C" fn get_interfere_layer() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn get_evolution_len() -> u32 {
     KERNEL.with(|k| k.borrow().evo.len() as u32)
+}
+
+/// 当前自我感强度（0-1；最强习气强度）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_self_intensity() -> f32 {
+    KERNEL.with(|k| k.borrow().recognizer.self_intensity())
+}
+
+/// 痕迹类型计数：风。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_trace_wind() -> u32 {
+    KERNEL.with(|k| k.borrow().recognizer.trace_distribution()[0] as u32)
+}
+
+/// 痕迹类型计数：火。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_trace_fire() -> u32 {
+    KERNEL.with(|k| k.borrow().recognizer.trace_distribution()[1] as u32)
+}
+
+/// 痕迹类型计数：水。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_trace_water() -> u32 {
+    KERNEL.with(|k| k.borrow().recognizer.trace_distribution()[2] as u32)
+}
+
+/// 痕迹类型计数：地。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_trace_earth() -> u32 {
+    KERNEL.with(|k| k.borrow().recognizer.trace_distribution()[3] as u32)
 }
 
 #[cfg(test)]
