@@ -98,7 +98,7 @@ pub fn decide_type(volatility: f32, compound_activity: f32, flow: f32) -> TraceT
 }
 
 /// 痕迹存储（按时间/类型/指纹查询）。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TraceStore {
     traces: Vec<Trace>,
     cap: usize,
