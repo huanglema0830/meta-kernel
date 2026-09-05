@@ -113,15 +113,17 @@ mod tests {
     #[test]
     fn my_habits_sorted_by_strength() {
         let mut pool = HabitPool::new();
+        // 习气1：5 次弱（avg .4）
         for i in 1..=5u64 {
             pool.observe(&Trace { step: i, intensity: 0.4, trace_type: TraceType::Wind, fingerprint: 1 });
         }
-        pool.observe(&Trace { step: 9, intensity: 0.9, trace_type: TraceType::Earth, fingerprint: 2 });
-        pool.observe(&Trace { step: 10, intensity: 0.9, trace_type: TraceType::Earth, fingerprint: 2 });
+        // 习气2：12 次强（avg .9）→ 应显著强于习气1
+        for i in 1..=12u64 {
+            pool.observe(&Trace { step: 100 + i, intensity: 0.9, trace_type: TraceType::Earth, fingerprint: 2 });
+        }
         let habits = pool.my_habits();
         assert_eq!(habits.len(), 2);
-        // 指纹2（火/地 高强重复）应排第一
-        assert_eq!(habits[0].fingerprint, 2);
+        assert_eq!(habits[0].fingerprint, 2, "强重复习气应居首");
         assert!(habits[0].strength >= habits[1].strength);
     }
 }
