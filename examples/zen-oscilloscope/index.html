@@ -54,13 +54,15 @@
       <div class="stat"><div class="k">正源触达范围 / 路径</div>
         <div class="mini"><span id="reach">L0</span><span id="reachPaths">0 路径</span></div>
       </div>
+      <div class="stat"><div class="k">螺旋度 spirality（0~1）</div><div class="v dim" id="spiral">0.000</div></div>
       <button id="seedBtn">注入扰动 (1.0)</button>
+      <button id="modeBtn">轨迹模式: 3D 投影</button>
       <button id="soundBtn" class="">声音模式: 关</button>
     </div>
   </div>
   <div class="panels">
     <div class="panel">
-      <div class="pk">轨迹图（x=当前输出, y=上一输出）— 螺旋/分形/吸引子</div>
+      <div class="pk">轨迹图（3D 旋转投影 · 黄虚线=斐波那契参考螺旋）</div>
       <canvas id="traj" width="330" height="150"></canvas>
     </div>
     <div class="panel">
@@ -70,9 +72,11 @@
   </div>
   <div id="err"></div>
   <p class="sub" style="text-align:center;margin-top:8px">
-    打开即呼吸 · 点按钮注扰动 · 声音开关需一次点击后才能发声（浏览器自动播放策略）
+    打开即呼吸 · 轨迹 3D/2D 可切换 · 参考线=斐波那契螺旋(r=输出均值, θ=t×黄金角137.5°) ·
+    声音开关需点击一次（浏览器策略）
   </p>
 </div>
+<script src="spiral.js"></script>
 <script src="zen.js"></script>
 </body>
 </html>

@@ -76,3 +76,7 @@ jobs:
           node examples/wasm_canvas/self_test.js examples/wasm_canvas/npb.wasm | tee wasm_digest.log
           diff <(grep DIGEST native_digest.log) <(grep DIGEST wasm_digest.log)
           echo CROSS_PLATFORM_CONSISTENT
+
+      - name: Spiral metric unit test (node, no wasm)
+        shell: bash
+        run: node examples/zen-oscilloscope/spiral_test.js

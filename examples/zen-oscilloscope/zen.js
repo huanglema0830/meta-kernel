@@ -1,16 +1,15 @@
 /*
- * examples/zen-oscilloscope/zen.js — Phase 4
+ * examples/zen-oscilloscope/zen.js — Phase 4 轨迹微调版
  *
- * 禅境示波器逻辑：WASM 内核直驱。
  * - 圆：半径 = pop_result()；色温随熵联动（低熵冷青 ↔ 高熵暖金）；
- * - 显示：内核输出 / 熵 / 当前物态(get_state) / 思考链·推演节点 /
- *   双链诊断 / 正源触达范围与路径(get_reach_levels / get_reach_paths)；
- * - 轨迹图（1.4）：XY 散点（x=当前输出，y=上一输出），观察螺旋/分形/吸引子；
- * - 声音模式（1.4）：Web Audio 播放输出对应音调（200~1200 Hz），需点击开；
- * - 波形：时间序列；
- * - 加载即呼吸：0.01 初始扰动 + 立即渲染首帧；
- * - 错误显示在 #err 横幅。
- * wasm：内嵌 base64（双击）或 fetch（服务器）。
+ * - 显示：输出 / 熵 / 物态 / 思考链·节点 / 双链 / 触达 / 螺旋度(spirality)；
+ * - 轨迹图升级：
+ *   ① 三维投影：连续三次输出为 (x,y,z)，动态旋转投影（每帧 0.5°），立体螺旋/分形；
+ *   ② 斐波那契螺旋参考线：半径=当前输出均值，角度=时间×黄金角（137.5°）叠加对比；
+ *   ③ 螺旋度评分 spirality ∈[0,1]（角步进贴合黄金角 × 半径外扩趋势）；
+ *   ④ 3D / 2D 可切换（2D 保留对比）。
+ * - 声音模式：Web Audio 输出 200~1200 Hz，需点击开启（浏览器策略）；
+ * - 加载即呼吸：0.01 初始扰动 + 首帧渲染；错误显示于 #err。
  */
 (function () {
   "use strict";
@@ -28,6 +27,7 @@
   var sparkCtx = spark.getContext("2d");
   var traj = document.getElementById("traj");
   var trajCtx = traj.getContext("2d");
+  var SPIRAL = window.SPIRAL;
 
   var STATE_NAMES = ["固态", "液态", "气态", "等离子态"];
   var REACH_NAMES = ["L0 自状态", "L1 本地", "L2 网络", "L3 抽象", "L4 演化史"];
@@ -41,15 +41,15 @@
 
   var api = null;
   var outBuf = [];
-  var trajPts = []; // [prev, curr]
   var MAX = 96;
-  var TRAJ_MAX = 260;
   var tick = 0;
-  var prevOut = 0;
   var lastEnt = 0;
   var audioOn = false;
   var audioCtx = null;
   var audioTick = 0;
+  var trajMode = "3d";
+  var yawDeg = 0;
+  var PITCH = 0.5;
 
   function stat(id, text) { document.getElementById(id).textContent = text; }
 
@@ -88,6 +88,105 @@
     osc.stop(t + 0.1);
   }
 
+  /* ---------- 轨迹图（2D / 3D） ---------- */
+
+  function polarXY(r, th, cx, cy, scale) {
+    return { x: cx + r * scale * Math.cos(th), y: cy - r * scale * Math.sin(th) };
+  }
+
+  /* 斐波那契参考螺旋：半径围绕 meanOut 外扩，角度 = t×黄金角（1.6 圈） */
+  function refSpiralPoints(meanOut) {
+    var pts = [];
+    var turns = 1.6;
+    var n = 70;
+    var GA = SPIRAL ? SPIRAL.GOLDEN_ANGLE : 2.399963229728653;
+    for (var i = 0; i <= n; i++) {
+      var th = i * GA;
+      var grow = 0.18 + 0.82 * (i / n);
+      pts.push({ r: Math.max(0.04, meanOut * grow), th: th });
+    }
+    return pts;
+  }
+
+  function drawRef2d(cx, cy, scale, meanOut) {
+    var pts = refSpiralPoints(meanOut);
+    trajCtx.strokeStyle = "rgba(239,159,39,0.45)";
+    trajCtx.lineWidth = 1;
+    trajCtx.setLineDash([3, 3]);
+    trajCtx.beginPath();
+    pts.forEach(function (p, i) {
+      var q = polarXY(p.r, p.th, cx, cy, scale);
+      if (i === 0) trajCtx.moveTo(q.x, q.y); else trajCtx.lineTo(q.x, q.y);
+    });
+    trajCtx.stroke();
+    trajCtx.setLineDash([]);
+  }
+
+  /* 正交投影：p=[x,y,z]∈[0,1]³，绕 Y 旋转 yaw，绕 X 倾斜 pitch */
+  function project3(p, yaw, pitch, cx, cy, scale) {
+    var cY = Math.cos(yaw), sY = Math.sin(yaw);
+    var x1 = (p[0] - 0.5) * cY - (p[2] - 0.5) * sY;
+    var z1 = (p[0] - 0.5) * sY + (p[2] - 0.5) * cY;
+    var cP = Math.cos(pitch), sP = Math.sin(pitch);
+    var y1 = (p[1] - 0.5) * cP - z1 * sP;
+    var z2 = (p[1] - 0.5) * sP + z1 * cP;
+    var persp = 1 / (1 + 0.4 * z2);
+    return { x: cx + x1 * scale * persp, y: cy - y1 * scale * persp };
+  }
+
+  function drawRef3d(cx, cy, scale, meanOut, yaw) {
+    var pts = refSpiralPoints(meanOut);
+    trajCtx.strokeStyle = "rgba(239,159,39,0.5)";
+    trajCtx.lineWidth = 1;
+    trajCtx.setLineDash([3, 3]);
+    trajCtx.beginPath();
+    pts.forEach(function (p, i) {
+      var x = 0.5 + p.r * Math.cos(p.th);
+      var y = 0.5 + p.r * Math.sin(p.th);
+      var q = project3([x, y, 0.5], yaw, PITCH, cx, cy, scale);
+      if (i === 0) trajCtx.moveTo(q.x, q.y); else trajCtx.lineTo(q.x, q.y);
+    });
+    trajCtx.stroke();
+    trajCtx.setLineDash([]);
+  }
+
+  function drawTraj() {
+    var w = traj.width, h = traj.height;
+    var cx = w / 2, cy = h / 2;
+    var scale = Math.min(w, h) * 0.86;
+    trajCtx.clearRect(0, 0, w, h);
+    if (outBuf.length < 3) return;
+
+    var c = tint(lastEnt);
+    var sum = 0;
+    for (var m = 0; m < outBuf.length; m++) sum += outBuf[m];
+    var meanOut = sum / outBuf.length;
+
+    if (trajMode === "3d") {
+      yawDeg = (yawDeg + 0.5) % 360; // 每帧旋转 0.5°
+      var yaw = (yawDeg * Math.PI) / 180;
+      drawRef3d(cx, cy, scale, meanOut, yaw);
+      trajCtx.strokeStyle = c.fill;
+      trajCtx.lineWidth = 1.1;
+      trajCtx.beginPath();
+      for (var i = 0; i <= outBuf.length - 3; i++) {
+        var q = project3([outBuf[i], outBuf[i + 1], outBuf[i + 2]], yaw, PITCH, cx, cy, scale);
+        if (i === 0) trajCtx.moveTo(q.x, q.y); else trajCtx.lineTo(q.x, q.y);
+      }
+      trajCtx.stroke();
+    } else {
+      drawRef2d(cx, cy, scale * 0.9, meanOut);
+      trajCtx.fillStyle = c.fill;
+      for (var j = 0; j < outBuf.length - 1; j++) {
+        var x = cx + (outBuf[j + 1] - 0.5) * scale * 0.9;
+        var y = cy - (outBuf[j] - 0.5) * scale * 0.9;
+        trajCtx.beginPath();
+        trajCtx.arc(x, y, 1.3, 0, Math.PI * 2);
+        trajCtx.fill();
+      }
+    }
+  }
+
   function drawWave() {
     var w = spark.width, h = spark.height;
     sparkCtx.clearRect(0, 0, w, h);
@@ -104,20 +203,7 @@
     sparkCtx.stroke();
   }
 
-  function drawTraj() {
-    var w = traj.width, h = traj.height;
-    trajCtx.clearRect(0, 0, w, h);
-    if (trajPts.length < 4) return;
-    var c = tint(lastEnt);
-    trajCtx.fillStyle = c.fill;
-    for (var i = 0; i < trajPts.length; i++) {
-      var x = 6 + trajPts[i][0] * (w - 12);
-      var y = h - 6 - trajPts[i][1] * (h - 12);
-      trajCtx.beginPath();
-      trajCtx.arc(x, y, 1.4, 0, Math.PI * 2);
-      trajCtx.fill();
-    }
-  }
+  /* ---------- 主循环 ---------- */
 
   function frame() {
     if (!api) return;
@@ -140,6 +226,8 @@
     var paths = api.get_reach_paths() >>> 0;
     lastEnt = ent;
 
+    var spirality = SPIRAL && outBuf.length >= 12 ? SPIRAL.spirality(outBuf) : 0;
+
     stat("out", out.toFixed(3));
     stat("ent", ent.toFixed(3));
     stat("state", STATE_NAMES[stateCode] || "未知");
@@ -148,14 +236,9 @@
     stat("diagState", solved === 1 ? "已收敛" : "收敛中");
     stat("reach", reachText(reach));
     stat("reachPaths", paths + " 路径");
+    stat("spiral", spirality.toFixed(3));
 
-    // 声音：输出 0-1 → 200-1200 Hz
     if (audioOn && audioCtx && audioTick % 2 === 0) beep(200 + out * 1000);
-
-    // 轨迹点
-    trajPts.push([prevOut, out]);
-    if (trajPts.length > TRAJ_MAX) trajPts.shift();
-    prevOut = out;
 
     var cx = canvas.width / 2, cy = canvas.height / 2;
     var radius = 8 + out * 120;
@@ -206,6 +289,12 @@
 
     document.getElementById("seedBtn").addEventListener("click", function () {
       if (api) api.push_seed(1.0);
+    });
+
+    document.getElementById("modeBtn").addEventListener("click", function () {
+      trajMode = trajMode === "3d" ? "2d" : "3d";
+      document.getElementById("modeBtn").textContent =
+        trajMode === "3d" ? "轨迹模式: 3D 投影" : "轨迹模式: 2D (对比)";
     });
 
     document.getElementById("soundBtn").addEventListener("click", function () {
