@@ -108,7 +108,7 @@ impl Searcher {
         };
         let a = hist(query);
         let b = hist(cand);
-        let inter: u64 = a.iter().zip(b.iter()).map(|(x, y)| x.min(*y)).sum();
+        let inter: u64 = a.iter().zip(b.iter()).map(|(x, y)| (*x).min(*y)).sum();
         let denom = a.iter().sum::<u64>().max(b.iter().sum::<u64>()).max(1);
         inter as f64 / denom as f64
     }

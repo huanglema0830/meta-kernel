@@ -19,7 +19,8 @@ pub const LEVEL_NAMES: [&str; LEVELS] =
 
 /// 层级名称查询。
 pub const fn level_name(level: u8) -> &'static str {
-    LEVEL_NAMES[(level.min(10)) as usize]
+    let l = if level > 10 { 10 } else { level };
+    LEVEL_NAMES[l as usize]
 }
 
 /// 强度近似容差（互补判定用）。
@@ -36,7 +37,8 @@ pub struct Element {
 
 impl Element {
     pub const fn new(level: u8, intensity: f64) -> Self {
-        Self { level: level.min(10), intensity }
+        let lv = if level > 10 { 10 } else { level };
+        Self { level: lv, intensity }
     }
 }
 

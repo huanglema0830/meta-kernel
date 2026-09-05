@@ -12,10 +12,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust (stable, minimal)
+      - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
-        with:
-          profile: minimal
 
       - name: Run tests (10000-iteration stability included)
         shell: bash
