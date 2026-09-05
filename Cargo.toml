@@ -1,9 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["meta-kernel-core"]
+members = ["meta-kernel-core", "npb"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/huanglema0830/meta-kernel"
+
+# wasm32 cdylib 无 unwinder：release 一律 panic=abort
+[profile.release]
+panic = "abort"
+

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>元内核 · 禅息演示（WASM Canvas）</title>
+<style>
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#0b0e14; color:#cfe3d8; font-family:ui-monospace,Menlo,Consolas,monospace; }
+  .card { text-align:center; }
+  canvas { border:1px solid #223; border-radius:14px; background:#0e131a; display:block; }
+  .row { display:flex; gap:2.2rem; justify-content:center; margin-top:1rem; }
+  .stat { font-size:13px; color:#8aa; }
+  .stat b { display:block; font-size:22px; color:#9fe1cb; font-weight:500; }
+  h1 { font-size:15px; font-weight:500; letter-spacing:.2em; color:#7fd7b4; }
+  button { margin-top:1rem; padding:.5rem 1.2rem; border:1px solid #1d9e75; border-radius:8px;
+           background:#0f2a22; color:#9fe1cb; cursor:pointer; }
+  button:active { background:#12352b; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>META-KERNEL · 呼吸演示（同一内核，WASM 直驱）</h1>
+  <canvas id="breath" width="360" height="360"></canvas>
+  <div class="row">
+    <div class="stat">内核输出<b id="out">0.000</b></div>
+    <div class="stat">系统熵<b id="ent">1.000</b></div>
+    <div class="stat">心跳计数<b id="beat">0</b></div>
+  </div>
+  <button id="seedBtn">注入一次扰动 (1.0)</button>
+  <p class="stat" style="margin-top:1rem">服务方式：<code>python3 -m http.server 8000</code> 后访问
+    本目录；或双击 index.html（需浏览器允许 file:// 加载 wasm）。</p>
+</div>
+<script src="wasm_canvas.js"></script>
+</body>
+</html>

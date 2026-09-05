@@ -1,0 +1,13 @@
+[package]
+name = "npb"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "NPB (Nothing-to-Physics Bridge): C FFI bridge exposing meta-kernel-core to any device/program."
+
+[lib]
+name = "npb"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+meta-kernel-core = { path = "../meta-kernel-core", version = "0.1.0" }

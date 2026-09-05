@@ -15,15 +15,52 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run tests (10000-iteration stability included)
+      - name: Run workspace tests
         shell: bash
         run: |
           set -o pipefail
           cargo test --workspace 2>&1 | tee phase1-test.log
 
-      - name: Upload test log
+      - name: Upload workspace test log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: phase1-test-log
           path: phase1-test.log
+
+      - name: Build NPB cdylib (native)
+        run: cargo build -p npb
+
+      - name: Build & run DOSBox concept demo (C via bridge.h)
+        shell: bash
+        run: |
+          cc -std=c11 -Wall examples/dos_concept/main.c -I npb -o dos_demo \
+             -L target/debug -lnpb -Wl,-rpath,"$PWD/target/debug"
+          ./dos_demo | tee dos_demo.log
+          grep -q "BEEP" dos_demo.log
+          grep -q "KERNEL_DEMO_DONE" dos_demo.log
+
+      - name: Upload DOS demo log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dos-demo-log
+          path: dos_demo.log
+
+      - name: Native self-test digest
+        shell: bash
+        run: cargo run -p npb --example self_test | tee native_digest.log
+
+      - name: Build wasm32 (same kernel for browser)
+        shell: bash
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo build -p npb --release --target wasm32-unknown-unknown
+
+      - name: Cross-platform consistency (native vs wasm digest)
+        shell: bash
+        run: |
+          cp target/wasm32-unknown-unknown/release/npb.wasm examples/wasm_canvas/npb.wasm
+          node examples/wasm_canvas/self_test.js examples/wasm_canvas/npb.wasm | tee wasm_digest.log
+          diff <(grep DIGEST native_digest.log) <(grep DIGEST wasm_digest.log)
+          echo CROSS_PLATFORM_CONSISTENT
