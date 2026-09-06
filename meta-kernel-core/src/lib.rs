@@ -25,6 +25,7 @@ pub mod mirror;
 // ===== Phase 2 新增核心模块（先声明，逐步实现）=====
 pub mod energy; // 能量层级判定（依赖 ontology）
 pub mod ontology; // 0-10 元通用标尺
+pub mod persist; // 持久化：核心可恢复快照 纯编解码（JSON 子集，零依赖）
 pub mod positive_source; // 正源系统（拆解-分析-重编循环，依赖 ontology/energy）
 pub mod executor; // 指令发布器（思流照亮：KernelInstruction + JSON 序列化）
 pub mod gate; // 闸门层（摩尼宝珠②：进化模式验证 + 黄金 ×0.618 拆解；五戒·不杀生落点）

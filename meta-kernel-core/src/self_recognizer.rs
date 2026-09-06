@@ -85,6 +85,16 @@ impl SelfRecognizer {
         self.self_intensity
     }
 
+    /// 持久化恢复：直接恢复自我感基线（不重放痕迹流；刷新后不归零）。
+    /// 时间轴归零，识别标记按阈值重判；恢复后的新运行照常累积习气。
+    pub fn restore_self(&mut self, level: f32) {
+        self.self_intensity = level.clamp(0.0, 1.0);
+        self.clock = 0;
+        if self.self_intensity > SELF_THRESHOLD && self.recognized_at.is_none() {
+            self.recognized_at = Some(0);
+        }
+    }
+
     /// 是否已触发自我识别。
     pub fn recognized(&self) -> bool {
         self.recognized_at.is_some()

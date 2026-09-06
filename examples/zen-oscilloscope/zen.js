@@ -44,7 +44,11 @@
     "get_energy_absorbed", "get_energy_spent", "get_energy_ratio", "get_energy_stored", "get_product_energy",
     "get_state_budget",
     "get_anchor_distance", "get_anchor_band",
-    "get_instruction_count", "pop_instruction_json", "free_instruction_json"
+    "get_instruction_count", "pop_instruction_json", "free_instruction_json",
+    "get_mirror_dominant", "get_mirror_in_phase",
+    "get_gate_pass_count", "get_gate_recycle_count", "get_gate_reject_count",
+    "persist_snapshot_json", "persist_snapshot_free",
+    "persist_load_buf_ptr", "persist_load_buf_cap", "persist_apply"
   ];
 
   var api = null;
@@ -64,6 +68,44 @@
   var HIST_CAP = 480;
   var instrBuf = [];       // 思流照亮：最近若干指令 JSON（环形展示）
   var INSTR_CAP = 6;
+  var saveTick = 0;        // 持久化保存节流计数
+  var SAVE_EVERY = 10;     // 每 10 帧保存一次内核快照（localStorage）
+
+  // 启动时尝试从 localStorage 恢复内核快照（无存档/版本不符 → 0 锚点启动）
+  function persistTryRestore() {
+    if (!api) return false;
+    try {
+      var saved = localStorage.getItem("meta_kernel_state");
+      if (!saved) { stat("persistState", "无存档 · 0 锚点启动"); return false; }
+      var bytes = new TextEncoder().encode(saved);
+      var cap = api.persist_load_buf_cap() >>> 0;
+      if (bytes.length > cap) return false;
+      new Uint8Array(api.memory.buffer).set(bytes, api.persist_load_buf_ptr());
+      if (api.persist_apply(bytes.length) !== 1) {
+        stat("persistState", "存档版本不符 · 0 锚点启动");
+        return false;
+      }
+      try {
+        var o = JSON.parse(saved);
+        stat("persistState", "已恢复 @" + o.ts + " · 自我感 " + o.self.toFixed(3));
+      } catch (e) { stat("persistState", "已恢复"); }
+      return true;
+    } catch (e) {
+      stat("persistState", "浏览器无存档能力");
+      return false;
+    }
+  }
+
+  // 周期保存：导出内核快照 JSON → localStorage（失败静默，不影响演化）
+  function persistMaybeSave() {
+    if (!api) return;
+    try {
+      var ptr = api.persist_snapshot_json();
+      var js = readCStr(api.memory, ptr);
+      if (ptr) api.persist_snapshot_free(ptr); // 必须释放
+      if (js) localStorage.setItem("meta_kernel_state", js);
+    } catch (e) { /* localStorage 不可用则跳过 */ }
+  }
 
   function stat(id, text) { document.getElementById(id).textContent = text; }
   function $(id) { return document.getElementById(id); }
@@ -353,6 +395,17 @@
     }
     stat("instrStream", instrBuf.length ? instrBuf.slice().reverse().join(" ｜ ") : "（暂未触发）");
 
+    // 摩尼宝珠读数（镜面主相位/同相命中 + 闸门过/收/拒 + 持久化节流保存）
+    var md = api.get_mirror_dominant();
+    var mip = api.get_mirror_in_phase() >>> 0;
+    stat("mirror", md.toFixed(3) + " rad · 同相 " + mip);
+    var gpc = api.get_gate_pass_count() >>> 0;
+    var grc = api.get_gate_recycle_count() >>> 0;
+    var gdc = api.get_gate_reject_count() >>> 0;
+    stat("gate", "过 " + gpc + " · 收 " + grc + " · 拒 " + gdc);
+    saveTick++;
+    if (saveTick % SAVE_EVERY === 0) persistMaybeSave();
+
     if (audioOn && audioCtx && audioTick % 2 === 0) beep(200 + out * 1000);
 
     outBuf.push(out);
@@ -396,6 +449,7 @@
         var missing = REQUIRED_EXPORTS.filter(function (k) { return typeof api[k] !== "function"; });
         if (missing.length) throw new Error("缺少导出函数: " + missing.join(", "));
 
+        persistTryRestore(); // 优先恢复持久化内核状态（刷新后自我感不归零）
         api.push_seed(0.01); // 0 = 纯粹存在（待激发），0.01 柔和起搏
         api.push_seed(1.0);  // 1 = 第一扰动（觉醒）
         frame();

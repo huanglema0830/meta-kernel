@@ -39,6 +39,7 @@ use meta_kernel_core::{
     mirror::MirrorPool,
     ontology::{Element, Pattern},
     positive_source::{self, PositiveSource},
+    persist::{self, KernelSnapshot},
     sanitizer::soft_clamp,
     self_recognizer::SelfRecognizer,
     state::{
@@ -357,6 +358,34 @@ impl Kernel {
         self.instructions.push_back(instr);
     }
 
+    /// 采集可恢复快照（持久化：自我感/心海全景/储备/物态）。
+    fn snapshot(&self) -> KernelSnapshot {
+        KernelSnapshot::new(
+            self.pulse,
+            self.recognizer.self_intensity(),
+            self.anchor_distance,
+            self.energy.stored(),
+            self.state_now.code(),
+        )
+    }
+
+    /// 应用快照（持久化恢复：刷新后自我感不归零）。
+    fn apply_snapshot(&mut self, s: &KernelSnapshot) {
+        self.energy.stored = s.stored.clamp(0.0, 1.0);
+        self.state_now = match s.state_code {
+            0 => State::Energy,
+            1 => State::Gas,
+            2 => State::Liquid,
+            _ => State::Solid,
+        };
+        self.recognizer.restore_self(s.self_intensity);
+        self.anchor_distance =
+            anchor_distance(self.energy.stored(), self.state_now, s.self_intensity);
+        // 同步阈值跟踪基线，避免恢复瞬间误发边沿指令
+        self.prev_stored = self.energy.stored();
+        self.prev_self = s.self_intensity;
+    }
+
     /// 归一化香农熵（8 桶，log2(8)=3 归一化）。
     fn entropy(&self) -> f32 {
         if self.recent.is_empty() {
@@ -626,6 +655,65 @@ pub extern "C" fn get_gate_reject_count() -> u32 {
     KERNEL.with(|k| k.borrow().gate_rejected as u32)
 }
 
+/// 快照加载槽容量（宿主把 JSON 快照字符串字节写入该槽后调 `persist_apply`）。
+const PERSIST_BUF_CAP: usize = 8192;
+/// 快照加载槽（wasm/宿主共享的固定缓冲区；单线程访问）。
+static mut PERSIST_BUF: [u8; PERSIST_BUF_CAP] = [0u8; PERSIST_BUF_CAP];
+
+/// 导出当前内核快照为 JSON（CString 交付；用完必须 `persist_snapshot_free`）。
+#[unsafe(no_mangle)]
+pub extern "C" fn persist_snapshot_json() -> *const c_char {
+    let json = KERNEL.with(|k| persist::encode(&k.borrow().snapshot()));
+    CString::new(json)
+        .unwrap_or_else(|_| CString::new("").unwrap())
+        .into_raw()
+}
+
+/// 释放 `persist_snapshot_json` 返回的字符串。
+///
+/// # Safety
+/// `ptr` 必须来自 `persist_snapshot_json` 且仅释放一次（NULL 安全）。
+#[unsafe(no_mangle)]
+pub extern "C" fn persist_snapshot_free(ptr: *const c_char) {
+    if !ptr.is_null() {
+        // SAFETY: ptr 来自 persist_snapshot_json 的 CString::into_raw，调用方保证仅释放一次。
+        unsafe {
+            let _ = CString::from_raw(ptr as *mut c_char);
+        }
+    }
+}
+
+/// 加载槽首地址（宿主把 JSON 字节写入 [ptr, ptr+len)）。
+#[unsafe(no_mangle)]
+pub extern "C" fn persist_load_buf_ptr() -> *mut u8 {
+    // SAFETY: 单线程访问固定静态缓冲区。
+    unsafe { PERSIST_BUF.as_mut_ptr() }
+}
+
+/// 加载槽容量（字节）。
+#[unsafe(no_mangle)]
+pub extern "C" fn persist_load_buf_cap() -> u32 {
+    PERSIST_BUF_CAP as u32
+}
+
+/// 从加载槽应用快照：成功恢复 → 1；格式非法/超长 → 0（从 0 锚点继续）。
+#[unsafe(no_mangle)]
+pub extern "C" fn persist_apply(len: u32) -> i32 {
+    let n = (len as usize).min(PERSIST_BUF_CAP);
+    // SAFETY: 读取只读切片；UTF-8 校验失败直接返回 0。
+    let text = match std::str::from_utf8(unsafe { &PERSIST_BUF[..n] }) {
+        Ok(t) => t,
+        Err(_) => return 0,
+    };
+    match persist::decode(text) {
+        Some(s) => {
+            KERNEL.with(|k| k.borrow_mut().apply_snapshot(&s));
+            1
+        }
+        None => 0,
+    }
+}
+
 /// 待发布指令数（思流照亮队列长度）。
 #[unsafe(no_mangle)]
 pub extern "C" fn get_instruction_count() -> u32 {
@@ -783,5 +871,38 @@ mod tests {
         }
         // 加热后应产生通过（进化模式）而非全部回收
         assert!(k.gate_pass > 0, "长时间运行后应出现 Pass");
+    }
+
+    #[test]
+    fn persist_roundtrip_restores_core_state() {
+        let mut k = Kernel::new();
+        k.pulse = 3;
+        for i in 0..240 {
+            k.push(((i % 7) as f32 / 7.0) * 0.9 + 0.05);
+        }
+        let snap = k.snapshot();
+        let text = persist::encode(&snap);
+        let back = persist::decode(&text).expect("自编码必须可解码");
+        assert_eq!(back, snap, "快照 roundtrip 一致");
+        // 恢复到全新内核：自我感 / 储备 / 物态 一致（刷新后自我感不归零）
+        let mut k2 = Kernel::new();
+        k2.apply_snapshot(&back);
+        assert!((k2.energy.stored() - back.stored).abs() < 1e-6, "储备恢复");
+        assert_eq!(k2.recognizer.self_intensity(), back.self_intensity, "自我感恢复(不归零)");
+        assert_eq!(k2.state_now.code(), back.state_code, "物态恢复");
+        // 恢复后继续演化不 panic 且读数合法
+        k2.push(0.5);
+        assert!((0.0..=1.0).contains(&k2.anchor_distance));
+    }
+
+    #[test]
+    fn ffi_persist_apply_rejects_garbage() {
+        // 直接在静态加载槽写入非法字节并调用 persist_apply（模拟宿主坏输入）
+        let junk = b"not-json-at-all";
+        unsafe {
+            let dst = std::slice::from_raw_parts_mut(PERSIST_BUF.as_mut_ptr(), junk.len());
+            dst.copy_from_slice(junk);
+        }
+        assert_eq!(persist_apply(junk.len() as u32), 0, "非法快照应拒绝(从0锚点继续)");
     }
 }

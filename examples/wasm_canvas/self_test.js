@@ -41,6 +41,8 @@ WebAssembly.instantiate(bytes, {})
       "pop_instruction_json", "free_instruction_json",
       "get_mirror_dominant", "get_mirror_in_phase",
       "get_gate_pass_count", "get_gate_recycle_count", "get_gate_reject_count",
+      "persist_snapshot_json", "persist_snapshot_free",
+      "persist_load_buf_ptr", "persist_load_buf_cap", "persist_apply",
       "mk_self_test"
     ];
     const missing = required.filter((k) => typeof ex[k] !== "function");
@@ -180,6 +182,32 @@ WebAssembly.instantiate(bytes, {})
       process.exit(1);
     }
 
+    // 持久化：快照 JSON 可解析 → 写回加载槽 → apply 成功(1)；加载后读数仍合法
+    const sp = ex.persist_snapshot_json();
+    let snapJson = readCStr(ex.memory, sp);
+    if (sp !== 0) ex.persist_snapshot_free(sp);
+    let snapObj = null;
+    try { snapObj = JSON.parse(snapJson); } catch (e) { snapObj = null; }
+    if (!snapObj || typeof snapObj.self !== "number" || typeof snapObj.state !== "number" ||
+        typeof snapObj.stored !== "number") {
+      console.error("PERSIST_JSON_FAIL: " + snapJson);
+      process.exit(1);
+    }
+    const encBytes = new TextEncoder().encode(snapJson);
+    const bufPtr = ex.persist_load_buf_ptr();
+    const bufCap = ex.persist_load_buf_cap() >>> 0;
+    if (encBytes.length > bufCap) {
+      console.error("PERSIST_BUF_FAIL len=" + encBytes.length + " cap=" + bufCap);
+      process.exit(1);
+    }
+    new Uint8Array(ex.memory.buffer).set(encBytes, bufPtr);
+    const applied = ex.persist_apply(encBytes.length);
+    if (applied !== 1) {
+      console.error("PERSIST_APPLY_FAIL rc=" + applied);
+      process.exit(1);
+    }
+    const selfAfter = ex.get_self_intensity();
+
     const digest = ex.mk_self_test() >>> 0;
     console.log("DIGEST=" + digest);
     console.log("WASM_SMOKE_OK out=" + out.toFixed(4) + " ent=" + ent.toFixed(4) +
@@ -189,7 +217,8 @@ WebAssembly.instantiate(bytes, {})
       " self=" + selfI.toFixed(3) + " trace=" + tw + "/" + tfire + "/" + twater + "/" + tearth +
       " energy=" + ea.toFixed(3) + "/" + es.toFixed(3) + " r=" + er.toFixed(2) + " store=" + est.toFixed(3) + " sb=" + sb + " prod=" + pe.toFixed(3) +
       " anchor=" + ad.toFixed(3) + " band=" + ab + " instr=" + instrCount +
-      " mirror=" + md.toFixed(3) + " inPhase=" + mip + " gate=" + gp + "/" + gr + "/" + gd);
+      " mirror=" + md.toFixed(3) + " inPhase=" + mip + " gate=" + gp + "/" + gr + "/" + gd +
+      " persist=" + applied + " selfAfter=" + selfAfter.toFixed(3));
   })
   .catch((err) => {
     console.error("WASM_LOAD_FAIL:", err);
