@@ -345,7 +345,8 @@ mod decay_tests {
         for _ in 0..200 {
             p.natural_return();
             let cur = p.stored();
-            if prev > DECAY_EPS {
+            // 仅统计"两侧都未触底"的步（跨阈值那一步 cur 被置 0，比值自然截断）
+            if prev > DECAY_EPS && cur > 0.0 {
                 let r = cur / prev;
                 ratios_ok &= (r - k).abs() < 1e-5;
             }
