@@ -4,6 +4,9 @@
 //! - 时间线底层 = **步数**（自然数递增）；斐波那契是自然数的一种进化模式；
 //! - 每次步进对应一个"因果链"事件：物态切换 / 化合发生 / 粒子成形 / 结晶形成；
 //! - `EvolutionLog` 记录全部事件，`replay()` 供按步回放；界面侧提供回放控制条。
+//!
+//! **A·观察能量台账**：除离散事件外，另持一条**每步能量采样**环形（储备 + 预算态码），
+//! 使 B 机制（储备演化 / 预算约束物态）成为内核原生可回放的连续轨迹。
 
 use crate::interference::Particle;
 use crate::state::State;
@@ -28,16 +31,31 @@ pub struct EvolutionEvent {
     pub kind: EventKind,
 }
 
+/// 每步能量采样（A·观察台账：B 机制轨迹的内核原生记录）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EnergySample {
+    /// 采样步。
+    pub step: u64,
+    /// 真实能量储备 ∈[0,1]。
+    pub stored: f32,
+    /// 预算约束物态码：0 能量态 / 1 气态 / 2 液态 / 3 固态。
+    pub budget_code: u32,
+}
+
 /// 进化时间线。
 #[derive(Debug, Clone, Default)]
 pub struct EvolutionLog {
     events: Vec<EvolutionEvent>,
     next_step: u64,
+    /// A·观察：每步能量采样台账（环形，容量 [`EnergySampleCap`]）。
+    ledger: std::collections::VecDeque<EnergySample>,
 }
 
 impl EvolutionLog {
     /// 时间线上限（环形）。
     pub const CAP: usize = 1024;
+    /// 能量台账上限（环形；与 UI 时间线 HIST_CAP≈480 同量级）。
+    pub const ENERGY_SAMPLE_CAP: usize = 512;
 
     pub fn new() -> Self {
         Self::default()
@@ -108,6 +126,33 @@ impl EvolutionLog {
     pub fn replay_from(&self, step: u64) -> impl Iterator<Item = &EvolutionEvent> {
         self.events.iter().filter(move |e| e.step >= step)
     }
+
+    /// A·观察：每步能量采样（储备 + 预算态码）→ 内核原生轨迹，环形挤出。
+    pub fn record_energy(&mut self, stored: f32, budget_code: u32) {
+        self.ledger.push_back(EnergySample {
+            step: self.next_step,
+            stored: stored.clamp(0.0, 1.0),
+            budget_code: budget_code.min(3),
+        });
+        if self.ledger.len() > Self::ENERGY_SAMPLE_CAP {
+            self.ledger.pop_front();
+        }
+    }
+
+    /// 能量台账条数。
+    pub fn energy_trace_len(&self) -> usize {
+        self.ledger.len()
+    }
+
+    /// 最近一次能量采样。
+    pub fn energy_last(&self) -> Option<&EnergySample> {
+        self.ledger.back()
+    }
+
+    /// 按步回放能量台账（该步及之后；step 单调）。
+    pub fn energy_from(&self, step: u64) -> impl Iterator<Item = &EnergySample> {
+        self.ledger.iter().filter(move |s| s.step >= step)
+    }
 }
 
 /// 斐波那契：自然数的一种"进化模式"（演示：步进节奏的黄金比例演化）。
@@ -175,5 +220,50 @@ mod tests {
     fn fibonacci_is_natural_evolution_mode() {
         let f = fibonacci_mode(13);
         assert_eq!(f, vec![0, 1, 1, 2, 3, 5, 8, 13]);
+    }
+
+    #[test]
+    fn energy_ledger_records_each_step() {
+        let mut log = EvolutionLog::new();
+        assert_eq!(log.energy_trace_len(), 0);
+        log.tick();
+        log.record_energy(0.8, 0);
+        log.tick();
+        log.record_energy(0.5, 2);
+        log.tick();
+        log.record_energy(0.2, 3);
+        assert_eq!(log.energy_trace_len(), 3);
+        assert_eq!(log.energy_last().unwrap().stored, 0.2);
+        assert_eq!(log.energy_last().unwrap().budget_code, 3);
+        let steps: Vec<u64> = log.energy_from(2).map(|s| s.step).collect();
+        assert_eq!(steps, vec![2, 3], "step 单调且从指定步起");
+        // 与事件互不干扰
+        assert_eq!(log.len(), 0);
+    }
+
+    #[test]
+    fn energy_ledger_caps_as_ring() {
+        let mut log = EvolutionLog::new();
+        for i in 0..(EvolutionLog::ENERGY_SAMPLE_CAP as u64 + 30) {
+            log.tick();
+            log.record_energy(0.5, 1);
+        }
+        assert_eq!(log.energy_trace_len(), EvolutionLog::ENERGY_SAMPLE_CAP);
+        // 最新采样保留
+        assert_eq!(
+            log.energy_last().unwrap().step,
+            EvolutionLog::ENERGY_SAMPLE_CAP as u64 + 30
+        );
+    }
+
+    #[test]
+    fn energy_sample_clamps_domains() {
+        let mut log = EvolutionLog::new();
+        log.record_energy(7.5, 99);
+        let s = log.energy_last().unwrap();
+        assert_eq!(s.stored, 1.0);
+        assert_eq!(s.budget_code, 3);
+        log.record_energy(-1.0, 0);
+        assert_eq!(log.energy_last().unwrap().stored, 0.0);
     }
 }

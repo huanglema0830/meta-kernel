@@ -268,6 +268,9 @@ impl Kernel {
         }
         self.evo.tick();
 
+        // A·观察：每步能量台账采样（真实储备 + 预算约束物态 → 内核原生轨迹可回放）
+        self.evo.record_energy(self.energy.stored(), state_of_energy_budget(&self.energy).code());
+
         // ③（续）心海全景：刷新离 0 锚点距离（0 合一 / 1 固化）
         let self_now = self.recognizer.self_intensity();
         self.anchor_distance = anchor_distance(self.energy.stored(), new_state, self_now);
@@ -655,6 +658,12 @@ pub extern "C" fn get_gate_reject_count() -> u32 {
     KERNEL.with(|k| k.borrow().gate_rejected as u32)
 }
 
+/// A·观察：内核能量台账条数（每步储备/预算态采样；环形 512）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_energy_trace_len() -> u32 {
+    KERNEL.with(|k| k.borrow().evo.energy_trace_len() as u32)
+}
+
 /// 快照加载槽容量（宿主把 JSON 快照字符串字节写入该槽后调 `persist_apply`）。
 const PERSIST_BUF_CAP: usize = 8192;
 /// 快照加载槽（线程局部 + RefCell，与 KERNEL 同模式：native 测试线程隔离、wasm 单线程等价）。
@@ -916,5 +925,19 @@ mod tests {
             g[..junk.len()].copy_from_slice(junk);
         });
         assert_eq!(persist_apply(junk.len() as u32), 0, "非法快照应拒绝(从0锚点继续)");
+    }
+
+    #[test]
+    fn energy_ledger_tracks_every_push() {
+        let mut k = Kernel::new();
+        k.pulse = 3;
+        for i in 0..40 {
+            k.push((i % 5) as f32 / 5.0);
+        }
+        assert_eq!(k.evo.energy_trace_len(), 40, "每次 push 应采一条台账");
+        let last = k.evo.energy_last().expect("有采样");
+        assert_eq!(last.step, 40, "步数与 push 次数一致");
+        assert!((last.stored - k.energy.stored()).abs() < 1e-6, "台账储备=当前储备");
+        assert!(last.budget_code <= 3);
     }
 }

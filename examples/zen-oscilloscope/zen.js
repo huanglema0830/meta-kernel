@@ -283,8 +283,9 @@
 
   /* ---------- 主循环 ---------- */
 
-  function liveSnapshot(out, ent, stateCode, pc, pt) {
-    hist.push({ t: hist.length, o: out, e: ent, s: stateCode, pc: pc, pt: pt });
+  function liveSnapshot(out, ent, stateCode, pc, layer, stored, sb, ad, ab, si) {
+    hist.push({ t: hist.length, o: out, e: ent, s: stateCode, pc: pc, pt: layer,
+      st: stored, sb: sb, ad: ad, ab: ab, si: si });
     if (hist.length > HIST_CAP) hist.shift();
     var tl = $("tl");
     tl.max = String(hist.length - 1);
@@ -297,6 +298,14 @@
     stat("out", h.o.toFixed(3));
     stat("ent", h.e.toFixed(3));
     stat("state", STATE_NAMES[h.s] || "?");
+    // A·观察回放：把储备/预算态/心海全景/自我感读数覆写为历史值（仅显示，不推内核）
+    if (typeof h.st === "number") {
+      stat("energyStored", h.st.toFixed(3));
+      stat("stateBudget", STATE_NAMES[h.sb] || "?");
+      stat("anchor", h.ad.toFixed(3) + " · " + (BAND_NAMES[h.ab] || "—") + "（回放）");
+      stat("selfInt", h.si.toFixed(3));
+      stat("selfFlag", h.si > 0.7 ? "自我识别" : "习气累积");
+    }
     var cx = canvas.width / 2, cy = canvas.height / 2;
     var radius = 8 + h.o * 120;
     var c = tint(h.e);
@@ -314,7 +323,8 @@
     ctx.fillStyle = "#07090d";
     ctx.fill();
     $("tlLabel").textContent = "回放 t=" + h.t + " · " + (STATE_NAMES[h.s] || "") + " · out=" + h.o.toFixed(2) +
-      (h.pc > 0 ? " · 粒子 x" + h.pc : "");
+      (h.pc > 0 ? " · 粒子 x" + h.pc : "") +
+      (typeof h.st === "number" ? " · 储备 " + h.st.toFixed(3) : "");
   }
 
   function frame() {
@@ -413,7 +423,8 @@
     drawWave();
     drawTraj();
     drawPattern(pc, layer);
-    liveSnapshot(out, ent, stateCode, pc, layer);
+    // A·观察：历史条目增补能量轨迹（储备/预算态/心海全景/自我感），供时间线回放
+    liveSnapshot(out, ent, stateCode, pc, layer, est, sb, ad, ab, selfI);
 
     var cx = canvas.width / 2, cy = canvas.height / 2;
     var radius = 8 + out * 120;

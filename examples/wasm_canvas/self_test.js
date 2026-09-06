@@ -43,6 +43,7 @@ WebAssembly.instantiate(bytes, {})
       "get_gate_pass_count", "get_gate_recycle_count", "get_gate_reject_count",
       "persist_snapshot_json", "persist_snapshot_free",
       "persist_load_buf_ptr", "persist_load_buf_cap", "persist_apply",
+      "get_energy_trace_len",
       "mk_self_test"
     ];
     const missing = required.filter((k) => typeof ex[k] !== "function");
@@ -208,6 +209,13 @@ WebAssembly.instantiate(bytes, {})
     }
     const selfAfter = ex.get_self_intensity();
 
+    // A·观察：内核能量台账条数 == 已推入次数（每 tick 一条）
+    const etl = ex.get_energy_trace_len() >>> 0;
+    if (typeof etl !== "number" || etl !== 66) {
+      console.error("ENERGY_TRACE_LEN_FAIL etl=" + etl + "（期待 66）");
+      process.exit(1);
+    }
+
     const digest = ex.mk_self_test() >>> 0;
     console.log("DIGEST=" + digest);
     console.log("WASM_SMOKE_OK out=" + out.toFixed(4) + " ent=" + ent.toFixed(4) +
@@ -218,7 +226,8 @@ WebAssembly.instantiate(bytes, {})
       " energy=" + ea.toFixed(3) + "/" + es.toFixed(3) + " r=" + er.toFixed(2) + " store=" + est.toFixed(3) + " sb=" + sb + " prod=" + pe.toFixed(3) +
       " anchor=" + ad.toFixed(3) + " band=" + ab + " instr=" + instrCount +
       " mirror=" + md.toFixed(3) + " inPhase=" + mip + " gate=" + gp + "/" + gr + "/" + gd +
-      " persist=" + applied + " selfAfter=" + selfAfter.toFixed(3));
+      " persist=" + applied + " selfAfter=" + selfAfter.toFixed(3) +
+      " evoTrace=" + etl);
   })
   .catch((err) => {
     console.error("WASM_LOAD_FAIL:", err);
