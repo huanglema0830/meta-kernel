@@ -34,7 +34,7 @@ use meta_kernel_core::{
     positive_source::PositiveSource,
     sanitizer::soft_clamp,
     self_recognizer::SelfRecognizer,
-    state::{state_of_flow_ratio, state_pace, State},
+    state::{state_of_energy_budget, state_of_flow_ratio, state_pace, State},
     thinking_chain::ThinkingChain,
 };
 
@@ -161,6 +161,8 @@ impl Kernel {
         }
 
         // ③ 物态刷新（能量池比值）并记录状态演化
+        // 被动耗散：每个调度 tick 漏失真实储备（不影响滚动入/出流比值）
+        self.energy.dissipate();
         let new_state = state_of_flow_ratio(self.energy.ratio());
         if new_state != self.state_now {
             self.evo.record_state_change(self.state_now, new_state);
@@ -335,6 +337,13 @@ pub extern "C" fn get_state() -> u32 {
     KERNEL.with(|k| state_of_flow_ratio(k.borrow().energy.ratio()).code())
 }
 
+/// 预算约束物态码（B·深化能量耗散）：在入出流比值之上叠加真实储备约束，
+/// 储备枯竭时主动拉向固态；积分观测演化（A）使用此态。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_state_budget() -> u32 {
+    KERNEL.with(|k| state_of_energy_budget(&k.borrow().energy).code())
+}
+
 /// 能量池：已吸收（入流现值）。
 #[unsafe(no_mangle)]
 pub extern "C" fn get_energy_absorbed() -> f32 {
@@ -351,6 +360,12 @@ pub extern "C" fn get_energy_spent() -> f32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn get_energy_ratio() -> f32 {
     KERNEL.with(|k| k.borrow().energy.ratio())
+}
+
+/// 能量池：真实储备（库存现值，∈[0,1]；吸收累积、消耗扣减、每 tick 被动耗散）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_energy_stored() -> f32 {
+    KERNEL.with(|k| k.borrow().energy.stored())
 }
 
 /// 化合产物能量（= 思考链最新创新增量，内核实际状态）。

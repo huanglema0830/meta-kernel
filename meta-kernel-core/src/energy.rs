@@ -84,14 +84,18 @@ pub fn collapse_negative(score: f64, p: &Pattern) -> Vec<Element> {
 pub const FLOW_DECAY: f32 = 0.9;
 /// 比值防除零。
 pub const FLOW_EPS: f32 = 1e-4;
+/// 能量储备被动耗散（每 tick 保留率；≈1.5% 漏失，模拟摩擦/热沉）。
+pub const DISSIPATION_DECAY: f32 = 0.985;
 
-/// 能量池：滚动入/出流累积器。
+/// 能量池：滚动入/出流累积器 + 真实能量储备。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnergyPool {
     /// 滚动能量流入（absorbed 口径）。
     pub flow_in: f32,
     /// 滚动能量流出（spent 口径）。
     pub flow_out: f32,
+    /// 真实能量储备（库存）：吸收累积、消耗扣减、每 tick 被动耗散。
+    pub stored: f32,
 }
 
 impl Default for EnergyPool {
@@ -102,17 +106,23 @@ impl Default for EnergyPool {
 
 impl EnergyPool {
     pub fn new() -> Self {
-        Self { flow_in: 0.0, flow_out: 0.0 }
+        Self { flow_in: 0.0, flow_out: 0.0, stored: 0.0 }
     }
 
     /// 能量流入（0-1 归一；来自注入/锚点回注）。
+    /// 同时累加入真实储备（库存上限 1.0）。
     pub fn absorb(&mut self, energy: f32) {
-        self.flow_in = self.flow_in * FLOW_DECAY + energy.clamp(0.0, 1.0);
+        let e = energy.clamp(0.0, 1.0);
+        self.flow_in = self.flow_in * FLOW_DECAY + e;
+        self.stored = (self.stored + e).min(1.0);
     }
 
     /// 能量流出（耗散；输出活动回落时产生摩擦消耗）。
+    /// 同时扣减真实储备（库存下限 0.0）。
     pub fn consume(&mut self, energy: f32) {
-        self.flow_out = self.flow_out * FLOW_DECAY + energy.clamp(0.0, 1.0);
+        let e = energy.clamp(0.0, 1.0);
+        self.flow_out = self.flow_out * FLOW_DECAY + e;
+        self.stored = (self.stored - e).max(0.0);
     }
 
     /// 已吸收能量（入流现值，化合时读取此值，非模拟）。
@@ -123,6 +133,17 @@ impl EnergyPool {
     /// 已耗散能量（出流现值）。
     pub fn spent(&self) -> f32 {
         self.flow_out
+    }
+
+    /// 真实能量储备（库存现值，∈[0,1]）。
+    pub fn stored(&self) -> f32 {
+        self.stored
+    }
+
+    /// 被动耗散：每个调度 tick 调用一次，储备按 DISSIPATION_DECAY 漏失。
+    /// 模拟未输出活动时的摩擦/热沉；不影响滚动入/出流比值（状态判据不变）。
+    pub fn dissipate(&mut self) {
+        self.stored = (self.stored * DISSIPATION_DECAY).clamp(0.0, 1.0);
     }
 
     /// 入/出比（∞ 有界化：出流为 0 时视为大流量比 9）。
@@ -160,6 +181,45 @@ mod flow_tests {
         // 滚动入流饱和于约 1/(1-decay) 上限附近 → 不为累计无限大
         assert!(p.absorbed() <= 10.5, "滚动有界: {}", p.absorbed());
         assert!(p.absorbed() > 9.0, "接近稳态: {}", p.absorbed());
+    }
+
+    #[test]
+    fn stored_accumulates_on_absorb_and_depletes_on_consume() {
+        let mut p = EnergyPool::new();
+        assert_eq!(p.stored(), 0.0, "空池储备为 0");
+        p.absorb(0.5);
+        p.absorb(0.5);
+        assert!((p.stored() - 1.0).abs() < 1e-6, "两次吸收≈1.0: {}", p.stored());
+        p.consume(0.3);
+        assert!((p.stored() - 0.7).abs() < 1e-6, "消耗扣减: {}", p.stored());
+        // 储备有界 [0,1]
+        for _ in 0..100 {
+            p.absorb(1.0);
+        }
+        assert_eq!(p.stored(), 1.0, "储备封顶 1.0");
+        for _ in 0..100 {
+            p.consume(1.0);
+        }
+        assert_eq!(p.stored(), 0.0, "储备兜底 0.0");
+    }
+
+    #[test]
+    fn dissipation_leaks_stored_reserve_over_ticks() {
+        let mut p = EnergyPool::new();
+        for _ in 0..50 {
+            p.absorb(0.8);
+        }
+        let before = p.stored();
+        assert!(before > 0.5, "吸收后储备充足: {before}");
+        // 停止注入，仅被动耗散
+        for _ in 0..200 {
+            p.dissipate();
+        }
+        let after = p.stored();
+        assert!(after < before * 0.5, "耗散应显著漏失: {before}→{after}");
+        assert!(after >= 0.0 && after <= 1.0, "储备仍界内: {after}");
+        // 滚动入/出流比值不受耗散影响（状态判据不变）：高入流下比值仍高
+        assert!(p.ratio() > 1.0, "耗散不改变入/出比值: {}", p.ratio());
     }
 }
 

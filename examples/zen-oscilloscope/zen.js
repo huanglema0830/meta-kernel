@@ -40,7 +40,8 @@
     "get_interfere_count", "get_interfere_layer", "get_evolution_len",
     "get_self_intensity",
     "get_trace_wind", "get_trace_fire", "get_trace_water", "get_trace_earth",
-    "get_energy_absorbed", "get_energy_spent", "get_energy_ratio", "get_product_energy"
+    "get_energy_absorbed", "get_energy_spent", "get_energy_ratio", "get_energy_stored", "get_product_energy",
+    "get_state_budget"
   ];
 
   var api = null;
@@ -287,7 +288,9 @@
     var ea = api.get_energy_absorbed();
     var es = api.get_energy_spent();
     var er = api.get_energy_ratio();
+    var est = api.get_energy_stored();
     var pe = api.get_product_energy();
+    var sb = api.get_state_budget() >>> 0;
     lastEnt = ent;
 
     var spirality = SPIRAL && outBuf.length >= 12 ? SPIRAL.spirality(outBuf) : 0;
@@ -296,6 +299,8 @@
     stat("ent", ent.toFixed(3));
     stat("state", STATE_NAMES[stateCode] || "未知");
     stat("energyFlow", ea.toFixed(3) + " / " + es.toFixed(3) + " · " + er.toFixed(2));
+    stat("energyStored", est.toFixed(3));
+    stat("stateBudget", STATE_NAMES[sb] || "未知");
     stat("productEnergy", pe.toFixed(3));
     stat("chainMeta", clen + " / " + cnodes);
     stat("diag", "形成 " + f + " 步 · 解决 " + r + " 步");

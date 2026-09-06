@@ -11,6 +11,7 @@
 //!
 //! **黄金尺度**（2.1）：阈值全面使用黄金分割衍生常量，取代人为的 0.2/0.5/0.8：
 
+use crate::energy::EnergyPool;
 use crate::ontology::Pattern;
 
 /// 波粒第一界面（最大尺度干涉，"色"）——能量态下界。
@@ -137,6 +138,37 @@ pub fn state_of_flow_ratio(ratio: f32) -> State {
     }
 }
 
+/// 预算约束物态（B·深化能量耗散）：在能量流比值判态之上叠加**真实储备约束**，
+/// 使物态切换更贴近真实能量收支、而非仅看瞬时入/出流。
+///
+/// | 储备 stored | 预算态上界 |
+/// |---|---|
+/// | ≥ 0.618 | 不约束（能量态可达） |
+/// | ≥ 0.309 | 至多气态 |
+/// | ≥ 0.206 | 至多液态 |
+/// | < 0.206 | 至多固态 |
+///
+/// 取「比值态」与「预算态」中更固者（code 较小）为最终态——储备枯竭会主动拉向固态，
+/// 即使瞬时流入比值偏高（耗散落地后自然观察的动力学基础）。
+pub fn state_of_energy_budget(pool: &EnergyPool) -> State {
+    let ratio_state = state_of_flow_ratio(pool.ratio());
+    let s = pool.stored().clamp(0.0, 1.0);
+    let budget_state = if s >= GOLDEN_RATIO {
+        State::Energy
+    } else if s >= GOLDEN_HALF {
+        State::Gas
+    } else if s >= GOLDEN_THIRD {
+        State::Liquid
+    } else {
+        State::Solid
+    };
+    if budget_state.code() < ratio_state.code() {
+        budget_state
+    } else {
+        ratio_state
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,5 +243,22 @@ mod tests {
         assert_eq!(state_of_flow_ratio(1.2), State::Gas);
         assert_eq!(state_of_flow_ratio(1.20001), State::Energy);
         assert_eq!(state_of_flow_ratio(1.05), State::Liquid);
+    }
+
+    #[test]
+    fn budget_pulls_toward_solid_when_reserve_depletes() {
+        use crate::energy::EnergyPool;
+        let mut pool = EnergyPool::new();
+        pool.absorb(0.9); // 高入流 → 比值态为能量态
+        assert_eq!(state_of_flow_ratio(pool.ratio()), State::Energy);
+        // 储备枯竭：预算态拉向固态（最终取更固者）
+        pool.stored = 0.1;
+        assert_eq!(state_of_energy_budget(&pool), State::Solid);
+        // 储备充足：不约束，保持比值态
+        pool.stored = 0.9;
+        assert_eq!(state_of_energy_budget(&pool), State::Energy);
+        // 储备中等：至多气态
+        pool.stored = 0.35;
+        assert_eq!(state_of_energy_budget(&pool), State::Gas);
     }
 }

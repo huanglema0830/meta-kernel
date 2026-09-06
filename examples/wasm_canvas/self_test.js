@@ -19,11 +19,11 @@ WebAssembly.instantiate(bytes, {})
       "push_seed", "pop_result", "get_entropy",
       "get_thinking_len", "get_thinking_nodes",
       "get_diag_formation", "get_diag_resolution", "get_diag_solved",
-      "get_state", "get_reach_levels", "get_reach_paths",
+      "get_state", "get_state_budget", "get_reach_levels", "get_reach_paths",
       "get_interfere_count", "get_interfere_layer", "get_evolution_len",
       "get_self_intensity",
       "get_trace_wind", "get_trace_fire", "get_trace_water", "get_trace_earth",
-      "get_energy_absorbed", "get_energy_spent", "get_energy_ratio", "get_product_energy",
+      "get_energy_absorbed", "get_energy_spent", "get_energy_ratio", "get_energy_stored", "get_product_energy",
       "mk_self_test"
     ];
     const missing = required.filter((k) => typeof ex[k] !== "function");
@@ -89,9 +89,19 @@ WebAssembly.instantiate(bytes, {})
     const ea = ex.get_energy_absorbed();
     const es = ex.get_energy_spent();
     const er = ex.get_energy_ratio();
+    const est = ex.get_energy_stored();
     const pe = ex.get_product_energy();
+    const sb = ex.get_state_budget() >>> 0;
     if (![ea, es, er, pe].every(Number.isFinite) || er <= 0) {
       console.error("ENERGY_EXPORT_FAIL ea/es/er/pe=" + ea + "/" + es + "/" + er + "/" + pe);
+      process.exit(1);
+    }
+    if (!(est >= 0.0 && est <= 1.0)) {
+      console.error("ENERGY_STORED_FAIL est=" + est);
+      process.exit(1);
+    }
+    if (sb > 3) {
+      console.error("STATE_BUDGET_FAIL sb=" + sb);
       process.exit(1);
     }
 
@@ -102,7 +112,7 @@ WebAssembly.instantiate(bytes, {})
       " state=" + state + " reach=" + reach + " paths=" + paths +
       " interfere=" + interfere + "/" + layer + " evo=" + evoLen +
       " self=" + selfI.toFixed(3) + " trace=" + tw + "/" + tfire + "/" + twater + "/" + tearth +
-      " energy=" + ea.toFixed(3) + "/" + es.toFixed(3) + " r=" + er.toFixed(2) + " prod=" + pe.toFixed(3));
+      " energy=" + ea.toFixed(3) + "/" + es.toFixed(3) + " r=" + er.toFixed(2) + " store=" + est.toFixed(3) + " sb=" + sb + " prod=" + pe.toFixed(3));
   })
   .catch((err) => {
     console.error("WASM_LOAD_FAIL:", err);
