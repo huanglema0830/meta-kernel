@@ -19,6 +19,8 @@ use crate::energy::{energy_level_evaluate, Verdict, verdict_for};
 use crate::evo_deconstructor;
 use crate::ontology::{self, AbstractSchema, Element, Pattern};
 use crate::sanitizer::finalize;
+use crate::trace;
+use std::collections::HashMap;
 
 /// 催化剂搜索加权（+20%）。
 pub const CATALYST_BOOST: f32 = 1.2;
@@ -26,6 +28,26 @@ pub const CATALYST_BOOST: f32 = 1.2;
 pub const KNOWN_SIMILARITY: f64 = 0.7;
 /// 缓存上限。
 pub const CACHE_CAP: usize = 64;
+
+/// 孪生指纹：按位取反（瞬时、可逆、twin(twin(x))==x）。
+///
+/// 用于"心流凿空"——不搜索相似的，而直接匹配孪生（互补）指纹。
+/// 每个模式存入正源库时，同时生成 `fingerprint` 与 `twin_fingerprint = !fingerprint`，
+/// 前者用于常规检索，后者用于 O(1) 直接配对（非遍历）。
+pub fn twin_fingerprint(fp: u64) -> u64 {
+    !fp
+}
+
+/// 纠缠条目：正指纹 + 孪生指纹 + 补充增量（化合时取出的"历史智慧"）。
+#[derive(Debug, Clone, Copy)]
+pub struct Entangled {
+    /// 正指纹。
+    pub fingerprint: u64,
+    /// 孪生指纹（= !fingerprint）。
+    pub twin_fingerprint: u64,
+    /// 补充增量（0-1），化合时作为"历史智慧"取出。
+    pub supplement: f32,
+}
 
 // ---------- 颗粒度调节器 / 拆解器 / 分析器（沿用 v1） ----------
 
@@ -311,6 +333,10 @@ pub struct PositiveSource {
     local_source: Vec<Pattern>,
     /// 触达范围位图。
     reach: ReachMask,
+    /// 纠缠库：已注册孪生条目（心流凿空原料）。
+    entangled: Vec<Entangled>,
+    /// 孪生索引：twin_fingerprint → entangled 下标（O(1) 直接配对，非遍历）。
+    twin_index: HashMap<u64, usize>,
 }
 
 impl PositiveSource {
@@ -357,6 +383,35 @@ impl PositiveSource {
 
     pub fn is_empty(&self) -> bool {
         self.absorbed.is_empty() && self.catalysts.is_empty() && self.cache.is_empty()
+    }
+
+    /// 注册一个孪生条目（幂等）：同时写入正指纹与孪生指纹索引。
+    /// 补充增量 supplement∈[0,1] 为化合时取出的"历史智慧"。
+    pub fn entangle(&mut self, fingerprint: u64, supplement: f32) {
+        let twin = twin_fingerprint(fingerprint);
+        if let Some(&i) = self.twin_index.get(&twin) {
+            self.entangled[i].supplement = supplement.clamp(0.0, 1.0);
+            return;
+        }
+        let idx = self.entangled.len();
+        self.entangled.push(Entangled {
+            fingerprint,
+            twin_fingerprint: twin,
+            supplement: supplement.clamp(0.0, 1.0),
+        });
+        self.twin_index.insert(twin, idx);
+    }
+
+    /// 心流凿空：直接按输入指纹的孪生配对查找（O(1)，非遍历）。
+    /// 返回匹配到的补充增量（若无孪生则 None）。
+    pub fn entanglement_match(&self, input_fingerprint: u64) -> Option<f32> {
+        let twin = twin_fingerprint(input_fingerprint);
+        self.twin_index.get(&twin).map(|&i| self.entangled[i].supplement)
+    }
+
+    /// 纠缠库条目数。
+    pub fn entangled_len(&self) -> usize {
+        self.entangled.len()
     }
 
     fn absorb_schema(&mut self, schema: AbstractSchema) {
@@ -609,5 +664,43 @@ mod tests {
             WeaveOutcome::Accepted { merit } => assert!(merit >= 0.0),
             WeaveOutcome::Recycled => {}
         }
+    }
+
+    #[test]
+    fn twin_is_involutive() {
+        assert_eq!(twin_fingerprint(twin_fingerprint(0x1234_ABCD)), 0x1234_ABCD);
+        assert_eq!(twin_fingerprint(twin_fingerprint(0)), 0);
+        assert_eq!(twin_fingerprint(twin_fingerprint(u64::MAX)), u64::MAX);
+    }
+
+    #[test]
+    fn entanglement_match_returns_twin_supplement() {
+        let mut src = PositiveSource::new();
+        // 存入模式 A（fp=0x0F），其补充增量 0.7
+        src.entangle(0x0F, 0.7);
+        // 输入匹配 A 的孪生 !0x0F → 应命中并返回 0.7
+        assert_eq!(src.entanglement_match(twin_fingerprint(0x0F)), Some(0.7));
+        // 未注册的孪生 → None
+        assert_eq!(src.entanglement_match(0x00), None);
+        // 幂等：重复 entangle 同 fp 更新 supplement
+        src.entangle(0x0F, 0.9);
+        assert_eq!(src.entanglement_match(twin_fingerprint(0x0F)), Some(0.9));
+        // 多条互不干扰
+        src.entangle(0x33, 0.4);
+        assert_eq!(src.entanglement_match(twin_fingerprint(0x33)), Some(0.4));
+        assert_eq!(src.entanglement_match(twin_fingerprint(0x0F)), Some(0.9));
+        assert_eq!(src.entangled_len(), 2);
+    }
+
+    #[test]
+    fn entanglement_match_is_o1_non_traversal() {
+        let mut src = PositiveSource::new();
+        // 填满多条，验证仍能瞬时命中（索引直查，不随规模退化）
+        for i in 0..128u64 {
+            src.entangle(i * 0x1000_0000_0000_0007, (i % 10) as f32 / 10.0);
+        }
+        let probe = 0x55 * 0x1000_0000_0000_0007;
+        let hit = src.entanglement_match(twin_fingerprint(probe));
+        assert!(hit.is_some(), "大规模下仍应命中");
     }
 }

@@ -26,6 +26,7 @@ pub mod mirror;
 pub mod energy; // 能量层级判定（依赖 ontology）
 pub mod ontology; // 0-10 元通用标尺
 pub mod positive_source; // 正源系统（拆解-分析-重编循环，依赖 ontology/energy）
+pub mod executor; // 指令发布器（思流照亮：KernelInstruction + JSON 序列化）
 pub mod sanitizer; // 负扰动过滤与安全阀（前置保险）
 // NPB 桥接器（bridge.h）放在仓库根 npb/ 目录，不作为本 crate 模块。
 

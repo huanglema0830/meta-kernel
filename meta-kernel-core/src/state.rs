@@ -171,6 +171,46 @@ pub fn state_of_energy_budget(pool: &EnergyPool) -> State {
     }
 }
 
+    /// 心海全景：系统当前离「纯粹存在（0）」的距离。
+    ///
+    /// 0.0 = 完全与 0 合一（觉知/能量态），1.0 = 完全物质化（固化态）。
+    /// 由储备（越满越近 0）、物态（越固越近 1）、自我感（越结晶越近 1）共同决定：
+    /// `d = 0.55·code/3 + 0.30·(1−stored) + 0.15·self_intensity`，clamp[0,1]。
+    pub fn anchor_distance(stored: f32, state: State, self_intensity: f32) -> f32 {
+        let matter = (state.code() as f32) / 3.0; // 能量态0 → 固态1
+        let reserve_gap = 1.0 - stored.clamp(0.0, 1.0);
+        let self_c = self_intensity.clamp(0.0, 1.0);
+        (matter * 0.55 + reserve_gap * 0.30 + self_c * 0.15).clamp(0.0, 1.0)
+    }
+
+    /// 心海全景分带标签（0–0.20 心海全景 / 0.21–0.50 波动态 / 0.51–0.80 结构态 / 0.81–1.00 固化态）。
+    pub fn anchor_band(d: f32) -> &'static str {
+        let v = d.clamp(0.0, 1.0);
+        if v <= 0.20 {
+            "心海全景"
+        } else if v <= 0.50 {
+            "波动态"
+        } else if v <= 0.80 {
+            "结构态"
+        } else {
+            "固化态"
+        }
+    }
+
+    /// 心海全景分带索引（UI/FFI 用）：0 心海全景 /1 波动态 /2 结构态 /3 固化态。
+    pub fn anchor_band_index(d: f32) -> u32 {
+        let v = d.clamp(0.0, 1.0);
+        if v <= 0.20 {
+            0
+        } else if v <= 0.50 {
+            1
+        } else if v <= 0.80 {
+            2
+        } else {
+            3
+        }
+    }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,5 +302,24 @@ mod tests {
         // 储备中等：至多气态
         pool.stored = 0.35;
         assert_eq!(state_of_energy_budget(&pool), State::Gas);
+    }
+
+    #[test]
+    fn anchor_distance_bands() {
+        // 能量态 + 满储备 + 低自我 → 心海全景（近 0）
+        let d0 = anchor_distance(1.0, State::Energy, 0.0);
+        assert!(d0 <= 0.20, "能量态满储备应近0: {d0}");
+        assert_eq!(anchor_band(d0), "心海全景");
+        // 气态 + 半储备 + 中自我 → 波动态
+        let d1 = anchor_distance(0.5, State::Gas, 0.5);
+        assert!((0.21..=0.50).contains(&d1), "波动态: {d1}");
+        // 液态 + 低储备 + 中自我 → 结构态
+        let d2 = anchor_distance(0.3, State::Liquid, 0.5);
+        assert!((0.51..=0.80).contains(&d2), "结构态: {d2}");
+        // 固态 + 枯竭 + 高自我 → 固化态（近 1）
+        let d3 = anchor_distance(0.1, State::Solid, 0.9);
+        assert!(d3 >= 0.81, "固化态应近1: {d3}");
+        assert_eq!(anchor_band(d3), "固化态");
+        assert!(d0 < d1 && d1 < d2 && d2 < d3, "{d0} {d1} {d2} {d3}");
     }
 }

@@ -12,6 +12,19 @@ const path = require("path");
 const wasmPath = process.argv[2] || path.join(__dirname, "npb.wasm");
 const bytes = fs.readFileSync(wasmPath);
 
+// 从 WASM 线性内存读取 C 字符串（用于 pop_instruction_json 的返回指针）。
+function readCStr(mem, ptr) {
+  if (!mem || !ptr) return "";
+  const u8 = new Uint8Array(mem.buffer);
+  let s = "";
+  let i = ptr;
+  while (i < u8.length && u8[i] !== 0) {
+    s += String.fromCharCode(u8[i]);
+    i++;
+  }
+  return s;
+}
+
 WebAssembly.instantiate(bytes, {})
   .then(({ instance }) => {
     const ex = instance.exports;
@@ -24,6 +37,8 @@ WebAssembly.instantiate(bytes, {})
       "get_self_intensity",
       "get_trace_wind", "get_trace_fire", "get_trace_water", "get_trace_earth",
       "get_energy_absorbed", "get_energy_spent", "get_energy_ratio", "get_energy_stored", "get_product_energy",
+      "get_anchor_distance", "get_anchor_band", "get_instruction_count",
+      "pop_instruction_json", "free_instruction_json",
       "mk_self_test"
     ];
     const missing = required.filter((k) => typeof ex[k] !== "function");
@@ -105,6 +120,45 @@ WebAssembly.instantiate(bytes, {})
       process.exit(1);
     }
 
+    // 心海全景：anchor_distance ∈ [0,1]，分带索引 ∈ [0,3]
+    for (let i = 0; i < 60; i++) ex.push_seed(((i % 11) / 11));
+    const ad = ex.get_anchor_distance();
+    const ab = ex.get_anchor_band() >>> 0;
+    if (!(ad >= 0.0 && ad <= 1.0)) {
+      console.error("ANCHOR_DIST_FAIL ad=" + ad);
+      process.exit(1);
+    }
+    if (ab > 3) {
+      console.error("ANCHOR_BAND_FAIL ab=" + ab);
+      process.exit(1);
+    }
+
+    // 思流照亮：指令队列非空时，pop 出的 JSON 可解析且含 type 字段
+    const instrCount = ex.get_instruction_count() >>> 0;
+    if (typeof instrCount !== "number" || instrCount < 0) {
+      console.error("INSTR_COUNT_FAIL n=" + instrCount);
+      process.exit(1);
+    }
+    let jsonSample = "";
+    if (instrCount > 0) {
+      const ptr = ex.pop_instruction_json();
+      if (typeof ptr !== "number") {
+        console.error("POP_INSTR_PTR_FAIL");
+        process.exit(1);
+      }
+      jsonSample = readCStr(ex.memory, ptr);
+      if (ptr !== 0) ex.free_instruction_json(ptr); // 必须释放，避免泄漏
+      if (jsonSample.length > 0) {
+        try {
+          const obj = JSON.parse(jsonSample);
+          if (!obj.type) throw new Error("缺 type 字段");
+        } catch (e) {
+          console.error("INSTR_JSON_FAIL: " + jsonSample);
+          process.exit(1);
+        }
+      }
+    }
+
     const digest = ex.mk_self_test() >>> 0;
     console.log("DIGEST=" + digest);
     console.log("WASM_SMOKE_OK out=" + out.toFixed(4) + " ent=" + ent.toFixed(4) +
@@ -112,7 +166,8 @@ WebAssembly.instantiate(bytes, {})
       " state=" + state + " reach=" + reach + " paths=" + paths +
       " interfere=" + interfere + "/" + layer + " evo=" + evoLen +
       " self=" + selfI.toFixed(3) + " trace=" + tw + "/" + tfire + "/" + twater + "/" + tearth +
-      " energy=" + ea.toFixed(3) + "/" + es.toFixed(3) + " r=" + er.toFixed(2) + " store=" + est.toFixed(3) + " sb=" + sb + " prod=" + pe.toFixed(3));
+      " energy=" + ea.toFixed(3) + "/" + es.toFixed(3) + " r=" + er.toFixed(2) + " store=" + est.toFixed(3) + " sb=" + sb + " prod=" + pe.toFixed(3) +
+      " anchor=" + ad.toFixed(3) + " band=" + ab + " instr=" + instrCount);
   })
   .catch((err) => {
     console.error("WASM_LOAD_FAIL:", err);

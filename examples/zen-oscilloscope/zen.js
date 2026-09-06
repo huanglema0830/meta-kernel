@@ -31,6 +31,7 @@
   var STATE_NAMES = ["能量态", "气态", "液态", "固态"];
   var LAYER_NAMES = ["色", "声", "香/味", "触", "法"];
   var REACH_NAMES = ["L0 自状态", "L1 本地", "L2 网络", "L3 抽象", "L4 演化史"];
+  var BAND_NAMES = ["心海全景", "波动态", "结构态", "固化态"];
 
   var REQUIRED_EXPORTS = [
     "push_seed", "pop_result", "get_entropy",
@@ -41,7 +42,9 @@
     "get_self_intensity",
     "get_trace_wind", "get_trace_fire", "get_trace_water", "get_trace_earth",
     "get_energy_absorbed", "get_energy_spent", "get_energy_ratio", "get_energy_stored", "get_product_energy",
-    "get_state_budget"
+    "get_state_budget",
+    "get_anchor_distance", "get_anchor_band",
+    "get_instruction_count", "pop_instruction_json", "free_instruction_json"
   ];
 
   var api = null;
@@ -59,6 +62,8 @@
 
   var hist = [];           // 进化时间线快照 {t,o,e,s,pc,pt}
   var HIST_CAP = 480;
+  var instrBuf = [];       // 思流照亮：最近若干指令 JSON（环形展示）
+  var INSTR_CAP = 6;
 
   function stat(id, text) { document.getElementById(id).textContent = text; }
   function $(id) { return document.getElementById(id); }
@@ -68,6 +73,19 @@
     var a = new Uint8Array(bin.length);
     for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
     return a;
+  }
+
+  // 从 WASM 线性内存读取 C 字符串（用于 pop_instruction_json 返回的指令 JSON）。
+  function readCStr(mem, ptr) {
+    if (!mem || !ptr) return "";
+    var u8 = new Uint8Array(mem.buffer);
+    var s = "";
+    var i = ptr;
+    while (i < u8.length && u8[i] !== 0) {
+      s += String.fromCharCode(u8[i]);
+      i++;
+    }
+    return s;
   }
 
   function loadWasm() {
@@ -291,6 +309,9 @@
     var est = api.get_energy_stored();
     var pe = api.get_product_energy();
     var sb = api.get_state_budget() >>> 0;
+    // 心海全景：离 0 锚点距离 + 分带（内核真实状态，无独立动画）
+    var ad = api.get_anchor_distance();
+    var ab = api.get_anchor_band() >>> 0;
     lastEnt = ent;
 
     var spirality = SPIRAL && outBuf.length >= 12 ? SPIRAL.spirality(outBuf) : 0;
@@ -313,6 +334,24 @@
     stat("selfInt", selfI.toFixed(3));
     stat("traceDist", "风" + twind + " · 火" + tfire + " · 水" + twater + " · 地" + tearth);
     stat("selfFlag", selfI > 0.7 ? "自我识别" : "习气累积");
+
+    // 心海全景读数（投影内核真实 anchor_distance + 分带）
+    stat("anchor", ad.toFixed(3) + " · " + (BAND_NAMES[ab] || "—"));
+
+    // 思流照亮：每帧最多取一条指令（消费式），读 JSON 后释放，进环形缓冲展示
+    var ic = api.get_instruction_count() >>> 0;
+    if (ic > 0) {
+      var ptr = api.pop_instruction_json();
+      if (ptr) {
+        var js = readCStr(api.memory, ptr);
+        api.free_instruction_json(ptr); // 必须释放，避免内存泄漏
+        if (js) {
+          instrBuf.push(js);
+          if (instrBuf.length > INSTR_CAP) instrBuf.shift();
+        }
+      }
+    }
+    stat("instrStream", instrBuf.length ? instrBuf.slice().reverse().join(" ｜ ") : "（暂未触发）");
 
     if (audioOn && audioCtx && audioTick % 2 === 0) beep(200 + out * 1000);
 

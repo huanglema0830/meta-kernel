@@ -7,7 +7,7 @@
 //! - 当某类痕迹习气强度 > `SELF_THRESHOLD = 0.7` 时触发"自我识别"；
 //! - `self_intensity`（0-1）表示自我感强度（= 当前最强习气强度）。
 
-use crate::habit::{HabitPool, habit_strength};
+use crate::habit::{Habit, HabitPool, habit_strength};
 use crate::trace::{self, Trace, TraceType};
 
 /// 自我识别阈值。
@@ -108,6 +108,11 @@ impl SelfRecognizer {
     /// 习气数。
     pub fn habit_len(&self) -> usize {
         self.pool.len()
+    }
+
+    /// 最强习气（供指令发布器生成 HabitFormed）。
+    pub fn strongest_habit(&self) -> Option<&Habit> {
+        self.pool.strongest()
     }
 
     /// 重复同一样本直到出现自我识别（供测试与演示）；

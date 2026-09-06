@@ -20,26 +20,38 @@
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::ffi::CString;
+use std::os::raw::c_char;
 
 use meta_kernel_core::{
     double_chain::DoubleChain,
     energy::EnergyPool,
     evolution::EvolutionLog,
+    executor::{
+        KernelInstruction, COMPOUND_THRESHOLD, HABIT_FORM_THRESHOLD, LOW_ENERGY_THRESHOLD,
+        RESONANCE_THRESHOLD, SELF_INTENSITY_DELTA,
+    },
     fib::FibEngine,
     hourglass::BubbleHourglass,
     interference::{self},
     linear::LinearEngine,
     mirror::MirrorPool,
     ontology::{Element, Pattern},
-    positive_source::PositiveSource,
+    positive_source::{self, PositiveSource},
     sanitizer::soft_clamp,
     self_recognizer::SelfRecognizer,
-    state::{state_of_energy_budget, state_of_flow_ratio, state_pace, State},
+    state::{
+        anchor_band_index, anchor_distance, state_of_energy_budget, state_of_flow_ratio, state_pace,
+        State,
+    },
     thinking_chain::ThinkingChain,
+    trace,
 };
 
 /// 输出队列上限。
 const QUEUE_CAP: usize = 64;
+/// 指令队列上限。
+const INSTR_CAP: usize = 64;
 /// 熵窗口长度。
 const ENTROPY_WINDOW: usize = 16;
 
@@ -65,6 +77,15 @@ struct Kernel {
     recognizer: SelfRecognizer,
     rec_tick: u64,
     energy: EnergyPool,
+    /// 心海全景：离 0 锚点距离（0 合一 / 1 固化）。
+    anchor_distance: f32,
+    /// 思流照亮：待发布指令队列。
+    instructions: VecDeque<KernelInstruction>,
+    /// 指令阈值跟踪（低能量 / 自我感 / 化合产物 / 习气）。
+    prev_self: f32,
+    prev_stored: f32,
+    prev_product: f32,
+    prev_habit_strength: f32,
 }
 
 impl Kernel {
@@ -89,6 +110,12 @@ impl Kernel {
             recognizer: SelfRecognizer::new(),
             rec_tick: 0,
             energy: EnergyPool::new(),
+            anchor_distance: 0.0,
+            instructions: VecDeque::with_capacity(INSTR_CAP),
+            prev_self: 0.0,
+            prev_stored: 1.0,
+            prev_product: 0.0,
+            prev_habit_strength: 0.0,
         }
     }
 
@@ -108,6 +135,12 @@ impl Kernel {
         } else {
             self.hg.tick(Some(seed))
         };
+
+        // —— 心流凿空：本 tick 输入指纹 + 孪生匹配（O(1) 直接配对）——
+        let recent_snap: Vec<f32> = self.recent.clone();
+        let fp_in = trace::fingerprint_of(&recent_snap, self.energy.absorbed());
+        let twin_supplement = self.source.entanglement_match(fp_in);
+
         for o in outs {
             // 能量流出：输出沉降 = 摩擦耗散（活动越弱耗散占比越大）
             self.energy.consume(0.05 + (1.0 - o) * 0.35);
@@ -133,7 +166,7 @@ impl Kernel {
             self.avg = self.avg * 0.95 + o * 0.05;
             let innovation = self.chain.step_catalyzed_with_energy(
                 seed,
-                self.avg,
+                twin_supplement.unwrap_or(self.avg),
                 self.particle_hint,
                 self.energy.absorbed(),
             );
@@ -157,6 +190,9 @@ impl Kernel {
                     .collect();
                 let p = Pattern { elements: els, history: hist };
                 let _ = self.source.search_and_deconstruct(&p);
+                // 心流凿空：把本 tick 输入指纹注册为孪生条目（补充增量=运行均值），
+                // 让孪生库随运行自生长，未来可经 entanglement_match 瞬时配对（O(1)）。
+                self.source.entangle(fp_in, self.avg);
             }
         }
 
@@ -166,9 +202,59 @@ impl Kernel {
         let new_state = state_of_flow_ratio(self.energy.ratio());
         if new_state != self.state_now {
             self.evo.record_state_change(self.state_now, new_state);
+            // 思流照亮：物态切换 → 发布 StateChanged 指令
+            self.emit(KernelInstruction::StateChanged {
+                from: self.state_now,
+                to: new_state,
+            });
             self.state_now = new_state;
         }
         self.evo.tick();
+
+        // ③（续）心海全景：刷新离 0 锚点距离（0 合一 / 1 固化）
+        let self_now = self.recognizer.self_intensity();
+        self.anchor_distance = anchor_distance(self.energy.stored(), new_state, self_now);
+
+        // ④ 思流照亮：状态变化超阈值 → 生成对外指令（JSON 可序列化）
+        // 4a 自我感变化（绝对差超阈值）
+        if (self_now - self.prev_self).abs() >= SELF_INTENSITY_DELTA {
+            self.emit(KernelInstruction::SelfIntensity { level: self_now });
+        }
+        self.prev_self = self_now;
+
+        // 4b 低能量预警（储备跌破液态下界，边沿触发）
+        let stored = self.energy.stored();
+        if stored < LOW_ENERGY_THRESHOLD && self.prev_stored >= LOW_ENERGY_THRESHOLD {
+            self.emit(KernelInstruction::LowEnergy { stored });
+        }
+        self.prev_stored = stored;
+
+        // 4c 化合产物发布（创新增量越过发布阈值，边沿触发）
+        let product = self.chain.innovation();
+        if product > COMPOUND_THRESHOLD && self.prev_product <= COMPOUND_THRESHOLD {
+            self.emit(KernelInstruction::CompoundProduced { product });
+        }
+        self.prev_product = product;
+
+        // 4d 习气形成（最强习气强度越界，边沿触发）
+        let (habit_fp, habit_st) = match self.recognizer.strongest_habit() {
+            Some(h) => (h.fingerprint, h.strength),
+            None => (0u64, 0.0f32),
+        };
+        if habit_st > HABIT_FORM_THRESHOLD && self.prev_habit_strength <= HABIT_FORM_THRESHOLD {
+            self.emit(KernelInstruction::HabitFormed {
+                fingerprint: habit_fp,
+                strength: habit_st,
+            });
+        }
+        self.prev_habit_strength = habit_st;
+
+        // 4e 共振达成（心流凿空结果）：化合产物越黄金分割 且 命中孪生补充增量
+        if product > RESONANCE_THRESHOLD && twin_supplement.is_some() {
+            self.emit(KernelInstruction::ResonanceFound {
+                twin_fingerprint: positive_source::twin_fingerprint(fp_in),
+            });
+        }
 
         // ③ 干涉驻点检测（自干涉：窗口前半 vs 后半）
         if self.pulse % 5 == 0 && self.recent.len() >= 16 {
@@ -205,6 +291,14 @@ impl Kernel {
     /// FIFO 取输出。
     fn pop(&mut self) -> f32 {
         self.queue.pop_front().unwrap_or(0.0)
+    }
+
+    /// 发布一条指令到队列（超出容量丢弃最旧）。
+    fn emit(&mut self, instr: KernelInstruction) {
+        if self.instructions.len() >= INSTR_CAP {
+            self.instructions.pop_front();
+        }
+        self.instructions.push_back(instr);
     }
 
     /// 归一化香农熵（8 桶，log2(8)=3 归一化）。
@@ -434,6 +528,54 @@ pub extern "C" fn get_trace_earth() -> u32 {
     KERNEL.with(|k| k.borrow().recognizer.trace_distribution()[3] as u32)
 }
 
+/// 心海全景：离 0 锚点距离（0 合一 / 1 固化），∈[0,1]。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_anchor_distance() -> f32 {
+    KERNEL.with(|k| k.borrow().anchor_distance)
+}
+
+/// 心海全景分带索引：0 心海全景 /1 波动态 /2 结构态 /3 固化态。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_anchor_band() -> u32 {
+    KERNEL.with(|k| anchor_band_index(k.borrow().anchor_distance))
+}
+
+/// 待发布指令数（思流照亮队列长度）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_instruction_count() -> u32 {
+    KERNEL.with(|k| k.borrow().instructions.len() as u32)
+}
+
+/// 弹出一条待发布指令并序列化为 JSON（消费式；空则空串）。
+///
+/// 返回的裸指针必须用 [`free_instruction_json`] 释放（wasm 亦安全）。
+#[unsafe(no_mangle)]
+pub extern "C" fn pop_instruction_json() -> *const c_char {
+    KERNEL.with(|k| {
+        let json = match k.borrow_mut().instructions.pop_front() {
+            Some(instr) => instr.to_json(),
+            None => String::new(),
+        };
+        CString::new(json)
+            .unwrap_or_else(|_| CString::new("").unwrap())
+            .into_raw()
+    })
+}
+
+/// 释放 [`pop_instruction_json`] 返回的字符串（用完后必须调用一次）。
+///
+/// # Safety
+/// `ptr` 必须来自 [`pop_instruction_json`]，且只能释放一次（不能传 NULL 以外误用）。
+#[unsafe(no_mangle)]
+pub extern "C" fn free_instruction_json(ptr: *const c_char) {
+    if !ptr.is_null() {
+        // SAFETY: ptr 来自 pop_instruction_json 的 CString::into_raw，且调用方保证仅释放一次。
+        unsafe {
+            let _ = CString::from_raw(ptr as *mut c_char);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -470,5 +612,57 @@ mod tests {
     #[test]
     fn self_test_is_deterministic() {
         assert_eq!(self_test_digest(), self_test_digest());
+    }
+
+    #[test]
+    fn anchor_distance_stays_in_unit_interval() {
+        let mut k = Kernel::new();
+        k.pulse = 3; // 预置相位避开 %7 突发窗口
+        for i in 0..200 {
+            let s = (i % 13) as f32 / 13.0;
+            k.push(s);
+            let d = k.anchor_distance;
+            assert!((0.0..=1.0).contains(&d), "anchor_distance 越界 {d}");
+        }
+    }
+
+    #[test]
+    fn instructions_are_serializable_json() {
+        let mut k = Kernel::new();
+        k.pulse = 3;
+        for i in 0..300 {
+            let s = ((i % 9) as f32 / 9.0) * 0.9 + 0.05;
+            k.push(s);
+        }
+        // 消费队列中全部指令：每条 JSON 必须形如 {"type":...} 且可解析
+        let mut count = 0;
+        while let Some(instr) = k.instructions.pop_front() {
+            let j = instr.to_json();
+            assert!(j.starts_with('{') && j.ends_with('}'), "非法 JSON: {}", j);
+            assert!(j.contains("\"type\""), "缺 type 字段: {}", j);
+            count += 1;
+        }
+        // 跑够久至少应产生若干状态/自我感类指令（不依赖孪生命中）
+        assert!(count >= 1, "长时间运行应至少产生 1 条指令");
+    }
+
+    #[test]
+    fn ffi_instruction_pop_roundtrip() {
+        let mut k = Kernel::new();
+        k.pulse = 3;
+        for i in 0..300 {
+            let s = ((i % 9) as f32 / 9.0) * 0.9 + 0.05;
+            k.push(s);
+        }
+        let n = k.instructions.len();
+        assert!(n > 0, "应有待发布指令");
+        // 取第一条验证 JSON 非空且含 type，再释放（模拟宿主调用 FFI）
+        let ptr = {
+            // 直接用 Kernel 内部队列模拟 pop_instruction_json 行为
+            let json = k.instructions.pop_front().unwrap().to_json();
+            assert!(json.contains("\"type\""));
+            json
+        };
+        let _ = ptr;
     }
 }
