@@ -18,7 +18,7 @@
 //! - `get_entropy()`：最近 16 个输出的归一化香农熵（8 桶 / log2 8），∈[0,1]；
 //!   无样本时返回 1.0（真空=完全不确定）。
 
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
 use std::collections::VecDeque;
 use std::ffi::CString;
 use std::os::raw::c_char;
@@ -146,7 +146,7 @@ impl Kernel {
         }
         // ① 物态调度：按能量池入/出比值判定状态（比值>1.2 高能活跃态；<0.8 固态）
         let (bias, burst_prob) = state_pace(self.state_now);
-        let mut seed = soft_clamp(value) * bias;
+        let seed = soft_clamp(value) * bias;
         // ② 能量流入：本次注入即 0 锚点/外部输入的能量吸收（进入能量池）
         self.energy.absorb(seed);
         // 能量态倾向成对突发
@@ -657,8 +657,8 @@ pub extern "C" fn get_gate_reject_count() -> u32 {
 
 /// 快照加载槽容量（宿主把 JSON 快照字符串字节写入该槽后调 `persist_apply`）。
 const PERSIST_BUF_CAP: usize = 8192;
-/// 快照加载槽（wasm/宿主共享的固定缓冲区；单线程访问）。
-static mut PERSIST_BUF: [u8; PERSIST_BUF_CAP] = [0u8; PERSIST_BUF_CAP];
+/// 快照加载槽（UnsafeCell 包裹；2024 edition 禁止对 static mut 取引用，故不用 static mut）。
+static PERSIST_BUF: UnsafeCell<[u8; PERSIST_BUF_CAP]> = UnsafeCell::new([0u8; PERSIST_BUF_CAP]);
 
 /// 导出当前内核快照为 JSON（CString 交付；用完必须 `persist_snapshot_free`）。
 #[unsafe(no_mangle)]
@@ -686,8 +686,8 @@ pub extern "C" fn persist_snapshot_free(ptr: *const c_char) {
 /// 加载槽首地址（宿主把 JSON 字节写入 [ptr, ptr+len)）。
 #[unsafe(no_mangle)]
 pub extern "C" fn persist_load_buf_ptr() -> *mut u8 {
-    // SAFETY: 单线程访问固定静态缓冲区。
-    unsafe { PERSIST_BUF.as_mut_ptr() }
+    // SAFETY: UnsafeCell 的裸指针可在不触发 2024 static-mut 禁令下取得；单线程写入。
+    unsafe { PERSIST_BUF.get().cast::<u8>() }
 }
 
 /// 加载槽容量（字节）。
@@ -700,8 +700,9 @@ pub extern "C" fn persist_load_buf_cap() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn persist_apply(len: u32) -> i32 {
     let n = (len as usize).min(PERSIST_BUF_CAP);
-    // SAFETY: 读取只读切片；UTF-8 校验失败直接返回 0。
-    let text = match std::str::from_utf8(unsafe { &PERSIST_BUF[..n] }) {
+    // SAFETY: 仅读取 [0,n)；UTF-8 校验失败直接返回 0。
+    let bytes = unsafe { std::slice::from_raw_parts(PERSIST_BUF.get().cast::<u8>(), n) };
+    let text = match std::str::from_utf8(bytes) {
         Ok(t) => t,
         Err(_) => return 0,
     };
@@ -899,8 +900,9 @@ mod tests {
     fn ffi_persist_apply_rejects_garbage() {
         // 直接在静态加载槽写入非法字节并调用 persist_apply（模拟宿主坏输入）
         let junk = b"not-json-at-all";
+        // SAFETY: 测试单线程访问加载槽。
         unsafe {
-            let dst = std::slice::from_raw_parts_mut(PERSIST_BUF.as_mut_ptr(), junk.len());
+            let dst = std::slice::from_raw_parts_mut(PERSIST_BUF.get().cast::<u8>(), junk.len());
             dst.copy_from_slice(junk);
         }
         assert_eq!(persist_apply(junk.len() as u32), 0, "非法快照应拒绝(从0锚点继续)");
