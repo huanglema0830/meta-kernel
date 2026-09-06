@@ -18,7 +18,7 @@
 //! - `get_entropy()`：最近 16 个输出的归一化香农熵（8 桶 / log2 8），∈[0,1]；
 //!   无样本时返回 1.0（真空=完全不确定）。
 
-use std::cell::{RefCell, UnsafeCell};
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ffi::CString;
 use std::os::raw::c_char;
@@ -657,8 +657,10 @@ pub extern "C" fn get_gate_reject_count() -> u32 {
 
 /// 快照加载槽容量（宿主把 JSON 快照字符串字节写入该槽后调 `persist_apply`）。
 const PERSIST_BUF_CAP: usize = 8192;
-/// 快照加载槽（UnsafeCell 包裹；2024 edition 禁止对 static mut 取引用，故不用 static mut）。
-static PERSIST_BUF: UnsafeCell<[u8; PERSIST_BUF_CAP]> = UnsafeCell::new([0u8; PERSIST_BUF_CAP]);
+/// 快照加载槽（线程局部 + RefCell，与 KERNEL 同模式：native 测试线程隔离、wasm 单线程等价）。
+thread_local! {
+    static PERSIST_BUF: RefCell<[u8; PERSIST_BUF_CAP]> = RefCell::new([0u8; PERSIST_BUF_CAP]);
+}
 
 /// 导出当前内核快照为 JSON（CString 交付；用完必须 `persist_snapshot_free`）。
 #[unsafe(no_mangle)]
@@ -684,10 +686,11 @@ pub extern "C" fn persist_snapshot_free(ptr: *const c_char) {
 }
 
 /// 加载槽首地址（宿主把 JSON 字节写入 [ptr, ptr+len)）。
+///
+/// 指针指向线程局部存储（TLS 数据地址稳定）；宿主须按"写入→persist_apply"串行使用。
 #[unsafe(no_mangle)]
 pub extern "C" fn persist_load_buf_ptr() -> *mut u8 {
-    // SAFETY: UnsafeCell 的裸指针可在不触发 2024 static-mut 禁令下取得；单线程写入。
-    unsafe { PERSIST_BUF.get().cast::<u8>() }
+    PERSIST_BUF.with(|b| b.borrow_mut().as_mut_ptr())
 }
 
 /// 加载槽容量（字节）。
@@ -699,14 +702,16 @@ pub extern "C" fn persist_load_buf_cap() -> u32 {
 /// 从加载槽应用快照：成功恢复 → 1；格式非法/超长 → 0（从 0 锚点继续）。
 #[unsafe(no_mangle)]
 pub extern "C" fn persist_apply(len: u32) -> i32 {
-    let n = (len as usize).min(PERSIST_BUF_CAP);
-    // SAFETY: 仅读取 [0,n)；UTF-8 校验失败直接返回 0。
-    let bytes = unsafe { std::slice::from_raw_parts(PERSIST_BUF.get().cast::<u8>(), n) };
-    let text = match std::str::from_utf8(bytes) {
-        Ok(t) => t,
-        Err(_) => return 0,
+    let text = PERSIST_BUF.with(|b| {
+        let g = b.borrow();
+        let n = (len as usize).min(g.len());
+        std::str::from_utf8(&g[..n]).ok().map(|s| s.to_string())
+    });
+    let text = match text {
+        Some(t) => t,
+        None => return 0,
     };
-    match persist::decode(text) {
+    match persist::decode(&text) {
         Some(s) => {
             KERNEL.with(|k| k.borrow_mut().apply_snapshot(&s));
             1
@@ -900,11 +905,10 @@ mod tests {
     fn ffi_persist_apply_rejects_garbage() {
         // 直接在静态加载槽写入非法字节并调用 persist_apply（模拟宿主坏输入）
         let junk = b"not-json-at-all";
-        // SAFETY: 测试单线程访问加载槽。
-        unsafe {
-            let dst = std::slice::from_raw_parts_mut(PERSIST_BUF.get().cast::<u8>(), junk.len());
-            dst.copy_from_slice(junk);
-        }
+        PERSIST_BUF.with(|b| {
+            let mut g = b.borrow_mut();
+            g[..junk.len()].copy_from_slice(junk);
+        });
         assert_eq!(persist_apply(junk.len() as u32), 0, "非法快照应拒绝(从0锚点继续)");
     }
 }
