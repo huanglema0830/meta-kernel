@@ -387,18 +387,19 @@ impl PositiveSource {
     /// 注册一个孪生条目（幂等）：同时写入正指纹与孪生指纹索引。
     /// 补充增量 supplement∈[0,1] 为化合时取出的"历史智慧"。
     pub fn entangle(&mut self, fingerprint: u64, supplement: f32) {
-        let twin = twin_fingerprint(fingerprint);
-        if let Some(&i) = self.twin_index.get(&twin) {
+        // 索引键 = 正指纹（幂等：同正指纹已注册 → 仅更新补充增量）
+        if let Some(&i) = self.twin_index.get(&fingerprint) {
             self.entangled[i].supplement = supplement.clamp(0.0, 1.0);
             return;
         }
         let idx = self.entangled.len();
+        let twin = twin_fingerprint(fingerprint);
         self.entangled.push(Entangled {
             fingerprint,
             twin_fingerprint: twin,
             supplement: supplement.clamp(0.0, 1.0),
         });
-        self.twin_index.insert(twin, idx);
+        self.twin_index.insert(fingerprint, idx);
     }
 
     /// 心流凿空：直接按输入指纹的孪生配对查找（O(1)，非遍历）。
