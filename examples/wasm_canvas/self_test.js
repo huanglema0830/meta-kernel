@@ -39,6 +39,8 @@ WebAssembly.instantiate(bytes, {})
       "get_energy_absorbed", "get_energy_spent", "get_energy_ratio", "get_energy_stored", "get_product_energy",
       "get_anchor_distance", "get_anchor_band", "get_instruction_count",
       "pop_instruction_json", "free_instruction_json",
+      "get_mirror_dominant", "get_mirror_in_phase",
+      "get_gate_pass_count", "get_gate_recycle_count", "get_gate_reject_count",
       "mk_self_test"
     ];
     const missing = required.filter((k) => typeof ex[k] !== "function");
@@ -159,6 +161,25 @@ WebAssembly.instantiate(bytes, {})
       }
     }
 
+    // 摩尼宝珠：镜面主导相位 ∈ [0,2π) 有限；闸门三类计数之和 == 已推入次数(66)，拒绝数=0
+    const md = ex.get_mirror_dominant();
+    const mip = ex.get_mirror_in_phase() >>> 0;
+    const gp = ex.get_gate_pass_count() >>> 0;
+    const gr = ex.get_gate_recycle_count() >>> 0;
+    const gd = ex.get_gate_reject_count() >>> 0;
+    if (!Number.isFinite(md) || md < 0 || md > 2 * Math.PI) {
+      console.error("MIRROR_DOMINANT_FAIL md=" + md);
+      process.exit(1);
+    }
+    if (typeof mip !== "number" || gp + gr + gd !== 66) {
+      console.error("GATE_SUM_FAIL pass/recycle/reject=" + gp + "/" + gr + "/" + gd + " (期待 66)");
+      process.exit(1);
+    }
+    if (gd !== 0) {
+      console.error("GATE_NEGATIVE_FAIL gd=" + gd + "（全部非负推入，拒绝应为 0）");
+      process.exit(1);
+    }
+
     const digest = ex.mk_self_test() >>> 0;
     console.log("DIGEST=" + digest);
     console.log("WASM_SMOKE_OK out=" + out.toFixed(4) + " ent=" + ent.toFixed(4) +
@@ -167,7 +188,8 @@ WebAssembly.instantiate(bytes, {})
       " interfere=" + interfere + "/" + layer + " evo=" + evoLen +
       " self=" + selfI.toFixed(3) + " trace=" + tw + "/" + tfire + "/" + twater + "/" + tearth +
       " energy=" + ea.toFixed(3) + "/" + es.toFixed(3) + " r=" + er.toFixed(2) + " store=" + est.toFixed(3) + " sb=" + sb + " prod=" + pe.toFixed(3) +
-      " anchor=" + ad.toFixed(3) + " band=" + ab + " instr=" + instrCount);
+      " anchor=" + ad.toFixed(3) + " band=" + ab + " instr=" + instrCount +
+      " mirror=" + md.toFixed(3) + " inPhase=" + mip + " gate=" + gp + "/" + gr + "/" + gd);
   })
   .catch((err) => {
     console.error("WASM_LOAD_FAIL:", err);

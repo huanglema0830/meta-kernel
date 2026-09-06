@@ -336,6 +336,10 @@ pub struct PositiveSource {
     entangled: Vec<Entangled>,
     /// 孪生索引：twin_fingerprint → entangled 下标（O(1) 直接配对，非遍历）。
     twin_index: HashMap<u64, usize>,
+    /// 回收功德（摩尼回收：闸门拆解的胶粒能量不灭，累计入功德池）。
+    recycled_merit: f64,
+    /// 回收次数（闸门 RecycledToGranules → recycle 调用计数）。
+    recycled_count: u64,
 }
 
 impl PositiveSource {
@@ -412,6 +416,27 @@ impl PositiveSource {
     /// 纠缠库条目数。
     pub fn entangled_len(&self) -> usize {
         self.entangled.len()
+    }
+
+    /// 摩尼回收：把闸门拆解到层级 1 的胶粒作为原料回收进正源库
+    /// （五戒·不偷盗落点：只回收"不完整/非纠缠"拆解物，不占有他人模式）。
+    ///
+    /// 能量不灭 → 胶粒强度之和累计入回收功德；返回本次功德值。
+    pub fn recycle(&mut self, granules: Vec<Element>) -> f64 {
+        let merit: f64 = granules.iter().map(|e| e.intensity.max(0.0)).sum();
+        self.recycled_merit += merit;
+        self.recycled_count += 1;
+        merit
+    }
+
+    /// 累计回收功德（胶粒能量）。
+    pub fn recycled_merit(&self) -> f64 {
+        self.recycled_merit
+    }
+
+    /// 回收次数。
+    pub fn recycled_count(&self) -> u64 {
+        self.recycled_count
     }
 
     fn absorb_schema(&mut self, schema: AbstractSchema) {
@@ -703,5 +728,30 @@ mod tests {
         let probe = 0x55u64.wrapping_mul(0x1000_0000_0000_0007);
         let hit = src.entanglement_match(twin_fingerprint(probe));
         assert!(hit.is_some(), "大规模下仍应命中");
+    }
+}
+
+#[cfg(test)]
+mod recycle_tests {
+    use super::*;
+
+    #[test]
+    fn recycle_accumulates_merit_and_count() {
+        let mut src = PositiveSource::new();
+        let merit = src.recycle(vec![Element::new(1, 0.3), Element::new(1, 0.2)]);
+        assert!((merit - 0.5).abs() < 1e-9, "胶粒强度应求和入功德: {merit}");
+        assert_eq!(src.recycled_merit(), 0.5);
+        assert_eq!(src.recycled_count(), 1);
+        // 空胶粒也计一次回收（闸门拆解到空集的情况）
+        src.recycle(Vec::new());
+        assert_eq!(src.recycled_count(), 2);
+        assert_eq!(src.recycled_merit(), 0.5);
+    }
+
+    #[test]
+    fn recycle_clamps_negative_intensity() {
+        let mut src = PositiveSource::new();
+        src.recycle(vec![Element::new(1, -0.1), Element::new(1, 0.4)]);
+        assert!((src.recycled_merit() - 0.4).abs() < 1e-9, "负强度不计功德");
     }
 }

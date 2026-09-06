@@ -32,6 +32,7 @@ use meta_kernel_core::{
         RESONANCE_THRESHOLD, SELF_INTENSITY_DELTA,
     },
     fib::FibEngine,
+    gate::{Gate, GateCtx, GateResult},
     hourglass::BubbleHourglass,
     interference::{self},
     linear::LinearEngine,
@@ -86,6 +87,16 @@ struct Kernel {
     prev_stored: f32,
     prev_product: f32,
     prev_habit_strength: f32,
+    /// 摩尼宝珠·闸门（进化模式验证 / 黄金 ×0.618 拆解；五戒·不杀生落点）。
+    gate: Gate,
+    /// 摩尼镜面：输入主导相位（rad，[0,2π)）。
+    mirror_dominant: f32,
+    /// 摩尼镜面：同相命中数（interference > 0 的点数）。
+    mirror_in_phase: u32,
+    /// 闸门统计（通过 / 回收 / 拒绝）。
+    gate_pass: u64,
+    gate_recycled: u64,
+    gate_rejected: u64,
 }
 
 impl Kernel {
@@ -116,11 +127,22 @@ impl Kernel {
             prev_stored: 1.0,
             prev_product: 0.0,
             prev_habit_strength: 0.0,
+            gate: Gate::new(),
+            mirror_dominant: 0.0,
+            mirror_in_phase: 0,
+            gate_pass: 0,
+            gate_recycled: 0,
+            gate_rejected: 0,
         }
     }
 
     /// 注入扰动并推进一步（存在论调度 + 能量流：状态以能量池入出流比值为准）。
     fn push(&mut self, value: f32) {
+        // 摩尼闸门·不杀生：负扰动在入口即拒——不进入任何下游演化（输出保持 0）
+        if value < 0.0 {
+            self.gate_rejected += 1;
+            return;
+        }
         // ① 物态调度：按能量池入/出比值判定状态（比值>1.2 高能活跃态；<0.8 固态）
         let (bias, burst_prob) = state_pace(self.state_now);
         let mut seed = soft_clamp(value) * bias;
@@ -140,6 +162,37 @@ impl Kernel {
         let recent_snap: Vec<f32> = self.recent.clone();
         let fp_in = trace::fingerprint_of(&recent_snap, self.energy.absorbed());
         let twin_supplement = self.source.entanglement_match(fp_in);
+
+        // —— 摩尼宝珠① 镜面干涉：输入波形 vs 正源库 的相位镜像（只读，不写入）——
+        // 输入模式 = 熵窗口波形（元素 = 窗口样本分派到 0-10 层；history = 原始时序）
+        let pat = Pattern {
+            elements: recent_snap
+                .iter()
+                .enumerate()
+                .map(|(i, v)| Element::new((i % 10) as u8, *v as f64))
+                .collect(),
+            history: recent_snap.iter().map(|x| *x as f64).collect(),
+        };
+        let mir = interference::mirror(&pat, self.source.reachable_schemas());
+        self.mirror_dominant = mir.dominant_phase;
+        self.mirror_in_phase = mir.points.iter().filter(|p| p.interference > 0.0).count() as u32;
+
+        // —— 摩尼宝珠② 闸门验证：进化模式 Pass / 拆解回收 / 拒绝（计数 + 胶粒回收）——
+        // 补充增量恒真（思考链每次都有存量注入兜底 avg）；变量=熵窗口已积累 ≥3；
+        // 核心豁免=false（库采纳面由正源 search_and_deconstruct 自管理）
+        let gate_ctx = GateCtx {
+            has_variable: recent_snap.len() >= 3,
+            has_supplement: true,
+            is_core: false,
+        };
+        match self.gate.check(&pat, &gate_ctx) {
+            GateResult::Pass(_) => self.gate_pass += 1,
+            GateResult::RecycledToGranules(granules) => {
+                let _ = self.source.recycle(granules);
+                self.gate_recycled += 1;
+            }
+            GateResult::Rejected => self.gate_rejected += 1,
+        }
 
         for o in outs {
             // 能量流出：输出沉降 = 摩擦耗散（活动越弱耗散占比越大）
@@ -197,6 +250,9 @@ impl Kernel {
         }
 
         // ③ 物态刷新（能量池比值）并记录状态演化
+        // 摩尼宝珠③ 自然回归：每次响应后储备按 e^(-λt) 指数回落（非硬复位；
+        // 与下方被动漏失 dissipate 并存——一个是显式波峰回落，一个是每 tick 摩擦热沉）
+        self.energy.natural_return();
         // 被动耗散：每个调度 tick 漏失真实储备（不影响滚动入/出流比值）
         self.energy.dissipate();
         let new_state = state_of_flow_ratio(self.energy.ratio());
@@ -540,6 +596,36 @@ pub extern "C" fn get_anchor_band() -> u32 {
     KERNEL.with(|k| anchor_band_index(k.borrow().anchor_distance))
 }
 
+/// 摩尼镜面：输入主导相位（rad，[0,2π)）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_mirror_dominant() -> f32 {
+    KERNEL.with(|k| k.borrow().mirror_dominant)
+}
+
+/// 摩尼镜面：同相命中数（interference > 0 的点数）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_mirror_in_phase() -> u32 {
+    KERNEL.with(|k| k.borrow().mirror_in_phase)
+}
+
+/// 闸门统计：通过次数。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_gate_pass_count() -> u32 {
+    KERNEL.with(|k| k.borrow().gate_pass as u32)
+}
+
+/// 闸门统计：拆解回收次数（胶粒原料）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_gate_recycle_count() -> u32 {
+    KERNEL.with(|k| k.borrow().gate_recycled as u32)
+}
+
+/// 闸门统计：拒绝次数（负扰动，不杀生）。
+#[unsafe(no_mangle)]
+pub extern "C" fn get_gate_reject_count() -> u32 {
+    KERNEL.with(|k| k.borrow().gate_rejected as u32)
+}
+
 /// 待发布指令数（思流照亮队列长度）。
 #[unsafe(no_mangle)]
 pub extern "C" fn get_instruction_count() -> u32 {
@@ -664,5 +750,38 @@ mod tests {
             json
         };
         let _ = ptr;
+    }
+
+    #[test]
+    fn negative_input_rejected_no_output() {
+        // 五戒·不杀生：负扰动在入口即拒，不进入任何下游
+        let mut k = Kernel::new();
+        k.push(-0.3);
+        assert_eq!(k.gate_rejected, 1, "负扰动应计拒绝");
+        assert_eq!(k.gate_pass, 0);
+        assert_eq!(k.gate_recycled, 0);
+        assert_eq!(k.queue.len(), 0, "被拒输入不得产生输出");
+        assert_eq!(k.pop(), 0.0, "空队列取 0（等价输出 0）");
+        // 后续正常输入不受污染
+        k.push(0.5);
+        assert_eq!(k.gate_pass + k.gate_recycled, 1);
+    }
+
+    #[test]
+    fn gate_and_mirror_loop_runs_stable() {
+        let mut k = Kernel::new();
+        k.pulse = 3;
+        for i in 0..80 {
+            let s = ((i % 9) as f32 / 9.0) * 0.8 + 0.1; // 0.1..0.9，恒非负
+            k.push(s);
+            // 闸门三类合计 == 已推 tick 数（每次扰动恰好一次判定）
+            let total = k.gate_pass + k.gate_recycled + k.gate_rejected;
+            assert_eq!(total, i as u64 + 1, "每次扰动一次闸门判定");
+            // 镜面读数始终合法
+            assert!(k.mirror_dominant.is_finite(), "主导相位有限");
+            assert!(k.mirror_dominant >= 0.0 && k.mirror_dominant < 2.0 * std::f32::consts::PI);
+        }
+        // 加热后应产生通过（进化模式）而非全部回收
+        assert!(k.gate_pass > 0, "长时间运行后应出现 Pass");
     }
 }

@@ -86,6 +86,12 @@ pub const FLOW_DECAY: f32 = 0.9;
 pub const FLOW_EPS: f32 = 1e-4;
 /// 能量储备被动耗散（每 tick 保留率；≈1.5% 漏失，模拟摩擦/热沉）。
 pub const DISSIPATION_DECAY: f32 = 0.985;
+/// 自然回归衰减率 λ（e^(-λt) 指数衰减；每次响应后调用一次）。
+pub const DECAY_LAMBDA: f32 = 0.1;
+/// 自然回归步长 t。
+pub const DECAY_STEP: f32 = 1.0;
+/// 视为真正 0 的阈值（低于即置零，避免浮点尾巴）。
+pub const DECAY_EPS: f32 = 1e-6;
 
 /// 能量池：滚动入/出流累积器 + 真实能量储备。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -151,6 +157,20 @@ impl EnergyPool {
         let out = self.flow_out.max(FLOW_EPS);
         let r = (self.flow_in + FLOW_EPS) / out;
         if r.is_finite() { r.min(9.0) } else { 9.0 }
+    }
+
+    /// 自然回归：响应后储备按 **e^(-λt)** 指数衰减（非硬复位）。
+    ///
+    /// 五戒·不饮酒的落点：只允许加法 / ×0.618 拆解 / 本 e 衰减，不做其他算法。
+    /// 与 [`Self::dissipate`] 并存——dissipate 是每 tick 的被动漏失（摩擦/热沉，
+    /// 状态判据不受影响）；natural_return 是"响应之后"的显式回归（波峰回落）。
+    /// 不影响滚动入/出流比值（状态判据不变）；低于阈值即视为真正 0。
+    pub fn natural_return(&mut self) {
+        let k = (-DECAY_LAMBDA * DECAY_STEP).exp();
+        self.stored = (self.stored * k).clamp(0.0, 1.0);
+        if self.stored < DECAY_EPS {
+            self.stored = 0.0;
+        }
     }
 }
 
@@ -294,5 +314,58 @@ mod tests {
         assert_eq!(verdict_for(0.35), Verdict::RecycleLoop);
         assert_eq!(verdict_for(0.65), Verdict::Observe);
         assert_eq!(verdict_for(0.9), Verdict::Adopt);
+    }
+}
+
+#[cfg(test)]
+mod decay_tests {
+    use super::*;
+
+    #[test]
+    fn natural_return_decays_not_hard_resets() {
+        let mut p = EnergyPool::new();
+        p.absorb(0.8);
+        let before = p.stored();
+        p.natural_return();
+        let after = p.stored();
+        // e^(-0.1) ≈ 0.9048 → 0.8 → ≈0.7239；不是硬复位为 0，也不是不变
+        let expect = before * (-DECAY_LAMBDA * DECAY_STEP).exp();
+        assert!((after - expect).abs() < 1e-5, "应按 e^(-λt) 衰减: {after} vs {expect}");
+        assert!(after > 0.0 && after < before, "自然衰减而非硬复位/回涨");
+    }
+
+    #[test]
+    fn decay_trend_follows_exponential() {
+        let mut p = EnergyPool::new();
+        p.absorb(1.0);
+        let k = (-DECAY_LAMBDA * DECAY_STEP).exp();
+        let mut prev = p.stored();
+        let mut ratios_ok = true;
+        // e^(-0.1·200) ≈ 2e-9 < 1e-6 → 足够多步必触底归零
+        for _ in 0..200 {
+            p.natural_return();
+            let cur = p.stored();
+            if prev > DECAY_EPS {
+                let r = cur / prev;
+                ratios_ok &= (r - k).abs() < 1e-5;
+            }
+            prev = cur;
+        }
+        assert!(ratios_ok, "每步衰减比应恒为 e^(-λt)");
+        // 足够多步后触底为真正 0（先衰减、后归零，非一步硬复位）
+        assert_eq!(p.stored(), 0.0, "低于阈值后应置 0");
+    }
+
+    #[test]
+    fn natural_return_leaves_flow_ratio_untouched() {
+        // 状态判据（入/出比值）不受自然回归影响
+        let mut p = EnergyPool::new();
+        p.absorb(0.6);
+        let _ = p.consume(0.2);
+        let ratio_before = p.ratio();
+        for _ in 0..10 {
+            p.natural_return();
+        }
+        assert!((p.ratio() - ratio_before).abs() < 1e-6, "比值判据不得被回归扰动");
     }
 }

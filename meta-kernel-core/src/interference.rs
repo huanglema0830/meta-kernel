@@ -11,6 +11,7 @@
 use std::f32::consts::PI;
 
 use crate::fourier;
+use crate::ontology::{AbstractSchema, Pattern};
 use crate::state::{GOLDEN_FIFTH, GOLDEN_HALF, GOLDEN_QUARTER, GOLDEN_RATIO, GOLDEN_THIRD};
 
 /// 五感官层（色声香味触）标签；法（意识）为综合层。
@@ -104,6 +105,158 @@ pub fn phase_difference(a: &[f32], b: &[f32]) -> f32 {
         return 0.0;
     }
     fourier::phase_at(&a[..n], sa.dominant_bin) - fourier::phase_at(&b[..n], sb.dominant_bin)
+}
+
+// ---------- 镜面干涉（摩尼宝珠第一层：mirror） ----------
+//
+// 输入模式与正源库中每个模式做"相位镜像"：取两者特征相位差（圆环距离 ∈[0,π]）
+// 的余弦为干涉度——同相 → 1（共振），正交 → 0（无关），反相 → -1（互斥）。
+// 相位统一从 0-10 层振幅谱（模式=元素强度 / 骨架=节点计数）的 DFT 主导频点提取，
+// 与既有 fourier/interference 同一套波动语言，不另造算法。
+
+/// 干涉点：输入与库中单模式的相位对比。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InterferencePoint {
+    /// 库中模式序号（AbstractSchema 无 id 字段，以库索引指代）。
+    pub pattern_id: usize,
+    /// 干涉度：cos(圆环相位差) ∈ [-1,1]；同相≈1｜反相≈-1｜正交≈0。
+    pub interference: f32,
+    /// 圆环相位差（rad，∈[0,π]）。
+    pub phase_delta: f32,
+}
+
+/// 干涉图案：输入 vs 正源库整体。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct InterferencePattern {
+    /// 逐库模式的干涉点。
+    pub points: Vec<InterferencePoint>,
+    /// 输入的主导相位（rad，[0,2π)）——"镜子"的相位姿态。
+    pub dominant_phase: f32,
+}
+
+/// 两相位差的干涉度（圆环距离归一后取余弦）——单测锚点。
+pub fn interference_of(input_phase: f32, stored_phase: f32) -> f32 {
+    circular_dist(input_phase, stored_phase).cos()
+}
+
+/// 特征序列 → 主导频率相位（rad，[0,2π)；不足 8 点或无波动(DC) → 0）。
+fn series_phase(samples: &[f32]) -> f32 {
+    let n = samples.len();
+    if n < 8 {
+        return 0.0;
+    }
+    let sp = fourier::dft(samples);
+    if sp.dominant_bin == 0 {
+        return 0.0;
+    }
+    fourier::phase_at(samples, sp.dominant_bin).rem_euclid(2.0 * PI)
+}
+
+/// 层振幅谱：把元素按层级（0-10）累计成 11 点振幅序列。
+fn level_amplitude(pairs: impl Iterator<Item = (u8, f64)>) -> Vec<f32> {
+    let mut amp = [0f32; 11];
+    for (level, mag) in pairs {
+        amp[(level as usize).min(10)] += mag as f32;
+    }
+    amp.to_vec()
+}
+
+/// 模式 → 特征序列：优先元素层振幅谱；无元素时回退 history 时序。
+fn pattern_samples(p: &Pattern) -> Vec<f32> {
+    if !p.elements.is_empty() {
+        level_amplitude(p.elements.iter().map(|e| (e.level, e.intensity)))
+    } else {
+        p.history.iter().map(|h| *h as f32).collect()
+    }
+}
+
+/// 骨架 → 特征序列：节点计数层振幅谱（edges 不贡献波形，只贡献结构关系）。
+fn schema_samples(s: &AbstractSchema) -> Vec<f32> {
+    level_amplitude(s.nodes.iter().map(|n| (n.level, n.count as f64)))
+}
+
+/// 模式的主导特征相位（镜面输入侧）。
+pub fn pattern_phase(p: &Pattern) -> f32 {
+    series_phase(&pattern_samples(p))
+}
+
+/// 骨架的主导特征相位（镜面库侧）。
+pub fn schema_phase(s: &AbstractSchema) -> f32 {
+    series_phase(&schema_samples(s))
+}
+
+/// 镜面干涉（摩尼宝珠·镜子层）：输入模式对正源库整体做相位镜像。
+///
+/// 只读正源库，不写入、不占有（五戒·不偷盗：非纠缠结果不纳入）。
+pub fn mirror(input: &Pattern, library: &[AbstractSchema]) -> InterferencePattern {
+    let input_phase = pattern_phase(input);
+    let points = library
+        .iter()
+        .enumerate()
+        .map(|(id, schema)| {
+            let stored = schema_phase(schema);
+            let delta = circular_dist(input_phase, stored);
+            InterferencePoint {
+                pattern_id: id,
+                interference: delta.cos(),
+                phase_delta: delta,
+            }
+        })
+        .collect();
+    InterferencePattern { points, dominant_phase: input_phase }
+}
+
+#[cfg(test)]
+mod mirror_tests {
+    use super::*;
+    use crate::ontology::LevelNode;
+
+    #[test]
+    fn interference_of_matches_phase_relations() {
+        // 同相 → 1
+        assert!((interference_of(0.0, 0.0) - 1.0).abs() < 1e-6);
+        // 反相（Δ=π）→ -1
+        assert!((interference_of(0.0, PI) + 1.0).abs() < 1e-6);
+        // 正交（Δ=π/2）→ 0
+        assert!(interference_of(0.0, PI / 2.0).abs() < 1e-6);
+        // 圆环回绕：2π 视为同相
+        assert!((interference_of(0.1, 0.1 + 2.0 * PI) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn identical_structure_mirrors_in_phase() {
+        // 输入模式与库骨架使用同一层振幅谱 → 相位相等 → 干涉度 ≈ 1
+        let p = Pattern {
+            elements: vec![
+                crate::ontology::Element::new(2, 3.0),
+                crate::ontology::Element::new(5, 3.0),
+                crate::ontology::Element::new(8, 3.0),
+            ],
+            history: Vec::new(),
+        };
+        let s = AbstractSchema {
+            nodes: vec![LevelNode::new(2, 3), LevelNode::new(5, 3), LevelNode::new(8, 3)],
+            edges: Vec::new(),
+        };
+        let out = mirror(&p, &[s]);
+        assert_eq!(out.points.len(), 1);
+        let pt = out.points[0];
+        assert!((pt.interference - 1.0).abs() < 1e-3, "同构应同相: {}", pt.interference);
+        assert!(pt.phase_delta < 1e-3);
+        // dominant_phase = 输入相位（[0,2π)）
+        assert!((0.0..=2.0 * PI).contains(&out.dominant_phase));
+    }
+
+    #[test]
+    fn empty_library_gives_empty_points() {
+        let p = Pattern {
+            elements: vec![crate::ontology::Element::new(3, 0.8)],
+            history: Vec::new(),
+        };
+        let out = mirror(&p, &[]);
+        assert!(out.points.is_empty());
+        assert_eq!(out.dominant_phase, pattern_phase(&p));
+    }
 }
 
 #[cfg(test)]
