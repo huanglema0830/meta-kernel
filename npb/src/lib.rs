@@ -889,7 +889,13 @@ mod tests {
         let snap = k.snapshot();
         let text = persist::encode(&snap);
         let back = persist::decode(&text).expect("自编码必须可解码");
-        assert_eq!(back, snap, "快照 roundtrip 一致");
+        // 格式为 6 位小数的人读 JSON → 浮点按容差比较（整数域精确）
+        assert_eq!(back.version, snap.version);
+        assert_eq!(back.timestamp, snap.timestamp);
+        assert_eq!(back.state_code, snap.state_code);
+        assert!((back.self_intensity - snap.self_intensity).abs() < 1e-5, "自我感精度");
+        assert!((back.anchor_distance - snap.anchor_distance).abs() < 1e-5, "锚距精度");
+        assert!((back.stored - snap.stored).abs() < 1e-5, "储备精度");
         // 恢复到全新内核：自我感 / 储备 / 物态 一致（刷新后自我感不归零）
         let mut k2 = Kernel::new();
         k2.apply_snapshot(&back);
