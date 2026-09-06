@@ -19,7 +19,6 @@ use crate::energy::{energy_level_evaluate, Verdict, verdict_for};
 use crate::evo_deconstructor;
 use crate::ontology::{self, AbstractSchema, Element, Pattern};
 use crate::sanitizer::finalize;
-use crate::trace;
 use std::collections::HashMap;
 
 /// 催化剂搜索加权（+20%）。
@@ -696,10 +695,11 @@ mod tests {
     fn entanglement_match_is_o1_non_traversal() {
         let mut src = PositiveSource::new();
         // 填满多条，验证仍能瞬时命中（索引直查，不随规模退化）
+        // 乘子为奇数 → 对 2^64 取模是双射，128 个指纹互异且无溢出
         for i in 0..128u64 {
-            src.entangle(i * 0x1000_0000_0000_0007, (i % 10) as f32 / 10.0);
+            src.entangle(i.wrapping_mul(0x1000_0000_0000_0007), (i % 10) as f32 / 10.0);
         }
-        let probe = 0x55 * 0x1000_0000_0000_0007;
+        let probe = 0x55u64.wrapping_mul(0x1000_0000_0000_0007);
         let hit = src.entanglement_match(twin_fingerprint(probe));
         assert!(hit.is_some(), "大规模下仍应命中");
     }
