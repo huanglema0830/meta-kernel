@@ -148,8 +148,9 @@ pub fn state_of_flow_ratio(ratio: f32) -> State {
 /// | ≥ 0.206 | 至多液态 |
 /// | < 0.206 | 至多固态 |
 ///
-/// 取「比值态」与「预算态」中更固者（code 较小）为最终态——储备枯竭会主动拉向固态，
-/// 即使瞬时流入比值偏高（耗散落地后自然观察的动力学基础）。
+/// 取「比值态」与「预算态」中**更固者（code 较大＝能量更低）**为最终态——
+/// 储备枯竭会主动把物态封顶在更低能量级（拉向固态），即使瞬时流入比值偏高
+/// （耗散落地后自然观察的动力学基础）。
 pub fn state_of_energy_budget(pool: &EnergyPool) -> State {
     let ratio_state = state_of_flow_ratio(pool.ratio());
     let s = pool.stored().clamp(0.0, 1.0);
@@ -162,7 +163,8 @@ pub fn state_of_energy_budget(pool: &EnergyPool) -> State {
     } else {
         State::Solid
     };
-    if budget_state.code() < ratio_state.code() {
+    // 能量不能超过储备允许的上界 → 取更固（更高 code）者
+    if budget_state.code() > ratio_state.code() {
         budget_state
     } else {
         ratio_state
