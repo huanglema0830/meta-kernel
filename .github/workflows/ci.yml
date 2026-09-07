@@ -35,6 +35,52 @@ jobs:
           name: gateway-test-log
           path: gateway-test.log
 
+      - name: L3 网关活体验证（真实进程 + curl 五端点 + SSE 持续推送）
+        shell: bash
+        run: |
+          set -e
+          echo "===== STEP 0: cargo build -p npb-gateway ====="
+          cargo build -p npb-gateway 2>&1 | tail -2
+          echo "===== STEP 1: cargo run 起网关 (127.0.0.1:3000) ====="
+          ./target/debug/npb-gateway 3000 > gateway_live.log 2>&1 &
+          GW=$!
+          sleep 2
+          echo "===== STEP 2a: GET /v1/health ====="
+          curl -s http://127.0.0.1:3000/v1/health | tee h.out
+          grep -q '"ok":true' h.out
+          grep -q '"writer":"single"' h.out
+          echo "===== STEP 2b: GET /v1/state ====="
+          curl -s http://127.0.0.1:3000/v1/state | tee s.out
+          grep -q '"schema":1' s.out
+          grep -q '"extensions":{}' s.out
+          grep -q '"last":' s.out
+          echo "===== STEP 2c: POST /v1/push 正扰动 ====="
+          curl -s -X POST http://127.0.0.1:3000/v1/push -H 'Content-Type: application/json' -d '{"seed":0.5}' | tee p.out
+          grep -q '"accepted":true' p.out
+          echo "===== STEP 2d: POST /v1/push 负扰动应拒 ====="
+          curl -s -X POST http://127.0.0.1:3000/v1/push -H 'Content-Type: application/json' -d '{"seed":-0.3}' | tee pn.out
+          grep -q gate_rejected pn.out
+          echo "===== STEP 2e: POST /v1/persist/snapshot ====="
+          curl -s -X POST http://127.0.0.1:3000/v1/persist/snapshot -d '{}' | tee psv.out
+          grep -q 'stored' psv.out
+          echo "===== STEP 2f: POST /v1/persist/restore (snapshot roundtrip) ====="
+          curl -s -X POST http://127.0.0.1:3000/v1/persist/restore -H 'Content-Type: application/json' -d "@psv.out" | tee pr.out
+          grep -q '"ok":true' pr.out
+          echo "===== STEP 3: curl -N /v1/events SSE 持续推送观测 (5s) ====="
+          timeout 5 curl -sN http://127.0.0.1:3000/v1/events > sse.out 2>&1 &
+          SSE=$!
+          sleep 1
+          curl -s -X POST http://127.0.0.1:3000/v1/push -H 'Content-Type: application/json' -d '{"seed":0.9}' >/dev/null
+          curl -s -X POST http://127.0.0.1:3000/v1/push -H 'Content-Type: application/json' -d '{"seed":0.6}' >/dev/null
+          wait $SSE || true
+          echo "--- SSE 收到的事件 ---"
+          grep '^event:' sse.out | sort | uniq -c
+          grep -q 'event: snapshot' sse.out
+          grep -q 'event: ping' sse.out
+          echo "===== STEP 4: 收尾 ====="
+          kill $GW 2>/dev/null || true
+          echo L3_GATEWAY_LIVE_VERIFY_ALL_OK
+
       - name: Upload workspace test log
         if: always()
         uses: actions/upload-artifact@v4
