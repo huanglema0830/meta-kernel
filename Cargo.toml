@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["meta-kernel-core", "npb"]
+members = ["meta-kernel-core", "npb", "npb-gateway"]
 
 [workspace.package]
 version = "0.1.0"

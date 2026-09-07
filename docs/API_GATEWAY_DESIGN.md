@@ -1,7 +1,7 @@
-# L3 应用层接入口 · 设计方案（API_GATEWAY_DESIGN）v1.0
+# L3 应用层接入口 · 设计方案（API_GATEWAY_DESIGN）v1.1
 
-> 设计状态：**定稿（v1.0 · 2026-09-07，发起人审阅确认）** ｜ 阶段：L3 设计（只设计，实现待流水线）
-> 前置：A4/A5 复核收尾（commit cbf1b1d，本地）｜ 内核 HEAD 基线：277c749（A·观察 v1）
+> 设计状态：**v1.1（2026-09-07 · L3 实现轮启动，并入架构顾问审核建议）** ｜ 阶段：L3（实现中）
+> 前置：PR#1 审核通过并合并；A4/A5 收尾已推送（远端 main=f9a8989）｜ 内核 HEAD 基线：277c749（A·观察 v1）
 > 相关文档：MATH_SPEC v1.1、ONTOLOGY_SPEC、PHASE1_ASSUMPTIONS_REVIEW.md
 
 ---
@@ -57,23 +57,29 @@ L1-L2 内核层（已完成）── meta-kernel-core（纯数学）/ npb 桥（
 
 > 认证/限流：一期留空位（受信本机/内网），接入点做成可插拔，不阻塞协议验证。
 
-### 4.1 快照 schema（v1，字段全部 FFI 直读）
+### 4.1 快照 schema（v1.1，字段全部 FFI 直读；* = 顾问建议并入）
 
 ```json
 {
   "schema": 1,
   "t": 1024,
   "state": {"flow": 0, "budget": 1},
-  "energy": {"stored": 0.42, "ratio": 1.35, "absorbed": 3.1, "spent": 2.3},
+  "energy": {"stored": 0.42, "ratio": 1.35, "absorbed": 3.1, "spent": 2.3,
+             "last": {"step": 1024, "stored": 0.42, "budget": 1}},
   "self": 0.28,
   "anchor": {"distance": 0.31, "band": 1},
   "mirror": {"dominant": 2.71, "in_phase": 3},
   "gate": {"pass": 9996, "recycled": 4, "rejected": 0},
-  "entropy": 0.61
+  "entropy": 0.61,
+  "low_energy": false,
+  "extensions": {}
 }
 ```
 
-字段 ↔ 导出映射（全部 `get_*` 直读）：flow=`get_state`、budget=`get_state_budget`、energy 四值=`get_energy_*`、self=`get_self_intensity`、anchor=`get_anchor_distance/get_anchor_band`、mirror=`get_mirror_dominant/get_mirror_in_phase`、gate 三值=`get_gate_*`、entropy=`get_entropy`。（A·观察台账尾值 `get_energy_trace_len`/`energy_last` 视需要并入 v1.1。）
+- **`energy.last`（v1.1 · 顾问建议①）**：A·观察台账尾值 `{step, stored, budget}`——宿主侧随每次 push 维护（`step`=宿主 push 计数=内核推进步），**不新增内核 FFI**，守"内核零改动"；
+- **`low_energy`（v1.1）**：储备 <0.206 的布尔投影，供 SSE `state_change.low_energy` 边沿；
+- **`extensions`（v1.1 · 顾问建议②）**：预留扩展槽（空对象），未来 schema 增量（如 tag 审计元数据）挂此处，不破坏旧版本可读性；
+- 字段 ↔ 导出映射（全部 `get_*` 直读）：flow=`get_state`、budget=`get_state_budget`、energy 四值=`get_energy_*`、self=`get_self_intensity`、anchor=`get_anchor_distance/get_anchor_band`、mirror=`get_mirror_dominant/get_mirror_in_phase`、gate 三值=`get_gate_*`、entropy=`get_entropy`。
 
 ### 4.2 SSE 事件类型（v1）
 
@@ -123,9 +129,11 @@ A 类新模块 → 完整流水线：**专家审核本设计 → 实现（网关
 
 - **单实例单连接语义**：内核为单实例状态机，多客户端共享同一演化（一期明确"一内核多订阅者、单一写者"）；
 - **push 无并发保护**：多写者需网关层串行化（单写者即可，二期再议）；
-- 本设计**不新增任何内核 FFI**（42 导出够用）；若后续需 `energy_last` 快照值等，走 FFI 扩展的 B 类改动另议；
+- **单写者语义显式声明（v1.1 · 顾问建议③）**：实现上所有内核访问经 `Gateway` mpsc 串行到单一 kern 线程（npb 内核为 thread_local，多线程直接调用会各自持空内核）——协议层由 `/v1/health` 返回 `"writer":"single"` 声明，调用方不得绕过网关直连内核；
+- 本设计**不新增任何内核 FFI**（42 导出够用；`energy.last` 由宿主侧维护）；
 - L4-L6 明确不展开，本文件不预写其规划。
 
 ## 10. 版本记录
 
-- v1.0（2026-09-07）：发起人审阅确认（方向 HTTP+SSE→WS、模式 A、tag 扩展位、A 类流水线），定稿成档。
+- v1.0（2026-09-07）：发起人审阅确认（方向 HTTP+SSE→WS、模式 A、tag 扩展位、A 类流水线），定稿成档 → PR#1 审核通过并合并；
+- v1.1（2026-09-07）：L3 实现轮并入架构顾问建议——`energy.last` 入快照（宿主维护，零内核 FFI 新增）、`extensions` 预留槽、单写者语义声明入 health；快照 schema 增 `low_energy` 投影；实现仓库位 `npb-gateway/`（std 零依赖：Gateway kern 线程 + HTTP/SSE 服务器 + 测试入 CI）。
