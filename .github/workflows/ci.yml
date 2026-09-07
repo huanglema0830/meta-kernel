@@ -15,11 +15,25 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run workspace tests
+      - name: Run workspace tests (excluding npb-gateway)
         shell: bash
         run: |
           set -o pipefail
-          cargo test --workspace 2>&1 | tee phase1-test.log
+          cargo test --workspace --exclude npb-gateway 2>&1 | tee phase1-test.log
+
+      - name: Run npb-gateway tests (single-thread, nocapture, 120s watchdog)
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout 120 cargo test -p npb-gateway -- --nocapture --test-threads=1 2>&1 | tee gateway-test.log || { echo "GATEWAY_TEST_TIMEOUT_OR_FAIL (exit $?)"; exit 1; }
+          echo GATEWAY_TESTS_OK
+
+      - name: Upload npb-gateway test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-test-log
+          path: gateway-test.log
 
       - name: Upload workspace test log
         if: always()
