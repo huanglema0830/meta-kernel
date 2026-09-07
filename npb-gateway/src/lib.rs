@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn edges_only_on_band_change() {
-        let mut a = Projection::empty();
+        let a = Projection::empty();
         let mut b = Projection::empty();
         assert_eq!(edges(&a, &b), vec![]);
         b.budget = 2;
@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn self_band_no_events_below_0_1_delta() {
-        let mut a = Projection::empty();
+        let a = Projection::empty();
         let mut b = Projection::empty();
         b.self_intensity = 0.09; // 仍 band 0
         assert_eq!(edges(&a, &b).iter().filter(|e| e.field == "self_band").count(), 0);

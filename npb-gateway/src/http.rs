@@ -99,7 +99,9 @@ fn read_line(stream: &mut TcpStream, buf: &mut Vec<u8>) -> std::io::Result<Optio
     }
 }
 
-fn read_headers(stream: &mut TcpStream) -> (String, Vec<String>) {
+/// 读取请求行 + 头，返回 (请求行, 头列表, 已读入的多余字节[body 起始])。
+/// 注意：读取 chunk 可能把 body 一并读入——多余字节必须返回给调用方消费，否则 body 丢失。
+fn read_request(stream: &mut TcpStream) -> (String, Vec<String>, Vec<u8>) {
     let mut buf: Vec<u8> = Vec::new();
     let mut request_line = String::new();
     let mut headers = Vec::new();
@@ -118,7 +120,7 @@ fn read_headers(stream: &mut TcpStream) -> (String, Vec<String>) {
             _ => break,
         }
     }
-    (request_line, headers)
+    (request_line, headers, buf)
 }
 
 fn content_length(headers: &[String]) -> usize {
@@ -132,7 +134,7 @@ fn content_length(headers: &[String]) -> usize {
 }
 
 fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>) -> std::io::Result<()> {
-    let (request_line, headers) = read_headers(&mut stream);
+    let (request_line, headers, mut leftover) = read_request(&mut stream);
     let parts: Vec<&str> = request_line.split_whitespace().collect();
     if parts.len() < 3 {
         return Ok(());
@@ -178,14 +180,21 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>) -
         return Ok(());
     }
 
-    // ---- 读 body（POST） ----
+    // ---- 读 body（POST）：先消费请求头读取时已带入的多余字节，再补齐剩余 ----
     let mut body = String::new();
     if method == "POST" {
         let clen = content_length(&headers);
         if clen > 0 {
-            let mut v = vec![0u8; clen];
-            let _ = stream.read_exact(&mut v);
-            body = String::from_utf8_lossy(&v).into_owned();
+            let mut body_bytes: Vec<u8> = Vec::with_capacity(clen);
+            let take = leftover.len().min(clen);
+            body_bytes.extend(leftover.drain(..take));
+            let need = clen - body_bytes.len();
+            if need > 0 {
+                let mut v = vec![0u8; need];
+                let _ = stream.read_exact(&mut v);
+                body_bytes.extend(v);
+            }
+            body = String::from_utf8_lossy(&body_bytes).into_owned();
         }
     }
 
@@ -224,19 +233,37 @@ fn write_sse(stream: &mut TcpStream, event: &str, data: &str) -> std::io::Result
 }
 
 #[cfg(test)]
+
+#[cfg(test)]
 mod http_tests {
     use super::*;
     use std::io::BufRead;
     use std::io::BufReader;
-    use std::time::Instant;
 
+    /// 带 3s 读超时的原始 HTTP 请求：返回全部响应字节（EOF 或超时止），杜绝无限挂。
     fn raw_request(addr: &str, req: &str) -> String {
         let mut s = TcpStream::connect(addr).expect("connect");
-        s.write_all(req.as_bytes()).expect("write");
-        s.shutdown(std::net::Shutdown::Write).ok();
+        s.set_read_timeout(Some(Duration::from_millis(3000))).ok();
+        let _ = s.write_all(req.as_bytes());
         let mut out = String::new();
-        let _ = s.read_to_string(&mut out);
+        let mut b = [0u8; 1024];
+        loop {
+            match s.read(&mut b) {
+                Ok(0) => break,
+                Ok(n) => out.push_str(&String::from_utf8_lossy(&b[..n])),
+                Err(_) => break,
+            }
+        }
         out
+    }
+
+    /// POST helper：Content-Length 动态取自 body 实际长度。
+    fn post_json(addr: &str, path: &str, body: &str) -> String {
+        let req = format!(
+            "POST {path} HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        raw_request(addr, &req)
     }
 
     #[test]
@@ -251,26 +278,24 @@ mod http_tests {
     }
 
     #[test]
-    fn push_accepts_positive_rejects_negative() {
+    fn push_accepts_positive_and_advances_tick() {
         let mut srv = spawn(0).expect("spawn");
-        let ok = raw_request(
-            &srv.addr,
-            "POST /v1/push HTTP/1.1\r\nHost: x\r\nContent-Length: 14\r\n\r\n{\"seed\": 0.5}",
-        );
+        let ok = post_json(&srv.addr, "/v1/push", r#"{"seed": 0.5}"#);
+        let st = raw_request(&srv.addr, "GET /v1/state HTTP/1.1\r\nHost: x\r\n\r\n");
         srv.stop();
         assert!(ok.contains("\"accepted\":true"), "{ok}");
+        assert!(st.contains("\"t\":1"), "push 应推进 tick: {st}");
     }
 
     #[test]
     fn negative_push_rejected_with_reason() {
         let mut srv = spawn(0).expect("spawn");
-        let bad = raw_request(
-            &srv.addr,
-            "POST /v1/push HTTP/1.1\r\nHost: x\r\nContent-Length: 16\r\n\r\n{\"seed\": -0.25}",
-        );
+        let bad = post_json(&srv.addr, "/v1/push", r#"{"seed": -0.25}"#);
+        let st = raw_request(&srv.addr, "GET /v1/state HTTP/1.1\r\nHost: x\r\n\r\n");
         srv.stop();
         assert!(bad.contains("\"accepted\":false"), "{bad}");
         assert!(bad.contains("gate_rejected"), "{bad}");
+        assert!(st.contains("\"t\":0"), "被拒不推进: {st}");
     }
 
     #[test]
@@ -287,14 +312,13 @@ mod http_tests {
     fn sse_stream_emits_snapshot_then_events() {
         let srv = spawn(0).expect("spawn");
         let addr = srv.addr.clone();
-        // SSE 订阅连接（读线程）
         let reader = std::thread::spawn(move || {
             let s = TcpStream::connect(&addr).expect("sse connect");
+            s.set_read_timeout(Some(Duration::from_millis(3000))).ok();
             let mut w = &s;
             let _ = w.write_all(b"GET /v1/events HTTP/1.1\r\nHost: x\r\n\r\n");
             let mut r = BufReader::new(s);
             let mut first = String::new();
-            // 读响应头 + 首条 SSE 帧
             for _ in 0..8 {
                 let mut line = String::new();
                 if r.read_line(&mut line).unwrap_or(0) == 0 {
@@ -307,14 +331,8 @@ mod http_tests {
             }
             first
         });
-        // 稍候再 push，制造边沿/指令
         std::thread::sleep(Duration::from_millis(300));
-        let mut push_stream = TcpStream::connect(&srv.addr).expect("push connect");
-        let _ = push_stream
-            .write_all(b"POST /v1/push HTTP/1.1\r\nHost: x\r\nContent-Length: 14\r\n\r\n{\"seed\": 0.9}");
-        let mut pbuf = [0u8; 256];
-        let _ = push_stream.read(&mut pbuf);
-
+        let _ = post_json(&srv.addr, "/v1/push", r#"{"seed": 0.9}"#);
         let got = reader.join().unwrap_or_default();
         let mut srv2 = srv;
         srv2.stop();
@@ -324,18 +342,10 @@ mod http_tests {
     #[test]
     fn persist_roundtrip_via_http() {
         let mut srv = spawn(0).expect("spawn");
-        // 先推若干扰动
-        let _ = raw_request(
-            &srv.addr,
-            "POST /v1/push HTTP/1.1\r\nHost: x\r\nContent-Length: 14\r\n\r\n{\"seed\": 0.6}",
-        );
-        let snap = raw_request(
-            &srv.addr,
-            "POST /v1/persist/snapshot HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n",
-        );
+        let _ = post_json(&srv.addr, "/v1/push", r#"{"seed": 0.6}"#);
+        let snap = post_json(&srv.addr, "/v1/persist/snapshot", "");
         srv.stop();
-        assert!(snap.contains("\"ok\"") || snap.starts_with("HTTP/1.1 200"), "{snap}");
-        // persist_snapshot 返回内核快照 JSON（键含 self/stored 等）或空对象
+        assert!(snap.contains("HTTP/1.1 200"), "{snap}");
         assert!(snap.contains("stored") || snap.contains("\"self\""), "{snap}");
     }
 }
