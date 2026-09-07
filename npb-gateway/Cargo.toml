@@ -1,0 +1,9 @@
+[package]
+name = "npb-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "L3 API gateway: standard host-embedded interface over NPB kernel (HTTP/SSE projection, zero third-party deps)."
+
+[dependencies]
+npb = { path = "../npb" }
