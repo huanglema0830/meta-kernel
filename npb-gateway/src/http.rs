@@ -20,11 +20,13 @@ use std::time::Duration;
 /// 运行中的服务器实例。
 pub struct Server {
     pub addr: String,
+    /// 可选静态 UI 目录（--ui）：GET / 及受控静态文件由网关同源托管（老设备一键部署）。
+    ui_dir: Option<std::path::PathBuf>,
     stop: Arc<AtomicBool>,
     handle: Option<std::thread::JoinHandle<()>>,
 }
 
-fn serve_forever(listener: TcpListener, gw: Arc<Gateway>, stop: Arc<AtomicBool>) {
+fn serve_forever(listener: TcpListener, gw: Arc<Gateway>, stop: Arc<AtomicBool>, ui_dir: Option<std::path::PathBuf>) {
     for stream in listener.incoming() {
         if stop.load(Ordering::Relaxed) {
             break;
@@ -33,8 +35,9 @@ fn serve_forever(listener: TcpListener, gw: Arc<Gateway>, stop: Arc<AtomicBool>)
             Ok(s) => {
                 let gw2 = Arc::clone(&gw);
                 let stop2 = Arc::clone(&stop);
+                let ui2 = ui_dir.clone();
                 std::thread::spawn(move || {
-                    let _ = handle_conn(s, gw2, stop2);
+                    let _ = handle_conn(s, gw2, stop2, ui2);
                 });
             }
             Err(_) => break,
@@ -44,14 +47,21 @@ fn serve_forever(listener: TcpListener, gw: Arc<Gateway>, stop: Arc<AtomicBool>)
 
 /// 绑定 127.0.0.1:port（0 = 随机可用端口）并启动服务器线程。
 pub fn spawn(port: u16) -> std::io::Result<Server> {
+    spawn_custom(port, None)
+}
+
+/// 按端口（127.0.0.1）启动；`ui_dir` 提供时同源托管静态 UI（老设备一键部署）。
+pub fn spawn_custom(port: u16, ui_dir: Option<String>) -> std::io::Result<Server> {
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     let addr = listener.local_addr()?.to_string();
     let gw = Arc::new(Gateway::spawn());
     let stop = Arc::new(AtomicBool::new(false));
     let s2 = Arc::clone(&stop);
     let gw2 = Arc::clone(&gw);
-    let handle = std::thread::spawn(move || serve_forever(listener, gw2, s2));
-    Ok(Server { addr, stop, handle: Some(handle) })
+    let ui = ui_dir.map(std::path::PathBuf::from);
+    let ui_ok = ui.clone();
+    let handle = std::thread::spawn(move || serve_forever(listener, gw2, s2, ui));
+    Ok(Server { addr, ui_dir: ui_ok, stop, handle: Some(handle) })
 }
 
 impl Server {
@@ -142,7 +152,7 @@ fn content_length(headers: &[String]) -> usize {
     0
 }
 
-fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>) -> std::io::Result<()> {
+fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, ui_dir: Option<std::path::PathBuf>) -> std::io::Result<()> {
     let (request_line, headers, mut leftover) = read_request(&mut stream);
     let parts: Vec<&str> = request_line.split_whitespace().collect();
     if parts.len() < 3 {
@@ -210,6 +220,14 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>) -
                 body_bytes.extend(v);
             }
             body = String::from_utf8_lossy(&body_bytes).into_owned();
+        }
+    }
+
+    // ---- 静态 UI（同源托管：--ui 提供时 GET / 与受控静态文件） ----
+    if method == "GET" {
+        if let Some(resp) = serve_ui(&ui_dir, target) {
+            stream.write_all(resp.as_bytes())?;
+            return Ok(());
         }
     }
 
@@ -324,6 +342,36 @@ mod http_tests {
     }
 
     #[test]
+    fn static_ui_served_same_origin() {
+        // 临时 ui 目录：仅 index.html
+        let dir = std::env::temp_dir().join(format!("ck_ui_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        std::fs::write(dir.join("index.html"), "<html>cloud-kernel ui</html>").ok();
+        let srv = spawn_custom(0, Some(dir.to_string_lossy().into_owned())).expect("spawn ui");
+        let addr = srv.addr.clone();
+        let idx = raw_request(&addr, "GET / HTTP/1.1
+Host: x
+
+");
+        assert!(idx.contains("cloud-kernel ui"), "{idx}");
+        // API 与静态共存
+        let h = raw_request(&addr, "GET /v1/health HTTP/1.1
+Host: x
+
+");
+        assert!(h.contains("\"ok\":true"), "{h}");
+        // 白名单外 → 404（防穿越/外泄）
+        let bad = raw_request(&addr, "GET /../../windows/win.ini HTTP/1.1
+Host: x
+
+");
+        assert!(bad.starts_with("HTTP/1.1 404"), "{bad}");
+        let mut srv2 = srv;
+        srv2.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn cors_preflight_and_headers_enabled() {
         let mut srv = spawn(0).expect("spawn");
         // OPTIONS 预检 → 204 + 允许方法/头
@@ -379,4 +427,34 @@ mod http_tests {
         assert!(snap.contains("HTTP/1.1 200"), "{snap}");
         assert!(snap.contains("stored") || snap.contains("\"self\""), "{snap}");
     }
+}
+
+/// 静态 UI 服务（同源托管，老设备一键部署）：GET / → index.html；其余仅白名单文件。
+/// 白名单：index.html / manifest_ui.js / manifest_ui_bg.wasm（防止路径穿越与任意文件外泄）。
+const UI_ALLOW: [(&str, &str); 3] = [
+    ("/index.html", "text/html; charset=utf-8"),
+    ("/manifest_ui.js", "text/javascript"),
+    ("/manifest_ui_bg.wasm", "application/wasm"),
+];
+
+fn serve_ui(ui_dir: &Option<std::path::PathBuf>, target: &str) -> Option<String> {
+    let dir = ui_dir.as_ref()?;
+    let name = if target == "/" { "/index.html" } else { target };
+    let ctype = UI_ALLOW.iter().find(|(p, _)| *p == name)?.1;
+    let path = dir.join(name.trim_start_matches('/'));
+    // 防穿越兜底：只接受白名单文件名
+    let fname = path.file_name()?.to_str()?;
+    let allow = ["index.html", "manifest_ui.js", "manifest_ui_bg.wasm"].contains(&fname);
+    if !allow { return None; }
+    let bytes = std::fs::read(&path).ok()?;
+    let body = String::from_utf8_lossy(&bytes).into_owned();
+    Some(format!(
+        "HTTP/1.1 200 OK
+Content-Type: {ctype}
+Content-Length: {}
+Connection: close
+
+{}",
+        bytes.len(), body
+    ))
 }

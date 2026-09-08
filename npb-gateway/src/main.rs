@@ -3,18 +3,38 @@
 //! 用法：`cargo run -p npb-gateway [PORT]`
 
 fn main() {
-    let port: u16 = std::env::args()
-        .nth(1)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(8080);
-    let mut server = match npb_gateway::http::spawn(port) {
+    let args: Vec<String> = std::env::args().collect();
+    // 用法：npb-gateway [PORT|IP:PORT] [--ui <dir>]
+    let mut ui_dir: Option<String> = None;
+    let mut port: u16 = 3000;
+    let mut idx = 1;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--ui" => {
+                idx += 1;
+                if idx < args.len() { ui_dir = Some(args[idx].clone()); }
+            }
+            other => {
+                if let Some(p) = other.rsplit(':').next().and_then(|s| s.parse().ok()) {
+                    port = p;
+                } else if let Ok(p) = other.parse() {
+                    port = p;
+                }
+            }
+        }
+        idx += 1;
+    }
+    let mut server = match npb_gateway::http::spawn_custom(port, ui_dir.clone()) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("gateway bind error: {e}");
             std::process::exit(1);
         }
     };
-    println!("meta-kernel gateway listening on http://{}", server.addr);
+    println!("cloud-kernel gateway listening on http://{}", server.addr);
+    if ui_dir.is_some() {
+        println!("   UI (空海浏览器):  http://{}/  （--ui 同源托管）", server.addr);
+    }
     println!("try:  curl -s http://{}/v1/health", server.addr);
     println!("      curl -s http://{}/v1/state", server.addr);
     println!("      curl -s -X POST http://{}/v1/push -d '{{\"seed\":0.5}}'", server.addr);
