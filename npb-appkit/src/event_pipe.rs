@@ -145,10 +145,10 @@ pub struct EventPipe {
 impl EventPipe {
     /// 订阅网关 SSE。`name` 仅用于线程命名。
     pub fn subscribe(addr: &str) -> std::io::Result<Self> {
-        let mut stream = httpc::sse_open(addr)?;
+        let conn = httpc::sse_open(addr)?;
+        let (mut stream, mut buf) = (conn.stream, conn.pending);
         let (tx, rx) = channel::<RawEvent>();
         let join = thread::spawn(move || {
-            let mut buf: Vec<u8> = Vec::new();
             loop {
                 match read_frame(&mut stream, &mut buf) {
                     Ok(Some(ev)) => {

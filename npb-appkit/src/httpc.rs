@@ -16,25 +16,6 @@ fn connect(addr: &str) -> std::io::Result<TcpStream> {
     Ok(s)
 }
 
-fn read_until_double_crlf(s: &mut TcpStream) -> std::io::Result<Vec<u8>> {
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 256];
-    loop {
-        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
-            break;
-        }
-        let n = s.read(&mut chunk)?;
-        if n == 0 {
-            break;
-        }
-        buf.extend_from_slice(&chunk[..n]);
-        if buf.len() > 64 * 1024 {
-            break;
-        }
-    }
-    Ok(buf)
-}
-
 /// POST JSON → 响应原始文本（含状态行与头；调用方自用子串断言）。
 pub fn post_json(addr: &str, path: &str, body: &str) -> std::io::Result<String> {
     let mut s = connect(addr)?;
@@ -72,18 +53,40 @@ pub fn get_json(addr: &str, path: &str) -> std::io::Result<String> {
     Ok(out)
 }
 
-/// 建立 SSE 订阅：发送 GET /v1/events、消费响应头，返回就绪的数据流。
-pub fn sse_open(addr: &str) -> std::io::Result<TcpStream> {
+/// SSE 连接：已消费响应头，`pending` 携带头部读取时已带入的首帧字节（不得丢弃）。
+pub struct SseConn {
+    pub stream: TcpStream,
+    pub pending: Vec<u8>,
+}
+
+/// 建立 SSE 订阅：发送 GET /v1/events、消费响应头，返回就绪数据流（含头部带入的余字节）。
+pub fn sse_open(addr: &str) -> std::io::Result<SseConn> {
     let mut s = connect(addr)?;
     s.write_all(b"GET /v1/events HTTP/1.1\r\nHost: x\r\nConnection: keep-alive\r\n\r\n")?;
-    let head = read_until_double_crlf(&mut s)?;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 256];
+    let head_end = loop {
+        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            break pos + 4;
+        }
+        let n = s.read(&mut chunk)?;
+        if n == 0 {
+            break buf.len();
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if buf.len() > 64 * 1024 {
+            break buf.len();
+        }
+    };
+    let head = &buf[..head_end.min(buf.len())];
     if !head.starts_with(b"HTTP/1.1 200") {
         return Err(std::io::Error::new(
             std::io::ErrorKind::Other,
-            format!("SSE open failed: {}", String::from_utf8_lossy(&head)),
+            format!("SSE open failed: {}", String::from_utf8_lossy(head)),
         ));
     }
-    Ok(s)
+    let pending = buf[head_end.min(buf.len())..].to_vec();
+    Ok(SseConn { stream: s, pending })
 }
 
 #[cfg(test)]
@@ -101,22 +104,27 @@ mod tests {
         // push 负拒
         let r2 = post_json(&addr, "/v1/push", r#"{"seed":-0.5}"#).expect("post");
         assert!(r2.contains("gate_rejected"), "{r2}");
-        // health
-        let h = post_json(&addr, "/v1/health", "").expect("health");
+        // health（GET）
+        let h = get_json(&addr, "/v1/health").expect("health");
         assert!(h.contains("\"ok\":true"), "{h}");
         let mut srv2 = srv;
         srv2.stop();
     }
 
     #[test]
-    fn sse_open_returns_ready_stream() {
+    #[test]
+    fn sse_open_returns_ready_stream_without_losing_first_frame() {
         let srv = npb_gateway::http::spawn(0).expect("spawn gw");
         let addr = srv.addr.clone();
-        let mut st = sse_open(&addr).expect("sse open");
-        // 首帧应为 snapshot（200ms 内到达）
-        let mut buf = [0u8; 4096];
-        let n = st.read(&mut buf).unwrap_or(0);
-        let got = String::from_utf8_lossy(&buf[..n]);
+        let conn = sse_open(&addr).expect("sse open");
+        // 首帧（snapshot）可能已在 pending，或随首读到达：合并两者断言
+        let mut got = String::from_utf8_lossy(&conn.pending).into_owned();
+        if !got.contains("event:") {
+            let mut stream = conn.stream;
+            let mut b = [0u8; 4096];
+            let n = stream.read(&mut b).unwrap_or(0);
+            got.push_str(&String::from_utf8_lossy(&b[..n]));
+        }
         assert!(got.contains("event: snapshot"), "{got}");
         let mut srv2 = srv;
         srv2.stop();
