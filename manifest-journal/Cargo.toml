@@ -1,0 +1,12 @@
+[package]
+name = "manifest-journal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "L5 参考应用最小版（Manifest Journal）：文本→种子→push→SSE→生命周期→显化日志流（端到端）。"
+
+[dependencies]
+npb-appkit = { path = "../npb-appkit" }
+
+[dev-dependencies]
+npb-gateway = { path = "../npb-gateway" }

@@ -1,0 +1,10 @@
+[package]
+name = "npb-appkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "L4 应用框架（点亮→外显）：显化生命周期状态机 + 命名/语言组织 + L3 SSE 事件归一（EventPipe）。std 零第三方依赖。"
+
+# 集成测试需起真实网关 → dev-dependency（仅测试构建时编译，运行面零依赖）
+[dev-dependencies]
+npb-gateway = { path = "../npb-gateway" }

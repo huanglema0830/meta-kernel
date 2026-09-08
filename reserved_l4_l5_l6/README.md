@@ -15,10 +15,16 @@
 //   - 实现轮（A 类流水线）激活时：把对应接口移入正式 crate（npb-appkit /
 //     manifest-journal / world-adapter）并补 #[cfg(test)] 与 CI 测试。
 //
+// 激活状态（阶段 2 · 2026-09-08）：
+//   [ACTIVATED] l4_interface.rs → npb-appkit/（workspace 正式 crate：
+//       LifecycleEngine 纯函数状态机 + Namer/Speaker + EventPipe + httpc，含单测）
+//   [ACTIVATED] l5_interface.rs → manifest-journal/（L5 最小版：seed_of 指纹种子、
+//       JournalSession 端到端 + tests/e2e_manifest.rs 验收五条）
+//   [RESERVED]  l6_interface.rs（L6 对齐层 WorldAdapter —— 愿景，待 L4/L5 落地后评估）
+//
 // 文件：
-//   l4_interface.rs  — L4 框架契约（AppSpec / KernelEvent / LifecycleEngine /
-//                      Namer+Speaker / EventPipe）—— 拒绝层戒律锚点
-//   l5_interface.rs  — L5 Manifest Journal 契约（条目 / seed_of / 日志 / 意图）——
+//   l4_interface.rs  — L4 框架契约历史快照（激活指针见 npb-appkit）—— 拒绝层戒律锚点
+//   l5_interface.rs  — L5 Manifest Journal 契约历史快照（激活指针见 manifest-journal）——
 //                      审计层戒律锚点
 //   l6_interface.rs  — L6 对齐层愿景契约（WorldAdapter / 世界反馈校验）——
 //                      对齐层戒律锚点
