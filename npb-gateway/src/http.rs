@@ -226,7 +226,7 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
     // ---- 静态 UI（同源托管：--ui 提供时 GET / 与受控静态文件） ----
     if method == "GET" {
         if let Some(resp) = serve_ui(&ui_dir, target) {
-            stream.write_all(resp.as_bytes())?;
+            stream.write_all(&resp)?;
             return Ok(());
         }
     }
@@ -437,7 +437,7 @@ const UI_ALLOW: [(&str, &str); 3] = [
     ("/manifest_ui_bg.wasm", "application/wasm"),
 ];
 
-fn serve_ui(ui_dir: &Option<std::path::PathBuf>, target: &str) -> Option<String> {
+fn serve_ui(ui_dir: &Option<std::path::PathBuf>, target: &str) -> Option<Vec<u8>> {
     let dir = ui_dir.as_ref()?;
     let name = if target == "/" { "/index.html" } else { target };
     let ctype = UI_ALLOW.iter().find(|(p, _)| *p == name)?.1;
@@ -452,18 +452,20 @@ fn serve_ui(ui_dir: &Option<std::path::PathBuf>, target: &str) -> Option<String>
     let bytes = match std::fs::read(&path) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("serve_ui: 读取失败 {} ({e})——目录请在纯英文路径下", path.display());
+            eprintln!("serve_ui: 读取失败 {} ({e})", path.display());
             return None;
         }
     };
-    let body = String::from_utf8_lossy(&bytes).into_owned();
-    Some(format!(
+    let header = format!(
         "HTTP/1.1 200 OK
 Content-Type: {ctype}
 Content-Length: {}
 Connection: close
 
-{}",
-        bytes.len(), body
-    ))
+",
+        bytes.len()
+    );
+    let mut resp = header.into_bytes();
+    resp.extend_from_slice(&bytes);
+    Some(resp)
 }
