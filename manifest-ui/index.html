@@ -73,6 +73,16 @@
     <ul class="log" id="log"></ul>
   </div>
 
+
+  <div class="card">
+    <div style="font-weight:600;font-size:14px">设备诊断 <span style="font-weight:400;color:var(--dim);font-size:12px">（输入问题描述 → 排查步骤；可选外部知识库）</span></div>
+    <textarea id="diag-input" class="field" style="min-height:44px" placeholder="例：按键盘时部分按键没有反应，其他按键正常"></textarea>
+    <div class="bar" style="margin-top:8px">
+      <input id="kb-url" type="text" style="flex:2" placeholder="可选：外部知识库 URL，如 http://127.0.0.1:9877/diag（留空=内置通用排查）">
+      <button id="btn-diag">诊断</button>
+    </div>
+    <div id="diag-out" class="intent" style="white-space:pre-line">输入故障描述后点「诊断」。</div>
+  </div>
   <div class="card">
     <div style="font-weight:600;font-size:14px">历史条目 <span style="font-weight:400;color:var(--dim);font-size:12px">（点击恢复显示）</span></div>
     <ul class="entries" id="entries"></ul>

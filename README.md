@@ -54,6 +54,20 @@
 `docs/L4_APPLICATION_FRAMEWORK_DESIGN.md`、`docs/L5_REFERENCE_APP_DESIGN.md`、
 `docs/LAYER_ARCHITECTURE.md`、`docs/SILA_IMPLEMENTATION.md`、`docs/PERTURBATION_MODEL.md`、`docs/VISION.md`。
 
+
+## 版本规则（对外 / 内部）
+
+- **对外发布**：两位小数（0.01、0.02、0.1、1.0），不加 Beta/Preview/RC 修饰词；首个对外种子版本 = **v0.01**。
+- **内部开发**：完整号精确到每次迭代（v0.00x…），当前所有内部产物标记 **v0.001** 序列。
+- 实事求是：是什么就是什么，不虚高也不压低。
+
+## 阶段路线（主线）
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 阶段一 | 老笔记本实测收束：键盘/台式机/充电宝诊断验证、Windows 预发布包 v0.001、PERFORMANCE 实测数据 | 🚧 收束中（诊断三场景已验证 ✅、v0.001 包已出） |
+| 阶段二 | 系统探针 cloud-probe.exe + 网关 /v1/probe + 执行器（清临时/重启服务/修复注册表，戒律：读取提示/确认窗口/日志溯源） | ⬜ 下一大步 |
+
 ## 仓库结构
 
 ```

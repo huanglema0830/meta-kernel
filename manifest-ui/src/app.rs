@@ -336,6 +336,41 @@ impl App {
         });
     }
 
+    /// 诊断：文本 → 外部知识库（URL 可填）→ 排查步骤；无知识库回退内置通用三步。
+    fn diag(&mut self) {
+        let text = el::<web_sys::HtmlTextAreaElement>("diag-input").value().trim().to_string();
+        if text.is_empty() { set_text("diag-out", "请先输入故障描述。"); return; }
+        let kb = el::<HtmlInputElement>("kb-url").value().trim().to_string();
+        if let Some(s) = storage() { let _ = s.set_item("mj_kb", &kb); }
+        if kb.is_empty() {
+            let mut out = format!("来源: builtin（未配置外部知识库）
+通用排查（扰动→显化→回融 逐环）：
+1) 注入：写入一条明确念头并确认点亮；
+2) 显化：观察显化仪表是否推进；
+3) 回融：停滞则归档后以新念头重试。
+
+如需专项结论：在上方填入外部知识库 URL 后再试。");
+            set_text("diag-out", &out);
+            return;
+        }
+        let url = if kb.contains('?') { format!("{kb}&q={text}") } else { format!("{kb}?q={text}") };
+        wasm_bindgen_futures::spawn_local(async move {
+            let resp = http_json("GET", &url, None).await;
+            match resp {
+                Ok(t) if t.contains("steps") => {
+                    if let Some(items) = parse_steps(&t) {
+                        let out = format!("来源: external
+{}", items.iter().enumerate().map(|(i,x)| format!("{}. {x}", i+1)).collect::<Vec<_>>().join("
+"));
+                        set_text("diag-out", &out);
+                    } else { set_text("diag-out", &format!("知识库响应无 steps: {}", &t[..t.len().min(120)])); }
+                }
+                Ok(t) => set_text("diag-out", &format!("知识库响应: {}", &t[..t.len().min(160)])),
+                Err(e) => set_text("diag-out", &format!("调用失败: {:?}——请确认知识库可达（CORS/地址）。", e)),
+            }
+        });
+    }
+
     fn archive(&mut self) {
         let _ = self.engine.apply(KernelEvent::Reset);
         if let Some(i) = self.active {
@@ -357,6 +392,7 @@ pub fn init() {
         bind_click("btn-light", move || APP.with(|x| x.borrow_mut().light()));
         bind_click("btn-boost", move || APP.with(|x| x.borrow_mut().boost()));
         bind_click("btn-archive", move || APP.with(|x| x.borrow_mut().archive()));
+        bind_click("btn-diag", move || APP.with(|x| x.borrow_mut().diag()));
         a.connect();
         a.render();
     });
@@ -372,4 +408,17 @@ fn bind_click(id: &str, f: impl Fn() + 'static) {
 /// 轻量时间戳（避免引入 chrono：零依赖保持）。
 fn chrono_lite() -> String {
     js_sys::Date::new_0().to_locale_time_string("zh-CN").as_string().unwrap_or_default()
+}
+
+/// 宽松解析 {"steps":["…","…"]}。
+fn parse_steps(body: &str) -> Option<Vec<String>> {
+    let start = body.find('[')?;
+    let end = body.find(']')?;
+    let inner = &body[start + 1..end];
+    let items = inner.split('"')
+        .map(|x| x.trim())
+        .filter(|x| !x.is_empty() && *x != ",")
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>();
+    if items.is_empty() { None } else { Some(items) }
 }
