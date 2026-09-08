@@ -10,7 +10,58 @@
 use npb_appkit::event_pipe::RawEvent;
 use npb_appkit::httpc;
 use npb_appkit::speaker::{Speaker, Statement};
-use npb_appkit::{LifecycleEngine, Namer};
+use npb_appkit::{KernelEvent, LifecycleEngine, Namer};
+
+/// 极简 JSON 字段提取（state 快照轮询用；协议自控，无嵌套）。
+fn json_val(s: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{key}\"");
+    let idx = s.find(&needle)?;
+    let rest = &s[idx + needle.len()..];
+    let colon = rest.find(':')? + 1;
+    let v: String = rest[colon..]
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-' || *c == '+' || *c == '"' || c.is_alphabetic())
+        .collect();
+    Some(v.trim_matches('"').to_string())
+}
+
+/// 快照探针：GET /v1/state 直读投影（次事件源；守"界面=内核真实投影"）。
+#[derive(Clone, Copy, Debug)]
+struct SnapshotProbe {
+    budget: u32,
+    stored: f32,
+    low: bool,
+}
+
+impl SnapshotProbe {
+    fn fetch(addr: &str) -> Option<Self> {
+        let body = httpc::get_json(addr, "/v1/state").ok()?;
+        let budget = json_val(&body, "budget")?.parse().ok()?;
+        let stored: f32 = json_val(&body, "stored")?.parse().ok()?;
+        let low = json_val(&body, "low_energy").as_deref() == Some("true");
+        Some(Self { budget, stored, low })
+    }
+
+    /// 前后快照差 → KernelEvent（预算 code 降=Awaken/升=Settle；持平按储备幅度）。
+    fn event(&self, prev: Option<&SnapshotProbe>) -> KernelEvent {
+        let Some(p) = prev else { return KernelEvent::Awaken }; // 首探视为点亮探针
+        if self.low {
+            return KernelEvent::Settle;
+        }
+        if self.budget != p.budget {
+            return if self.budget < p.budget { KernelEvent::Awaken } else { KernelEvent::Settle };
+        }
+        let d = self.stored - p.stored;
+        if d > 0.02 {
+            KernelEvent::Awaken
+        } else if d < -0.02 {
+            KernelEvent::Settle
+        } else {
+            KernelEvent::Hold
+        }
+    }
+}
 
 /// 日志行（命名 + 陈述 + 来源；审计锚点）。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,6 +110,8 @@ pub struct JournalSession {
     pub last_intent: Option<String>,
     /// 收敛上限（同 tick 防环）。
     max_events_per_push: usize,
+    /// 快照轮询探针（次事件源）。
+    probe: Option<SnapshotProbe>,
 }
 
 impl JournalSession {
@@ -78,6 +131,7 @@ impl JournalSession {
             tick: 0,
             last_intent: None,
             max_events_per_push: 64,
+            probe: None,
         }
     }
 
@@ -155,7 +209,24 @@ impl JournalSession {
             .unwrap_or(false)
     }
 
-    /// 端到端一轮：push N 次高活性种子并消化订阅事件；返回推进到的状态。
+    /// 快照轮询（次事件源）：GET /v1/state 与上次比较 → KernelEvent 驱动引擎。
+    /// 返回是否产生了推进性变化。真实内核在饱和态 SSE 事件稀疏，轮询保证事件供给。
+    pub fn poll_state(&mut self, addr: &str) -> bool {
+        let Some(next) = SnapshotProbe::fetch(addr) else { return false };
+        let ev = next.event(self.probe.as_ref());
+        let fake = RawEvent {
+            kind: "state_poll".to_string(),
+            data: format!("poll@{next:?}"),
+            kernel: ev,
+            source: "state_poll#/v1/state".to_string(),
+        };
+        let before = self.engine.state;
+        self.ingest(&fake);
+        self.probe = Some(next);
+        self.engine.state != before
+    }
+
+    /// 端到端一轮：push N 次高活性种子；每推后先消化 SSE 订阅事件，再快照轮询兜底。
     /// 网关 SSE 轮询约 100ms → 每推后消化窗口 ~400ms，空窗 8 次即停。
     pub fn run_pushes(&mut self, addr: &str, pipe_rx: &std::sync::mpsc::Receiver<RawEvent>, n: u32) -> u16 {
         for _ in 0..n {
@@ -178,6 +249,8 @@ impl JournalSession {
                     }
                 }
             }
+            // 快照轮询兜底（无论 SSE 是否捕到事件）
+            let _ = self.poll_state(addr);
         }
         self.engine.state
     }

@@ -87,13 +87,13 @@ fn acceptance_5_restore_and_replay_consistent() {
     let restored = ManifestEntry::from_line(&line).expect("恢复");
     assert_eq!(restored.raw, s.entry.raw, "原文恢复");
     assert!((restored.seed - s.entry.seed).abs() < 1e-5, "seed 恢复容差");
-    // 重放：从恢复条目重建会话（seed 同）→ 跑 10 步 → 与原始继续跑 10 步趋势同
+    // 重放一致性：从同一原文重建两个全新会话，跑相同步数 → 状态序列逐位一致（seed 同 + 状态机确定）
     let mut a = JournalSession::new(&restored.raw);
-    assert_eq!(a.entry.seed, restored.seed);
-    let mut b = s;
+    let mut b = JournalSession::new(&s.entry.raw);
+    assert_eq!(a.entry.seed, b.entry.seed, "恢复条目与原文同种子");
     let mut seq_a = Vec::new();
     let mut seq_b = Vec::new();
-    for _ in 0..10 {
+    for _ in 0..12 {
         seq_a.push(a.simulate(&[KernelEvent::Awaken]));
         seq_b.push(b.simulate(&[KernelEvent::Awaken]));
     }

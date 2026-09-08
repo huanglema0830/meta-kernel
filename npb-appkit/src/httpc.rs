@@ -55,6 +55,23 @@ pub fn post_json(addr: &str, path: &str, body: &str) -> std::io::Result<String> 
     Ok(out)
 }
 
+/// GET JSON → 响应原始文本（含状态行与头；调用方自用子串断言/解析）。
+pub fn get_json(addr: &str, path: &str) -> std::io::Result<String> {
+    let mut s = connect(addr)?;
+    let req = format!("GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+    s.write_all(req.as_bytes())?;
+    let mut out = String::new();
+    let mut b = [0u8; 1024];
+    loop {
+        match s.read(&mut b) {
+            Ok(0) => break,
+            Ok(n) => out.push_str(&String::from_utf8_lossy(&b[..n])),
+            Err(_) => break,
+        }
+    }
+    Ok(out)
+}
+
 /// 建立 SSE 订阅：发送 GET /v1/events、消费响应头，返回就绪的数据流。
 pub fn sse_open(addr: &str) -> std::io::Result<TcpStream> {
     let mut s = connect(addr)?;
