@@ -228,9 +228,13 @@ impl JournalSession {
 
     /// 端到端一轮：push N 次高活性种子；每推后先消化 SSE 订阅事件，再快照轮询兜底。
     /// 网关 SSE 轮询约 100ms → 每推后消化窗口 ~400ms，空窗 8 次即停。
+    /// 端到端一轮：push N 次**活性扰动**（确定性序列：anchor 起步 +0.01×i，封顶 0.92；
+    /// 保证高吸收/储备上行 → 快照轮询稳定产出 Awaken）。每推后先消化 SSE 订阅事件，
+    /// 再快照轮询兜底。网关 SSE 轮询 ~100ms。
     pub fn run_pushes(&mut self, addr: &str, pipe_rx: &std::sync::mpsc::Receiver<RawEvent>, n: u32) -> u16 {
-        for _ in 0..n {
-            let seed = if self.engine.state == 0 { self.entry.seed } else { self.boost_seed() };
+        let anchor = self.entry.seed.max(0.60);
+        for i in 0..n {
+            let seed = (anchor + 0.010 * (i % 30) as f32).min(0.92);
             if !self.push(addr, seed) {
                 break;
             }
@@ -249,7 +253,6 @@ impl JournalSession {
                     }
                 }
             }
-            // 快照轮询兜底（无论 SSE 是否捕到事件）
             let _ = self.poll_state(addr);
         }
         self.engine.state
