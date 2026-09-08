@@ -445,8 +445,17 @@ fn serve_ui(ui_dir: &Option<std::path::PathBuf>, target: &str) -> Option<String>
     // 防穿越兜底：只接受白名单文件名
     let fname = path.file_name()?.to_str()?;
     let allow = ["index.html", "manifest_ui.js", "manifest_ui_bg.wasm"].contains(&fname);
-    if !allow { return None; }
-    let bytes = std::fs::read(&path).ok()?;
+    if !allow {
+        eprintln!("serve_ui: 白名单外拒绝 {name}");
+        return None;
+    }
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("serve_ui: 读取失败 {} ({e})——目录请在纯英文路径下", path.display());
+            return None;
+        }
+    };
     let body = String::from_utf8_lossy(&bytes).into_owned();
     Some(format!(
         "HTTP/1.1 200 OK
