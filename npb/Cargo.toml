@@ -10,4 +10,4 @@ name = "npb"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-meta-kernel-core = { path = "../meta-kernel-core", version = "0.1.0" }
+meta-kernel-core = { path = "../meta-kernel-core", version = "0.2.0" }
