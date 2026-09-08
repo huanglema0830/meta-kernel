@@ -98,10 +98,7 @@ jobs:
           test -f examples/zen-oscilloscope/index.html
           test -f examples/zen-oscilloscope/zen.js
           test -f examples/tools/serve.py
-          test -f manifest-journal/ui/index.html
-          test -f manifest-journal/ui/app.js
-          test -f manifest-journal/ui/lifecycle.js
-          test -f manifest-journal/ui/lifecycle_test.js
+          test -f manifest-journal/manifest-ui/index.html
           echo SITE_FILES_OK
 
       - name: Build NPB cdylib (native)
@@ -145,6 +142,17 @@ jobs:
         shell: bash
         run: node examples/zen-oscilloscope/spiral_test.js
 
-      - name: Manifest Journal UI lifecycle engine test (node)
+      - name: Manifest UI wasm 前端构建（wasm-bindgen，产物=dist/）
         shell: bash
-        run: node manifest-journal/ui/lifecycle_test.js
+        run: |
+          set -e
+          rustup target add wasm32-unknown-unknown
+          curl -sSL https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.128/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl.tar.gz -o /tmp/wb.tgz
+          tar -xzf /tmp/wb.tgz -C /tmp
+          export PATH="/tmp/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl:$PATH"
+          cargo build -p manifest-ui --release --target wasm32-unknown-unknown
+          mkdir -p manifest-ui/dist
+          wasm-bindgen target/wasm32-unknown-unknown/release/manifest_ui.wasm --out-dir manifest-ui/dist --target web
+          test -f manifest-ui/dist/manifest_ui.js
+          test -f manifest-ui/dist/manifest_ui_bg.wasm
+          echo MANIFEST_UI_WASM_OK

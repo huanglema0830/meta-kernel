@@ -14,15 +14,20 @@
 //! 设计铁律：本 crate 不依赖 npb/npb-gateway 运行面（纯 std）；L4 只消费 L3 已发布协议；
 //! 生命周期是应用侧仪表，不是内核字段——所有输入来自网关事件，来源字段全程携带（可溯源）。
 
-pub mod event_pipe;
-pub mod httpc;
 pub mod lifecycle;
 pub mod namer;
+pub mod normalize;
 pub mod speaker;
+#[cfg(feature = "net")]
+pub mod event_pipe;
+#[cfg(feature = "net")]
+pub mod httpc;
 
-pub use event_pipe::{EventPipe, RawEvent};
 pub use lifecycle::{KernelEvent, LifecycleEngine};
 pub use namer::{NamedEntity, Namer};
+pub use normalize::{RawEvent, normalize};
+#[cfg(feature = "net")]
+pub use event_pipe::EventPipe;
 pub use speaker::{Intent, Speaker, Statement};
 
 /// 意图原语常量（一期基础原语）。

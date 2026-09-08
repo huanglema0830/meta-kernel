@@ -7,7 +7,7 @@
 //! 布局：`seed_of`（文本指纹→种子）、`ManifestEntry`（条目）、`JournalSession`（会话：
 //! 引擎+日志+意图）、CLI 入口见 `main.rs`，验收端到端见 `tests/e2e_manifest.rs`。
 
-use npb_appkit::event_pipe::RawEvent;
+use npb_appkit::RawEvent;
 use npb_appkit::httpc;
 use npb_appkit::speaker::{Speaker, Statement};
 use npb_appkit::{KernelEvent, LifecycleEngine, Namer};

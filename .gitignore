@@ -13,3 +13,6 @@ examples/*/index_embedded.html
 *.swp
 .DS_Store
 Thumbs.db
+
+# WASM 前端构建产物（CI 重建）
+manifest-ui/dist/

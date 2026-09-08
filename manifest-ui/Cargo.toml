@@ -1,0 +1,22 @@
+[package]
+name = "manifest-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Manifest Journal Web 前端（Trunk + wasm-bindgen，CSR）：复用 npb-appkit 纯逻辑（lifecycle/namer/speaker/normalize），经 L3 HTTP/SSE 连网关。浏览器 wasm 无 std::net → 网络走 web_sys。"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+npb-appkit = { path = "../npb-appkit", default-features = false }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+  "Window", "Document", "Element", "HtmlElement", "HtmlInputElement",
+  "HtmlTextAreaElement", "HtmlButtonElement", "HtmlDivElement", "HtmlUListElement",
+  "Event", "EventTarget", "Storage", "EventSource", "MessageEvent",
+  "Request", "RequestInit", "RequestMode", "Response", "Headers",
+  "console", "Location", "Node",
+] }
