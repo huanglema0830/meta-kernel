@@ -81,12 +81,11 @@ impl JournalSession {
         }
     }
 
-    /// 消费一条网关事件（动作才处理；instruction 陈述 + lifecycle 推进；全部可溯源）。
+    /// 消费一条网关事件（snapshot/ping 为 Hold：无推进、无日志；action 事件推进+记录）。
     /// 返回是否产生日志行。
     pub fn ingest(&mut self, ev: &RawEvent) -> bool {
-        if !ev.is_action() {
-            return false;
-        }
+        // 注意：不去除 Hold 类（snapshot/ping/simulated）——apply(Hold) 无推进副作用，
+        // 但允许 99 极显后由非正向事件累积静默窗（回融语义），并允许 simulate 直接驱动。
         self.tick += 1;
         let mut wrote = false;
         // 1) instruction → 陈述（若 Speaker 认识）
@@ -157,19 +156,26 @@ impl JournalSession {
     }
 
     /// 端到端一轮：push N 次高活性种子并消化订阅事件；返回推进到的状态。
+    /// 网关 SSE 轮询约 100ms → 每推后消化窗口 ~400ms，空窗 8 次即停。
     pub fn run_pushes(&mut self, addr: &str, pipe_rx: &std::sync::mpsc::Receiver<RawEvent>, n: u32) -> u16 {
         for _ in 0..n {
             let seed = if self.engine.state == 0 { self.entry.seed } else { self.boost_seed() };
             if !self.push(addr, seed) {
                 break;
             }
-            // 消化事件（至多 40ms 窗口 × 8）
-            for _ in 0..8 {
+            let mut idle = 0u32;
+            for _ in 0..40 {
                 match pipe_rx.recv_timeout(std::time::Duration::from_millis(10)) {
                     Ok(ev) => {
+                        idle = 0;
                         self.ingest(&ev);
                     }
-                    Err(_) => break,
+                    Err(_) => {
+                        idle += 1;
+                        if idle >= 8 {
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -285,7 +291,7 @@ mod tests {
         let line = s.entry.to_line();
         let back = ManifestEntry::from_line(&line).expect("parse");
         assert_eq!(back.id, s.entry.id);
-        assert_eq!(back.seed, s.entry.seed);
+        assert!((back.seed - s.entry.seed).abs() < 1e-5, "seed 往返（6 位小数容差）: {} vs {}", back.seed, s.entry.seed);
         assert_eq!(back.lifecycle, s.entry.lifecycle);
         assert_eq!(back.raw, s.entry.raw, "原文零修改往返");
     }
