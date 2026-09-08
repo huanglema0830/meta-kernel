@@ -98,6 +98,10 @@ jobs:
           test -f examples/zen-oscilloscope/index.html
           test -f examples/zen-oscilloscope/zen.js
           test -f examples/tools/serve.py
+          test -f manifest-journal/ui/index.html
+          test -f manifest-journal/ui/app.js
+          test -f manifest-journal/ui/lifecycle.js
+          test -f manifest-journal/ui/lifecycle_test.js
           echo SITE_FILES_OK
 
       - name: Build NPB cdylib (native)
@@ -140,3 +144,7 @@ jobs:
       - name: Spiral metric unit test (node, no wasm)
         shell: bash
         run: node examples/zen-oscilloscope/spiral_test.js
+
+      - name: Manifest Journal UI lifecycle engine test (node)
+        shell: bash
+        run: node manifest-journal/ui/lifecycle_test.js

@@ -64,9 +64,11 @@ impl Server {
     }
 }
 
+const CORS: &str = "Access-Control-Allow-Origin: *";
+
 fn http_ok(body: &str) -> String {
     format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n{CORS}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.len(),
         body
     )
@@ -74,11 +76,18 @@ fn http_ok(body: &str) -> String {
 
 fn http_err(code: u16, reason: &str, body: &str) -> String {
     format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\n{CORS}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         code,
         reason,
         body.len(),
         body
+    )
+}
+
+/// CORS 预检响应（浏览器跨源调用 /v1/*；受信本机/内网一期放开）。
+fn http_options() -> String {
+    format!(
+        "HTTP/1.1 204 No Content\r\n{CORS}\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
     )
 }
 
@@ -142,10 +151,16 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>) -
     let method = parts[0];
     let target = parts[1];
 
+    // ---- CORS 预检 ----
+    if method == "OPTIONS" {
+        stream.write_all(http_options().as_bytes())?;
+        return Ok(());
+    }
+
     // ---- SSE 订阅（长连接；先推 snapshot 秒同步，后按边沿/指令推送） ----
     if method == "GET" && target == "/v1/events" {
         stream.write_all(
-            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: *\r\nConnection: keep-alive\r\n\r\n",
         )?;
         write_sse(&mut stream, "snapshot", &gw.snapshot_json())?;
         let mut prev: Option<Projection> = None;
@@ -306,6 +321,22 @@ mod http_tests {
         assert!(h.contains("\"ok\":true"), "{h}");
         assert!(h.contains("\"writer\":\"single\""), "{h}");
         assert!(h.contains("\"digest\":"), "{h}");
+    }
+
+    #[test]
+    fn cors_preflight_and_headers_enabled() {
+        let mut srv = spawn(0).expect("spawn");
+        // OPTIONS 预检 → 204 + 允许方法/头
+        let pre = raw_request(&srv.addr, "OPTIONS /v1/push HTTP/1.1\r\nHost: x\r\nAccess-Control-Request-Method: POST\r\n\r\n");
+        srv.stop();
+        assert!(pre.starts_with("HTTP/1.1 204"), "{pre}");
+        assert!(pre.contains("Access-Control-Allow-Origin: *"), "{pre}");
+        assert!(pre.contains("Access-Control-Allow-Methods"), "{pre}");
+        // 普通响应也带 ACAO（浏览器跨源读）
+        let mut srv2 = spawn(0).expect("spawn2");
+        let st = raw_request(&srv2.addr, "GET /v1/state HTTP/1.1\r\nHost: x\r\nOrigin: http://localhost:8081\r\n\r\n");
+        srv2.stop();
+        assert!(st.contains("Access-Control-Allow-Origin: *"), "{st}");
     }
 
     #[test]
