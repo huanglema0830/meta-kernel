@@ -326,7 +326,7 @@ pub struct PositiveSource {
     absorbed: Vec<AbstractSchema>,
     /// 催化剂子集（被采纳模式的骨架）。
     catalysts: Vec<AbstractSchema>,
-    /// 已解构缓存（签名 → 胶粒），避免重复拆解。
+    /// 已解构缓存（签名 → 原初粒子），避免重复拆解。
     cache: Vec<(u64, Vec<Element>)>,
     /// 层级1 本地数据源（文件/DB 扫描结果模拟）。
     local_source: Vec<Pattern>,
@@ -336,7 +336,7 @@ pub struct PositiveSource {
     entangled: Vec<Entangled>,
     /// 孪生索引：twin_fingerprint → entangled 下标（O(1) 直接配对，非遍历）。
     twin_index: HashMap<u64, usize>,
-    /// 回收功德（摩尼回收：闸门拆解的胶粒能量不灭，累计入功德池）。
+    /// 回收功德（摩尼回收：闸门拆解的原初粒子能量不灭，累计入功德池）。
     recycled_merit: f64,
     /// 回收次数（闸门 RecycledToGranules → recycle 调用计数）。
     recycled_count: u64,
@@ -418,10 +418,10 @@ impl PositiveSource {
         self.entangled.len()
     }
 
-    /// 摩尼回收：把闸门拆解到层级 1 的胶粒作为原料回收进正源库
+    /// 摩尼回收：把闸门拆解到层级 1 的原初粒子作为原料回收进正源库
     /// （五戒·不偷盗落点：只回收"不完整/非纠缠"拆解物，不占有他人模式）。
     ///
-    /// 能量不灭 → 胶粒强度之和累计入回收功德；返回本次功德值。
+    /// 能量不灭 → 原初粒子强度之和累计入回收功德；返回本次功德值。
     pub fn recycle(&mut self, granules: Vec<Element>) -> f64 {
         let merit: f64 = granules.iter().map(|e| e.intensity.max(0.0)).sum();
         self.recycled_merit += merit;
@@ -429,7 +429,7 @@ impl PositiveSource {
         merit
     }
 
-    /// 累计回收功德（胶粒能量）。
+    /// 累计回收功德（原初粒子能量）。
     pub fn recycled_merit(&self) -> f64 {
         self.recycled_merit
     }
@@ -463,9 +463,9 @@ impl PositiveSource {
 
     /// 自动搜索可触达范围并解构模式（层级0 自状态 + 层级1 本地源）。
     ///
-    /// 已解构过（签名命中缓存）→ 直接返回缓存胶粒；
+    /// 已解构过（签名命中缓存）→ 直接返回缓存原初粒子；
     /// 与已知知识高度相似 → 识别并吸收；
-    /// 新模式 → 解构 → 吸收 → 缓存。输出均为层级 1 胶粒，可化合。
+    /// 新模式 → 解构 → 吸收 → 缓存。输出均为层级 1 原初粒子，可化合。
     pub fn search_and_deconstruct(&mut self, p: &Pattern) -> Vec<Element> {
         let sig = signature(p);
 
@@ -633,7 +633,7 @@ mod tests {
         let p = Pattern::new(vec![e(6, 0.8), e(2, 0.4), e(2, 0.6)]).with_history(vec![0.1, 0.2, 0.3, 0.4]);
         let g1 = src.search_and_deconstruct(&p);
         assert!(!g1.is_empty());
-        assert!(g1.iter().all(|x| x.level <= 1), "胶粒必须 ≤ 层级1");
+        assert!(g1.iter().all(|x| x.level <= 1), "原初粒子必须 ≤ 层级1");
         let absorbed = src.absorbed_len();
         assert!(absorbed >= 1, "自动吸收");
         // 同模式再次 → 缓存命中（不新增吸收/缓存）
@@ -739,10 +739,10 @@ mod recycle_tests {
     fn recycle_accumulates_merit_and_count() {
         let mut src = PositiveSource::new();
         let merit = src.recycle(vec![Element::new(1, 0.3), Element::new(1, 0.2)]);
-        assert!((merit - 0.5).abs() < 1e-9, "胶粒强度应求和入功德: {merit}");
+        assert!((merit - 0.5).abs() < 1e-9, "原初粒子强度应求和入功德: {merit}");
         assert_eq!(src.recycled_merit(), 0.5);
         assert_eq!(src.recycled_count(), 1);
-        // 空胶粒也计一次回收（闸门拆解到空集的情况）
+        // 空原初粒子也计一次回收（闸门拆解到空集的情况）
         src.recycle(Vec::new());
         assert_eq!(src.recycled_count(), 2);
         assert_eq!(src.recycled_merit(), 0.5);

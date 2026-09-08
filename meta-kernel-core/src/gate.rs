@@ -1,22 +1,22 @@
 // =====================================================================
-// 【L1/L2·戒律·解构×0.618】五戒嵌入闸门：负值拒(不杀生)、拆解回收胶粒(不偷盗)、
+// 【L1/L2·戒律·解构×0.618】五戒嵌入闸门：负值拒(不杀生)、拆解回收原初粒子(不偷盗)、
 // 一输入一响应(不邪淫)、Pass 原样(不妄语)、仅 ×0.618 拆解(不饮酒)。纯注释，零逻辑改动。
 // =====================================================================
 //! # 闸门层（Gate）— 摩尼宝珠第二层：进化模式验证与黄金拆解
 //!
 //! 对输入模式做"进化模式"验证（三量完整：存量 + 变量 + 补充增量）；
-//! 不符合的按 **×0.618**（黄金分割倒数）逐层拆解，直到通过或归为层级 1 胶粒。
+//! 不符合的按 **×0.618**（黄金分割倒数）逐层拆解，直到通过或归为层级 1 原初粒子。
 //!
 //! 五戒落点：
 //! - **不杀生**：负值元素 → `Rejected`（不产出任何下游活动）；核心模块 → 禁止拆解（直接 Pass）。
-//! - **不偷盗**：非纠缠/不完整输入不纳入正源，只拆解为胶粒原料（由调用方回收，不占有）。
+//! - **不偷盗**：非纠缠/不完整输入不纳入正源，只拆解为原初粒子原料（由调用方回收，不占有）。
 //! - **不饮酒**：本模块只使用加法与 ×0.618 拆解，无其他算法。
 
 use crate::ontology::{Element, Pattern};
 
 /// 黄金拆解比（×0.618…；f64 精度版本）。
 pub const DECOMPOSE_RATIO: f64 = 0.618_033_988_749_894_9;
-/// 拆解到胶粒的最大层数（×0.618^16 ≈ 4.7e-4，已足够接近"微尘"）。
+/// 拆解到原初粒子的最大层数（×0.618^16 ≈ 4.7e-4，已足够接近"微尘"）。
 pub const MAX_DEPTH: u8 = 16;
 /// 拆解单层强度上限（钳制，防累积越过 1）。
 const ELEMENT_CAP: f64 = 0.9999;
@@ -42,7 +42,7 @@ pub struct GateCtx {
 pub enum GateResult {
     /// 通过，返回精化后的模式。
     Pass(Pattern),
-    /// 拆解到胶粒，作为原料回收（层 1，强度 ×0.618^16）。
+    /// 拆解到原初粒子，作为原料回收（层 1，强度 ×0.618^16）。
     RecycledToGranules(Vec<Element>),
     /// 彻底拒绝（负值或完全无结构）。
     Rejected,
@@ -76,7 +76,7 @@ impl Gate {
     /// 1. 负值拦截 → `Rejected`（不杀生）；
     /// 2. 核心或三量完整（存量+变量+补充增量）→ `Pass`；
     /// 3. 逐层 ×0.618 拆解，任一层三量完整 → `Pass`；
-    /// 4. 拆到底仍不符合 → `RecycledToGranules`（胶粒原料）。
+    /// 4. 拆到底仍不符合 → `RecycledToGranules`（原初粒子原料）。
     pub fn check(&self, pattern: &Pattern, ctx: &GateCtx) -> GateResult {
         // 1. 负值拦截：任何负强度直接拒绝（不杀生）
         if pattern.elements.iter().any(|e| e.intensity < 0.0) {
@@ -94,7 +94,7 @@ impl Gate {
                 return GateResult::Pass(current);
             }
         }
-        // 4. 拆到底仍不符合 → 胶粒原料
+        // 4. 拆到底仍不符合 → 原初粒子原料
         let granules = self.decompose_to_granules(pattern);
         GateResult::RecycledToGranules(granules)
     }
@@ -123,7 +123,7 @@ impl Gate {
         }
     }
 
-    /// 拆解到胶粒状态：层级=1，强度=原强度 ×0.618^max_depth（钳 [0,1]）。
+    /// 拆解到原初粒子状态：层级=1，强度=原强度 ×0.618^max_depth（钳 [0,1]）。
     pub fn decompose_to_granules(&self, pattern: &Pattern) -> Vec<Element> {
         let shrink = DECOMPOSE_RATIO.powi(self.max_depth as i32);
         pattern
@@ -184,16 +184,16 @@ mod tests {
     #[test]
     fn incomplete_pattern_recycled_to_granules() {
         let g = Gate::new();
-        // 存量不足（无 >0.1 元素）→ 三量不完整 → 拆到底 → 胶粒
+        // 存量不足（无 >0.1 元素）→ 三量不完整 → 拆到底 → 原初粒子
         let p = Pattern { elements: vec![el(4, 0.05)], history: vec![0.1, 0.1, 0.1] };
         match g.check(&p, &GateCtx { has_variable: true, has_supplement: true, is_core: false }) {
             GateResult::RecycledToGranules(gs) => {
                 assert!(!gs.is_empty());
-                assert!(gs.iter().all(|e| e.level == 1), "胶粒必须为层级 1");
+                assert!(gs.iter().all(|e| e.level == 1), "原初粒子必须为层级 1");
                 let expect = 0.05 * DECOMPOSE_RATIO.powi(MAX_DEPTH as i32);
                 assert!((gs[0].intensity - expect).abs() < 1e-9, "{:?} != {}", gs[0].intensity, expect);
             }
-            other => panic!("应回收为胶粒，得 {other:?}"),
+            other => panic!("应回收为原初粒子，得 {other:?}"),
         }
     }
 
