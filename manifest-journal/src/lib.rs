@@ -7,6 +7,8 @@
 //! 布局：`seed_of`（文本指纹→种子）、`ManifestEntry`（条目）、`JournalSession`（会话：
 //! 引擎+日志+意图）、CLI 入口见 `main.rs`，验收端到端见 `tests/e2e_manifest.rs`。
 
+pub mod knowledge;
+
 use npb_appkit::RawEvent;
 use npb_appkit::httpc;
 use npb_appkit::speaker::{Speaker, Statement};
@@ -184,6 +186,10 @@ impl JournalSession {
         wrote && self.log.len() < self.max_events_per_push + 128
     }
 
+    pub(crate) fn probe_low(&self) -> bool {
+        self.probe.map(|p| p.low).unwrap_or(false)
+    }
+
     fn sync_entry(&mut self) {
         self.entry.lifecycle = self.engine.state;
         self.entry.rounds = self.engine.rounds;
@@ -308,6 +314,61 @@ impl ManifestEntry {
         let raw = field(line, "raw")?.replace("\\\"", "\"");
         Some(Self { id, raw, seed, lifecycle, rounds, retained_early })
     }
+}
+
+
+/// 诊断一轮（云操作系统诊断链路）：重置会话 → 注入 N 次活性扰动 → 观测趋势 →
+/// 按知识库配置取排查步骤（外部接口或内置 8 条）。
+/// 返回 [`knowledge::Diagnosis`]（云内核"输入念头→诊断结论"链路的核心）。
+pub fn run_diagnosis(
+    sess: &mut JournalSession,
+    addr: &str,
+    pipe_rx: &std::sync::mpsc::Receiver<RawEvent>,
+    kb: &knowledge::KbConfig,
+    n: u32,
+) -> knowledge::Diagnosis {
+    use npb_appkit::KernelEvent as KE;
+    sess.engine = LifecycleEngine::new();
+    sess.log.clear();
+    let mut tr = knowledge::Trend::default();
+    let mut prev_dir: Option<&'static str> = None;
+    for i in 0..n {
+        let seed = (0.55 + 0.01 * (i % 30) as f32).min(0.9);
+        sess.push(addr, seed);
+        let mut idle = 0u32;
+        for _ in 0..40 {
+            match pipe_rx.recv_timeout(std::time::Duration::from_millis(10)) {
+                Ok(ev) => {
+                    idle = 0;
+                    let dir = match ev.kernel {
+                        KE::Awaken => { tr.awaken += 1; "A" }
+                        KE::Settle => { tr.settle += 1; "S" }
+                        _ => { tr.hold += 1; "H" }
+                    };
+                    if let Some(p) = prev_dir {
+                        if (p == "A" && dir == "S") || (p == "S" && dir == "A") {
+                            tr.alternations += 1;
+                        }
+                    }
+                    prev_dir = Some(dir);
+                    sess.ingest(&ev);
+                }
+                Err(_) => { idle += 1; if idle >= 8 { break; } }
+            }
+        }
+        // 快照轮询兜底：低能量标志与推进
+        if sess.poll_state(addr) {
+            // poll 内部已 apply；低能量探测由 probe 覆盖
+        }
+        tr.low_energy_seen |= sess.probe_low();
+        if sess.engine.state > tr.end_state {
+            tr.end_state = sess.engine.state;
+        }
+        if sess.engine.state >= 90 { tr.peak_then_retreat = true; }
+    }
+    if tr.end_state < 90 { tr.peak_then_retreat = false; } else { tr.peak_then_retreat = sess.engine.state < 90; }
+    let seed = sess.entry.seed;
+    knowledge::diagnose(&sess.entry.raw, seed, &tr, kb)
 }
 
 /// 状态外部名快捷（日志头/CLI 用）。
