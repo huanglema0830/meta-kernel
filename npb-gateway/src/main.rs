@@ -9,10 +9,14 @@ fn main() {
     let mut port: u16 = 3000;
     let mut idx = 1;
     while idx < args.len() {
-        match args[idx].as_str() {
-            "--ui" => {
+        let lower = args[idx].to_ascii_lowercase();
+        match lower.as_str() {
+            "--ui" | "-ui" => {
                 idx += 1;
                 if idx < args.len() { ui_dir = Some(args[idx].clone()); }
+            }
+            _ if lower.starts_with("--ui=") => {
+                ui_dir = Some(lower.trim_start_matches("--ui=").to_string());
             }
             other => {
                 if let Some(p) = other.rsplit(':').next().and_then(|s| s.parse().ok()) {
