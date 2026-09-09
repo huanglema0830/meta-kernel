@@ -2,7 +2,7 @@
 //!
 //! `S = (t, f, a, φ, x, H, τ)`：时间/频率/幅度/相位/空间/熵/拓扑。
 
-use crate::l4::threshold::{GOLDEN_HIGH, GOLDEN_LOW};
+use crate::l4::threshold::GOLDEN_HIGH;
 
 /// 七维场域状态向量（命名维度，全 f64）。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -99,6 +99,7 @@ impl FieldState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::l4::threshold::GOLDEN_LOW;
 
     #[test]
     fn struct_fields_roundtrip_vec() {
