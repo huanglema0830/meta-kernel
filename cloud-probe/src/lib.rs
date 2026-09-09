@@ -6,17 +6,22 @@ use meta_kernel_core::l5_senses::FieldReading;
 /// 平台无关（零依赖 HTTP POST；超时保护）。
 pub fn post_probe(endpoint: &str, json: &str) -> Result<String, String> {
     let base = endpoint.trim_end_matches('/');
-    let host_port = base
+    let rest = base
         .strip_prefix("http://")
-        .ok_or_else(|| "report 需为 http://host:port".to_string())?;
+        .ok_or_else(|| "report 需为 http://host:port[/path]".to_string())?;
+    // 兼容：端点含路径（如 /v1/probe）则 POST 到该路径；否则默认 /v1/probe
+    let (host, path) = match rest.split_once('/') {
+        Some((h, p)) => (h.to_string(), format!("/{p}")),
+        None => (rest.to_string(), "/v1/probe".to_string()),
+    };
     use std::io::{Read, Write};
     use std::net::TcpStream;
-    let mut s = TcpStream::connect(host_port).map_err(|e| format!("连接 {host_port}: {e}"))?;
+    let mut s = TcpStream::connect(&host).map_err(|e| format!("连接 {host}: {e}"))?;
     s.set_read_timeout(Some(std::time::Duration::from_secs(4))).ok();
     s.set_write_timeout(Some(std::time::Duration::from_secs(4))).ok();
     let req = format!(
-        "POST /v1/probe HTTP/1.1
-Host: {host_port}
+        "POST {path} HTTP/1.1
+Host: {host}
 Content-Type: application/json
 Content-Length: {}
 Connection: close

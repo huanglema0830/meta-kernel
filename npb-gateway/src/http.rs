@@ -52,7 +52,12 @@ pub fn spawn(port: u16) -> std::io::Result<Server> {
 
 /// 按端口（127.0.0.1）启动；`ui_dir` 提供时同源托管静态 UI（老设备一键部署）。
 pub fn spawn_custom(port: u16, ui_dir: Option<String>) -> std::io::Result<Server> {
-    let listener = TcpListener::bind(("127.0.0.1", port))?;
+    spawn_on("127.0.0.1", port, ui_dir)
+}
+
+/// 指定监听地址（局域网实测：如 "192.168.1.3"——受控内网入口；默认仍 127.0.0.1）。
+pub fn spawn_on(ip: &str, port: u16, ui_dir: Option<String>) -> std::io::Result<Server> {
+    let listener = TcpListener::bind((ip, port))?;
     let addr = listener.local_addr()?.to_string();
     let gw = Arc::new(Gateway::spawn());
     let stop = Arc::new(AtomicBool::new(false));
@@ -464,12 +469,13 @@ Host: x
 
 /// 静态 UI 服务（同源托管，老设备一键部署）：GET / → index.html；其余仅白名单文件。
 /// 白名单：index.html / manifest_ui.js / manifest_ui_bg.wasm（防止路径穿越与任意文件外泄）。
-const UI_ALLOW: [(&str, &str); 5] = [
+const UI_ALLOW: [(&str, &str); 6] = [
     ("/index.html", "text/html; charset=utf-8"),
     ("/manifest_ui.js", "text/javascript"),
     ("/manifest_ui_bg.wasm", "application/wasm"),
     ("/cloud-probe.exe", "application/octet-stream"),
     ("/cloud-discover.exe", "application/octet-stream"),
+    ("/run-probe.bat", "text/plain; charset=utf-8"),
 ];
 
 fn serve_ui(ui_dir: &Option<std::path::PathBuf>, target: &str) -> Option<Vec<u8>> {
@@ -479,7 +485,7 @@ fn serve_ui(ui_dir: &Option<std::path::PathBuf>, target: &str) -> Option<Vec<u8>
     let path = dir.join(name.trim_start_matches('/'));
     // 防穿越兜底：只接受白名单文件名
     let fname = path.file_name()?.to_str()?;
-    let allow = ["index.html", "manifest_ui.js", "manifest_ui_bg.wasm", "cloud-probe.exe", "cloud-discover.exe"].contains(&fname);
+    let allow = ["index.html", "manifest_ui.js", "manifest_ui_bg.wasm", "cloud-probe.exe", "cloud-discover.exe", "run-probe.bat"].contains(&fname);
     if !allow {
         eprintln!("serve_ui: 白名单外拒绝 {name}");
         return None;
