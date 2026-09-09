@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["meta-kernel-core", "npb", "npb-gateway", "npb-appkit", "manifest-journal", "manifest-ui"]
+members = ["meta-kernel-core", "npb", "npb-gateway", "npb-appkit", "manifest-journal", "manifest-ui", "cloud-probe"]
 
 [workspace.package]
 version = "0.2.0"

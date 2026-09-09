@@ -21,6 +21,31 @@ pub fn decompose(s: &[f64; 7]) -> [f64; 4] {
     ]
 }
 
+
+/// 场域采样（L5 设计 §5.1：cloud-probe 输出格式与此一致）。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FieldReading {
+    /// 七维场域状态向量 S=(t,f,a,φ,x,H,τ)。
+    pub s: [f64; 7],
+    /// 采样标识/时间（可空，宿主注）。
+    pub at: Option<&'static str>,
+}
+
+impl FieldReading {
+    /// 由七维数组构造（默认无 at）。
+    pub fn new(s: [f64; 7]) -> Self {
+        Self { s, at: None }
+    }
+    pub fn with_at(s: [f64; 7], at: &'static str) -> Self {
+        Self { s, at: Some(at) }
+    }
+    /// 手写 JSON（零依赖；cloud-probe 输出载体）。
+    pub fn to_json(&self) -> String {
+        let v = self.s.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+        format!("{{\"schema\":1,\"s\":[{v}],\"at\":\"{}\"}}", self.at.unwrap_or(""))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -34,6 +59,17 @@ mod tests {
         assert!((f[1] - 6.0).abs() < 1e-9, "water=H=6");
         assert!((f[2] - 2.0).abs() < 1e-9, "fire=(a+t)/2=(3+1)/2=2, got {}", f[2]);
         assert!((f[3] - 3.0).abs() < 1e-9, "wind=(f+phi)/2=(2+4)/2=3");
+    }
+
+    #[test]
+    fn field_reading_json_matches_contract() {
+        let r = FieldReading::with_at([1.0, 0.5, 2.0, 1.0, 1.0, 1.0, 1.0], "20260909");
+        let j = r.to_json();
+        assert!(j.starts_with("{\"schema\":1,\"s\":["), "{j}");
+        assert!(j.contains("\"at\":\"20260909\""), "{j}");
+        let r2 = FieldReading::new([1.0; 7]);
+        assert_eq!(r2.s.len(), 7);
+        assert_eq!(r2.at, None);
     }
 
     #[test]

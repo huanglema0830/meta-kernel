@@ -1,0 +1,9 @@
+[package]
+name = "cloud-probe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "cloud-probe：轻量场域探针（Windows 一期）——感知对象场域状态并翻译为七维 S=(t,f,a,φ,x,H,τ) 输出（与 L5 FieldReading 接口一致）；运行即退、零后台、零第三方依赖。"
+
+[dependencies]
+meta-kernel-core = { path = "../meta-kernel-core", version = "0.2.0" }
