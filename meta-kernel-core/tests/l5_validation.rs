@@ -121,3 +121,33 @@ fn l4_rejected_path_has_no_l5_payload() {
         panic!("通过态应放行");
     }
 }
+
+/// 报告输出演示（L5_VALIDATION_REPORT 数据源；nocapture 运行查看 JSON）。
+#[test]
+fn demo_report_outputs() {
+    let qs = [
+        ("Q1 平稳", [1.0; 7]),
+        ("Q2 火亢", [2.0, 1.0, 2.0, 1.0, 1.0, 1.0, 1.0]),
+        ("Q3 水枯", [1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 1.0]),
+        ("Q4 火亢+水枯", [2.0, 1.0, 2.0, 1.0, 1.0, 0.5, 1.0]),
+    ];
+    for (name, s) in qs {
+        let d = l5(&s, "2015-notebook");
+        let names = ["earth", "water", "fire", "wind"];
+        let pat: Vec<String> = (0..4).map(|i| format!("{}:{}", names[i], d.pattern[i].code())).collect();
+        println!("== {name} ==");
+        println!("fields [{:.2}, {:.2}, {:.2}, {:.2}]", d.fields[0], d.fields[1], d.fields[2], d.fields[3]);
+        println!("pattern {{{}}}", pat.join(", "));
+        println!("title: {}", d.conclusion.title);
+        println!("cause: {}", d.conclusion.cause);
+        println!("summary.user: {}", summary_for("user", &d));
+        println!("summary.tcm:  {}", summary_for("tcm", &d));
+    }
+    let d4 = l5(&[2.0, 1.0, 2.0, 1.0, 1.0, 0.5, 1.0], "2015-notebook");
+    println!("== Q4 full JSON ==");
+    println!("{}", to_json(&d4));
+}
+
+fn summary_for(lang: &str, d: &Diagnosis) -> String {
+    meta_kernel_core::l5_translate::summarize_for(meta_kernel_core::l5_translate::TERMS, lang, d)
+}
