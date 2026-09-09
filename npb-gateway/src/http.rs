@@ -231,6 +231,17 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
         }
     }
 
+    if method == "POST" && target == "/v1/probe" {
+        gw.store_probe(body.clone());
+        let ok = http_ok(&format!("{{\"probe_accepted\":true,\"len\":{}}}", body.len()));
+        stream.write_all(ok.as_bytes())?;
+        return Ok(());
+    }
+    if method == "GET" && target == "/v1/probe" {
+        stream.write_all(http_ok(&gw.latest_probe_json()).as_bytes())?;
+        return Ok(());
+    }
+
     let resp = match (method, target) {
         // 注入扰动：外部 push 驱动内核（网关不空转）
         ("POST", "/v1/push") => match parse_seed_body(&body) {
@@ -342,6 +353,28 @@ mod http_tests {
     }
 
     #[test]
+    fn probe_store_and_read_roundtrip() {
+        let srv = spawn(0).expect("spawn");
+        let addr = srv.addr.clone();
+        let body = "{\"schema\":1,\"s\":[1.0;7],\"at\":\"t\"}";
+        let post = raw_request(&addr, &format!("POST /v1/probe HTTP/1.1
+Host: x
+Content-Length: {}
+Connection: close
+
+{body}", body.len()));
+        assert!(post.contains("probe_accepted"), "{post}");
+        let get = raw_request(&addr, "GET /v1/probe HTTP/1.1
+Host: x
+Connection: close
+
+");
+        assert!(get.contains("\"schema\":1"), "{get}");
+        let mut s2 = srv;
+        s2.stop();
+    }
+
+    #[test]
     fn static_ui_served_same_origin() {
         // 临时 ui 目录：仅 index.html
         let dir = std::env::temp_dir().join(format!("ck_ui_test_{}", std::process::id()));
@@ -431,10 +464,12 @@ Host: x
 
 /// 静态 UI 服务（同源托管，老设备一键部署）：GET / → index.html；其余仅白名单文件。
 /// 白名单：index.html / manifest_ui.js / manifest_ui_bg.wasm（防止路径穿越与任意文件外泄）。
-const UI_ALLOW: [(&str, &str); 3] = [
+const UI_ALLOW: [(&str, &str); 5] = [
     ("/index.html", "text/html; charset=utf-8"),
     ("/manifest_ui.js", "text/javascript"),
     ("/manifest_ui_bg.wasm", "application/wasm"),
+    ("/cloud-probe.exe", "application/octet-stream"),
+    ("/cloud-discover.exe", "application/octet-stream"),
 ];
 
 fn serve_ui(ui_dir: &Option<std::path::PathBuf>, target: &str) -> Option<Vec<u8>> {
@@ -444,7 +479,7 @@ fn serve_ui(ui_dir: &Option<std::path::PathBuf>, target: &str) -> Option<Vec<u8>
     let path = dir.join(name.trim_start_matches('/'));
     // 防穿越兜底：只接受白名单文件名
     let fname = path.file_name()?.to_str()?;
-    let allow = ["index.html", "manifest_ui.js", "manifest_ui_bg.wasm"].contains(&fname);
+    let allow = ["index.html", "manifest_ui.js", "manifest_ui_bg.wasm", "cloud-probe.exe", "cloud-discover.exe"].contains(&fname);
     if !allow {
         eprintln!("serve_ui: 白名单外拒绝 {name}");
         return None;

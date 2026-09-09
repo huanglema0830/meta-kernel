@@ -2,6 +2,40 @@
 
 use meta_kernel_core::l5_senses::FieldReading;
 
+/// 采集后按需回传网关（--report http://host:port → POST /v1/probe）。
+/// 平台无关（零依赖 HTTP POST；超时保护）。
+pub fn post_probe(endpoint: &str, json: &str) -> Result<String, String> {
+    let base = endpoint.trim_end_matches('/');
+    let host_port = base
+        .strip_prefix("http://")
+        .ok_or_else(|| "report 需为 http://host:port".to_string())?;
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    let mut s = TcpStream::connect(host_port).map_err(|e| format!("连接 {host_port}: {e}"))?;
+    s.set_read_timeout(Some(std::time::Duration::from_secs(4))).ok();
+    s.set_write_timeout(Some(std::time::Duration::from_secs(4))).ok();
+    let req = format!(
+        "POST /v1/probe HTTP/1.1
+Host: {host_port}
+Content-Type: application/json
+Content-Length: {}
+Connection: close
+
+{}",
+        json.len(),
+        json
+    );
+    s.write_all(req.as_bytes()).map_err(|e| format!("发送: {e}"))?;
+    let mut buf = Vec::new();
+    s.read_to_end(&mut buf).map_err(|e| format!("读取: {e}"))?;
+    let text = String::from_utf8_lossy(&buf).into_owned();
+    if text.starts_with("HTTP/1.1 200") {
+        Ok("probe posted".to_string())
+    } else {
+        Err(format!("网关非 200: {}", text.lines().next().unwrap_or("")))
+    }
+}
+
 /// 采集并翻译当前场域 → FieldReading（运行即退：单一采样，~0.5s 完成）。
 pub fn collect() -> Result<FieldReading, String> {
     #[cfg(windows)]
@@ -119,5 +153,44 @@ mod win {
             return Err("ps 输出异常".into());
         }
         Ok((lines[0].trim().parse().unwrap_or(80), lines[1].trim().parse().unwrap_or(400)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn post_probe_mock_roundtrip() {
+        // std mock 网关：接受 POST /v1/probe → 200 + body 存储校验
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let got = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let g2 = std::sync::Arc::clone(&got);
+        let srv = std::thread::spawn(move || {
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = std::io::Read::read(&mut s, &mut buf);
+                *g2.lock().unwrap() = String::from_utf8_lossy(&buf).into_owned();
+                let resp = "HTTP/1.1 200 OK
+Content-Length: 2
+Connection: close
+
+ok";
+                let _ = std::io::Write::write_all(&mut s, resp.as_bytes());
+            }
+        });
+        let ep = format!("http://{addr}");
+        let r = post_probe(&ep, "{\"s\":[]}");
+        srv.join().unwrap();
+        assert_eq!(r.as_deref(), Ok("probe posted"));
+        let req = got.lock().unwrap().clone();
+        assert!(req.contains("POST /v1/probe"), "{req}");
+    }
+
+    #[test]
+    fn post_probe_rejects_bad_endpoint() {
+        assert!(post_probe("ftp://x", "{}").is_err());
+        assert!(post_probe("http://127.0.0.1:1", "{}").is_err(), "端口 1 拒绝应报错");
     }
 }

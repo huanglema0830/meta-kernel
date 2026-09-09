@@ -1,0 +1,9 @@
+[package]
+name = "cloud-discover"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "cloud-discover：云操作系统内网设备发现（Windows 一期）——扫描本机 /24 网段（ARP），发现在线设备并给出探针传输指引；失败返回需人工介入状态（IP+主机名）。零第三方依赖。"
+
+[dependencies]
+meta-kernel-core = { path = "../meta-kernel-core", version = "0.2.0" }

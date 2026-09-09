@@ -82,7 +82,8 @@ npb-appkit/         云操作系统 · 应用框架（生命周期状态机/Life
                     Speaker 语言组织、EventPipe 订阅归一、httpc）
 manifest-journal/   云操作系统 · 参考应用 Manifest Journal（CLI/lib：种子映射、显化会话、验收 e2e）
 manifest-ui/        空海浏览器 · Rust/WASM 界面（Trunk 路线，复用 npb-appkit 纯逻辑）
-cloud-probe/         云操作系统 · 场域探针（Windows：感知场域 → 七维 S 输出，运行即退零后台）
+cloud-probe/         云操作系统 · 场域探针（Windows：感知场域 → 七维 S 输出，--report 回传网关）
+cloud-discover/      云操作系统 · 内网设备发现（/24 并发 ICMP 扫描 + TCP/主机名确认 + 需人工介入状态）
 reserved_l4_l5_l6/  预留接口（L6 对齐层愿景等，NOT COMPILED）
 docs/               架构与设计文档（MATH/ONTOLOGY/API_GATEWAY/L4/L5/LAYER/SILA/PERTURBATION/VISION…）
 examples/           演示（DOSBox 概念 / WASM Canvas / 禅境示波器）

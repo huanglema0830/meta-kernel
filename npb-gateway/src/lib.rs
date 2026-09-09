@@ -185,6 +185,8 @@ enum KernMsg {
 pub struct Gateway {
     tx: Sender<KernMsg>,
     proj: Arc<RwLock<Projection>>,
+    /// 场域探针最新上报（剥离层只存取、不解释；供上层 L4/L5 链读取）。
+    probe: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl Gateway {
@@ -194,7 +196,20 @@ impl Gateway {
         let (tx, rx) = channel::<KernMsg>();
         let p2 = Arc::clone(&proj);
         thread::spawn(move || kern_loop(rx, p2));
-        Self { tx, proj }
+        Self { tx, proj, probe: Arc::new(std::sync::Mutex::new(None)) }
+    }
+
+    /// 存储场域探针上报（POST /v1/probe；原文保存，零语义解释）。
+    pub fn store_probe(&self, body: String) {
+        if let Ok(mut g) = self.probe.lock() {
+            *g = Some(body);
+        }
+    }
+
+    /// 读取最新探针（GET /v1/probe）。
+    pub fn latest_probe_json(&self) -> String {
+        self.probe.lock().ok().and_then(|g| g.clone())
+            .unwrap_or_else(|| "{\"probe\":null}".to_string())
     }
 
     /// 注入扰动（外部 push 驱动内核；负值被拒，返回 false = gate_rejected）。
