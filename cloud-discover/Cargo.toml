@@ -7,3 +7,4 @@ description = "cloud-discover：云操作系统内网设备发现（Windows 一�
 
 [dependencies]
 meta-kernel-core = { path = "../meta-kernel-core", version = "0.2.0" }
+cloud-probe = { path = "../cloud-probe" }

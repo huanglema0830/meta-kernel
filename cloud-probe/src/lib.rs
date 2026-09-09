@@ -194,3 +194,56 @@ ok";
         assert!(post_probe("http://127.0.0.1:1", "{}").is_err(), "端口 1 拒绝应报错");
     }
 }
+
+/// 诊断回放：给定七维场域读数 → L4 戒律判定 + L5 号脉诊断 → schema2 多语言 JSON。
+/// （真实采集数据进入诊断链的统一入口；首次以健康启发基线 1.0 判定，
+/// 本底场学习机制后续可精化。）
+pub fn diagnose_s(s: [f64; 7]) -> Result<String, String> {
+    use meta_kernel_core::l4::dimension::FieldState;
+    use meta_kernel_core::l4::l4_router::route_state;
+    use meta_kernel_core::l5_baseline::BaselineField;
+    use meta_kernel_core::l5_diagnosis::Diagnosis;
+    use meta_kernel_core::l5_compare::Band;
+    let fs = FieldState::from_vec(&s).ok_or("场域向量需 7 维")?;
+    let l4 = route_state(&fs, &FieldState::baseline());
+    let fields = meta_kernel_core::l5_senses::decompose(&s);
+    let bl = BaselineField { earth: 1.0, water: 1.0, fire: 1.0, wind: 1.0, object: "probe-host", established: "health-heuristic" };
+    let pattern = meta_kernel_core::l5_compare::compare(&fields, &bl);
+    let conclusion = meta_kernel_core::l5_diagnosis::synthesize(&fields, &bl, &pattern);
+    let d = Diagnosis {
+        schema: 2,
+        fields,
+        pattern,
+        conclusion,
+        trace: meta_kernel_core::l5_diagnosis::Traceability {
+            baseline_id: "b-health-heuristic".into(),
+            object: "probe-host".into(),
+            at: "real-field".into(),
+            reproducible: true,
+        },
+    };
+    let l4_report = match &l4 {
+        Ok(_) => "Pass".to_string(),
+        Err(e) => format!("Reject({:?})", e),
+    };
+    let json = meta_kernel_core::l5_router::to_json(&d);
+    Ok(format!("{{\"l4\":\"{l4_report}\",\"diagnosis\":{json}}}"))
+}
+
+/// 解析 FieldReading JSON（schema 1：{\"schema\":1,\"s\":[...] }）。
+pub fn parse_reading(json: &str) -> Option<[f64; 7]> {
+    let key = "\"s\":[";
+    let i = json.find(key)?;
+    let rest = &json[i + key.len()..];
+    let end = rest.find(']')?;
+    let mut out = [0.0f64; 7];
+    let mut n = 0;
+    for part in rest[..end].split(',') {
+        let v: f64 = part.trim().parse().ok()?;
+        if n < 7 {
+            out[n] = v;
+            n += 1;
+        }
+    }
+    if n == 7 { Some(out) } else { None }
+}

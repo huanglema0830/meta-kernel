@@ -4,6 +4,8 @@
 //! → 探针 `--report http://<本机>:3000` 回传网关。任何不可自动完成的环节 →
 //! 输出「需人工介入」状态（含目标 IP 与主机名）。扫描即退、零后台。
 
+pub mod auto;
+
 /// 发现结果（状态 JSON 载体）。
 #[derive(Clone, Debug)]
 pub struct DiscoverResult {
@@ -261,4 +263,12 @@ mod tests {
         assert!(j.contains("192.168.1.8"), "{j}");
         assert!(j.contains("\"manual_needed\""), "{j}");
     }
+}
+
+
+
+/// 一键自动链：ping 确认 → 挂载管理共享投放探针 → 远程计划任务执行 --report →
+/// 轮询网关收数（见 auto 模块）。失败任一环节 → ok=false + note（manual_needed 兜底）。
+pub fn auto(ip: &str, user: &str, pass: &str, probe_exe: &str, gw: &str) -> auto::AutoResult {
+    auto::run(ip, user, pass, probe_exe, gw)
 }
