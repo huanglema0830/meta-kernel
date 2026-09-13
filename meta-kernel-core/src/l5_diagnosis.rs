@@ -17,6 +17,12 @@ pub struct Conclusion {
     pub description: String,
     /// 补充增量（成因）。
     pub cause: String,
+    /// 诊断确信度（0..1）：由异常维度数与偏离幅度映射——L6 据此自动选语气等级（菩萨戒）。
+    pub confidence: f64,
+    /// 建议键（语言无关，如 advice.earth.kang）——L6 按用户语言渲染。
+    pub suggestion_key: String,
+    /// 建议默认文本（中文，兼容 CLI/日志）。
+    pub suggestion: String,
 }
 
 /// 溯源（不妄语：可验证、可复现）。
@@ -114,7 +120,36 @@ pub fn synthesize(fields: &[f64; 4], base: &BaselineField, pattern: &[Band; 4]) 
     if pattern[1] == Band::Ku && pattern[2] == Band::Kang {
         description.push_str("水不济火：涵养不足而活性越限，成因为持续高速扰动超出缓冲能力。");
     }
-    Conclusion { title, description, cause }
+    // 确信度（L6 语气映射输入）：异常维度数与偏离幅度越高 → 越确信
+    let anomaly_n = pattern.iter().filter(|b| **b != Band::Ping).count();
+    let max_dev = (0..4).map(dev).fold(0.0f64, f64::max);
+    let confidence: f64 = (0.55_f64
+        + if anomaly_n >= 1 { 0.2 } else { 0.0 }
+        + if max_dev >= crate::l4::threshold::GOLDEN_HIGH { 0.25 } else { 0.0 })
+        .min(1.0);
+    // 建议（单一、语言无关键 + 默认中文文本）
+    let (suggestion_key, suggestion) = advice(&lead);
+    Conclusion { title, description, cause, confidence, suggestion_key, suggestion }
+}
+
+/// 建议映射：主导分量 × 带 → （语言无关键, 默认中文文本）。单一建议（不邪淫）。
+fn advice(lead: &Option<(usize, Band)>) -> (String, String) {
+    let (i, band) = match lead {
+        Some(v) => *v,
+        None => return ("advice.calm".to_string(), "维持现状：场域在节律内，无需干预。".to_string()),
+    };
+    let key = match (FIELDS[i], band) {
+        ("earth", Band::Kang) => ("advice.earth.kang", "减少常驻后台与连接数（关闭不必要程序/服务）。"),
+        ("water", Band::Kang) => ("advice.water.kang", "清理进程与自启项，降低并发。"),
+        ("fire", Band::Kang) => ("advice.fire.kang", "暂停高耗任务，给系统喘息空间。"),
+        ("wind", Band::Kang) => ("advice.wind.kang", "降低波动源（关闭频繁读写/网络抖动源）。"),
+        ("earth", Band::Ku) => ("advice.earth.ku", "补充资源（释放磁盘/内存，检查外设连接）。"),
+        ("water", Band::Ku) => ("advice.water.ku", "补充缓冲（释放内存、清理缓存）。"),
+        ("fire", Band::Ku) => ("advice.fire.ku", "补充能量（接通电源、检查供电/负载）。"),
+        ("wind", Band::Ku) => ("advice.wind.ku", "恢复流动（检查网络与端口连通）。"),
+        _ => ("advice.calm", "维持现状：场域在节律内，无需干预。"),
+    };
+    (key.0.to_string(), key.1.to_string())
 }
 
 /// 主入口：compare + synthesize → Diagnosis（trace 由宿主注，默认可复现）。

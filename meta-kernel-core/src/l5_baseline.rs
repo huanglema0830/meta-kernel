@@ -43,6 +43,30 @@ impl BaselineField {
         }
     }
 
+    /// L5 补足：自适应基线（无预设基线时）——从试探采样提取正常波动范围：
+    /// 每场取中位数为基线，返回平均相对波动 spread（供 confidence 参考）。
+    pub fn adaptive_baseline(samples: &[[f64; 4]]) -> (Self, f64) {
+        let mut out = [1.0f64; 4];
+        let mut spread_acc = 0.0f64;
+        for i in 0..4 {
+            let mut v: Vec<f64> = samples.iter().map(|s| s[i]).collect();
+            if v.is_empty() {
+                continue;
+            }
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let med = v[v.len() / 2];
+            let lo = v[0];
+            let hi = v[v.len() - 1];
+            out[i] = if med.abs() < 1e-9 { 1.0 } else { med };
+            spread_acc += if med.abs() < 1e-9 { 0.0 } else { (hi - lo) / med.abs() };
+        }
+        (
+            Self { earth: out[0], water: out[1], fire: out[2], wind: out[3],
+                   object: "adaptive", established: "derived" },
+            spread_acc / 4.0,
+        )
+    }
+
     /// 分量数组（顺序同 FIELDS）。
     pub fn to_array(&self) -> [f64; 4] {
         [self.earth, self.water, self.fire, self.wind]
@@ -113,6 +137,20 @@ mod tests {
         let back = BaselineField::from_json(&j).expect("可解码");
         assert!((back.earth - 1.1).abs() < 1e-9);
         assert!((back.wind - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn adaptive_baseline_from_samples() {
+        let samples = [
+            [1.0, 1.0, 1.0, 1.0],
+            [1.2, 0.9, 1.1, 1.0],
+            [0.9, 1.1, 1.0, 1.2],
+            [1.1, 1.0, 1.2, 0.95],
+        ];
+        let (b, spread) = BaselineField::adaptive_baseline(&samples);
+        assert!((b.earth - 1.05).abs() < 1e-9 || (b.earth - 1.0).abs() < 0.11, "中位数附近: {}", b.earth);
+        assert!(spread > 0.0 && spread < 1.0, "spread 合理: {spread}");
+        assert_eq!(b.established, "derived");
     }
 
     #[test]

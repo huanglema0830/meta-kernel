@@ -47,6 +47,10 @@ pub mod l5_diagnosis; // 诊断结论（三量运算：存量/变量/补充增�
 pub mod l5_senses;   // 地水火风拆解（七维采样 → 四场分量）
 pub mod l5_translate; // 编译翻译（语言对照表 → 多语言总结；缺词保留原文+待补）
 pub mod l5_router;   // 零依赖 JSON 输出给 L6（含多语言 summary）
+// DNA 内核（学习能力：痕迹匹配→自适应生成；发起人补足指令）
+pub mod dna_trace;    // 痕迹库：签名/库/最近邻匹配/命中计数（学习瞬间完成）
+pub mod dna_generate; // 自适应生成：试探→归纳（线性/阈值/直通）→验证→成品
+pub mod dna_adapt;    // 四层自适应入口（L1 场域/L2 接口/L3 协议/L4 本底/L5 基线）
 
 // ===== 存在论/波动层新增模块（波粒二象性 + 感官 + 进化时间线）=====
 pub mod evolution; // 进化过程记录与回放（步数为底层时间线）

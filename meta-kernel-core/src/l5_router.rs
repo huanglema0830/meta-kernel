@@ -33,13 +33,16 @@ pub fn to_json(d: &Diagnosis) -> String {
         .collect::<Vec<_>>()
         .join(",");
     format!(
-        "{{\"schema\":{},\"fields\":{{{}}},\"pattern\":{{{}}},\"conclusion\":{{\"title\":\"{}\",\"description\":\"{}\",\"cause\":\"{}\"}},\"trace\":{{\"baseline_id\":\"{}\",\"object\":\"{}\",\"at\":\"{}\",\"reproducible\":{}}},\"summary\":{{{}}}}}",
+        "{{\"schema\":{},\"fields\":{{{}}},\"pattern\":{{{}}},\"conclusion\":{{\"title\":\"{}\",\"description\":\"{}\",\"cause\":\"{}\",\"confidence\":{},\"suggestion_key\":\"{}\",\"suggestion\":\"{}\"}},\"trace\":{{\"baseline_id\":\"{}\",\"object\":\"{}\",\"at\":\"{}\",\"reproducible\":{}}},\"summary\":{{{}}}}}",
         d.schema,
         fields,
         pattern,
         esc(&d.conclusion.title),
         esc(&d.conclusion.description),
         esc(&d.conclusion.cause),
+        d.conclusion.confidence,
+        esc(&d.conclusion.suggestion_key),
+        esc(&d.conclusion.suggestion),
         esc(&d.trace.baseline_id),
         esc(&d.trace.object),
         esc(&d.trace.at),
