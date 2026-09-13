@@ -254,6 +254,18 @@ Emit '       netsh advfirewall firewall add rule name="ZhengYuan Gateway" dir=in
 Emit "  3) 若 SmartScreen 拦截下载的 bat/exe：右键 → 属性 → 勾选「解除锁定」→ 确定。"
 Emit "  4) 安全软件弹窗询问时，选择「允许」并勾选「记住本次操作」。"
 Emit ""
+Hr
+Emit " 如何确认「是否真的被拦截」？"
+Hr
+Emit "  风险等级只是「可能性」，不等于事实。请用下面两分钟实测确认："
+Emit "    ① 双击 一键启动.bat，让网关跑起来"
+Emit "    ② 打开浏览器访问  http://127.0.0.1:3000/"
+Emit "    ③ 把浏览器窗口放一边，正常做别的事 2-3 分钟，再回来看这个页面还能不能打开"
+Emit "  - 一直能打开  -> 未被拦截，无需任何白名单操作"
+Emit "  - 很快就打不开 -> 才需要按上面第 1、2 条加信任/放行"
+Emit "  （本机实测记录见 docs/SECURITY_TROUBLESHOOTING.md：网关以普通权限连续运行 40 秒、"
+Emit "    健康检查 8/8 全通过，火绒并未拦截；此前的连接失败实为进程未常驻与 IP 漂移）"
+Emit ""
 
 try {
     $utf8Bom = New-Object System.Text.UTF8Encoding($true)
