@@ -158,3 +158,58 @@ jobs:
           test -f manifest-ui/dist/manifest_ui.js
           test -f manifest-ui/dist/manifest_ui_bg.wasm
           echo MANIFEST_UI_WASM_OK
+
+      - name: UI 自动目验（真实浏览器断言诊断结论可读）
+        shell: bash
+        run: |
+          set -e
+          PORT=3210
+          DIST=manifest-ui/dist
+
+          echo "===== STEP 1: 拼装 dist/index.html（注入 module script）====="
+          python3 - <<'PY'
+          import io
+          src = io.open('manifest-ui/index.html', encoding='utf-8').read()
+          inject = '\n<script type="module">\n  import init from "./manifest_ui.js";\n  await init();\n</script>\n'
+          if 'manifest_ui.js' not in src:
+              src = src.replace('</body>', inject + '</body>')
+          io.open('manifest-ui/dist/index.html', 'w', encoding='utf-8', newline='\n').write(src)
+          print('dist/index.html assembled')
+          PY
+          test -f $DIST/index.html
+
+          echo "===== STEP 2: 起网关（同源托管 dist/）====="
+          ./target/debug/npb-gateway $PORT --ui $DIST > ui_gw.log 2>&1 &
+          GW=$!
+          trap 'kill $GW 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:$PORT/v1/health >/dev/null && break
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:$PORT/v1/health | grep -q '"ok":true'
+          curl -sf -o /dev/null http://127.0.0.1:$PORT/
+          echo GATEWAY_WITH_UI_UP
+
+          echo "===== STEP 3: 注入构造场域数据（火亢，结论可预测）====="
+          curl -sf -X POST http://127.0.0.1:$PORT/v1/probe \
+            -H 'Content-Type: application/json' \
+            -d '{"schema":1,"s":[2.0,2.0,2.0,1.0,1.0,1.0,1.0],"at":"ci"}' >/dev/null
+          curl -sf http://127.0.0.1:$PORT/v1/probe | grep -q '"schema":1'
+          echo PROBE_INJECTED
+
+          echo "===== STEP 4: Playwright 真实浏览器目验 ====="
+          cd examples/ui-verify
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          UI_URL=http://127.0.0.1:$PORT/ UI_TIMEOUT=60000 node verify.mjs
+          echo UI_AUTO_VERIFY_ALL_OK
+
+      - name: Upload UI verify artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-verify-artifacts
+          path: |
+            examples/ui-verify/ui_verify.png
+            ui_gw.log
+          if-no-files-found: warn

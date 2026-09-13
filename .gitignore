@@ -16,3 +16,10 @@ Thumbs.db
 
 # WASM 前端构建产物（CI 重建）
 manifest-ui/dist/
+
+# UI 自动目验（Playwright，仅 devDependency；产物保持零依赖）
+node_modules/
+examples/ui-verify/ui_verify.png
+examples/ui-verify/package-lock.json
+ui_gw.log
+ui_dom.html
