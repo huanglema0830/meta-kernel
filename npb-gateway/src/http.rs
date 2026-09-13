@@ -518,7 +518,7 @@ title Cloud Probe One-Click\r\n\
 cd /d %~dp0\r\n\
 echo [1/3] Downloading cloud-probe.exe from http://{origin} ...\r\n\
 curl -s -f -o cloud-probe.exe \"http://{origin}/cloud-probe.exe\"\r\n\
-if not exist cloud-probe.exe ( powershell -NoProfile -Command \"Invoke-WebRequest -UseBasicParsing -Uri 'http://{origin}/cloud-probe.exe' -OutFile 'cloud-probe.exe'\" )\r\n\
+if not exist cloud-probe.exe ( powershell -NoProfile -Command \"(New-Object Net.WebClient).DownloadFile('http://{origin}/cloud-probe.exe','cloud-probe.exe')\" )\r\n\
 if not exist cloud-probe.exe ( echo [ERROR] download failed & pause & exit /b 1 )\r\n\
 echo [2/3] Running probe and reporting to gateway ...\r\n\
 cloud-probe.exe --report http://{origin}/v1/probe\r\n\
