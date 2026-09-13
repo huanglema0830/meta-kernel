@@ -230,7 +230,8 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
 
     // ---- 静态 UI（同源托管：--ui 提供时 GET / 与受控静态文件） ----
     if method == "GET" {
-        if let Some(resp) = serve_ui(&ui_dir, target) {
+        let lport = stream.local_addr().map(|a| a.port()).unwrap_or(0);
+        if let Some(resp) = serve_ui(&ui_dir, target, &headers, lport) {
             stream.write_all(&resp)?;
             return Ok(());
         }
@@ -387,6 +388,13 @@ Connection: close
         std::fs::write(dir.join("index.html"), "<html>cloud-kernel ui</html>").ok();
         let srv = spawn_custom(0, Some(dir.to_string_lossy().into_owned())).expect("spawn ui");
         let addr = srv.addr.clone();
+        // ---- 动态 run-probe.bat：地址随访问 Host 变化（IP 漂移免疫） ----
+        let bat_a = raw_request(&addr, "GET /run-probe.bat HTTP/1.1\r\nHost: 192.168.1.99:3000\r\nConnection: close\r\n\r\n");
+        assert!(bat_a.contains("192.168.1.99:3000"), "bat 应按 Host 生成: {bat_a}");
+        assert!(bat_a.contains("cloud-probe.exe"), "{bat_a}");
+        let bat_b = raw_request(&addr, "GET /run-probe.bat HTTP/1.1\r\nHost: 10.0.0.5:3000\r\nConnection: close\r\n\r\n");
+        assert!(bat_b.contains("10.0.0.5:3000"), "换 Host 应换地址: {bat_b}");
+        assert!(!bat_b.contains("192.168.1.99"), "不得残留旧地址: {bat_b}");
         let idx = raw_request(&addr, "GET / HTTP/1.1
 Host: x
 
@@ -478,9 +486,69 @@ const UI_ALLOW: [(&str, &str); 6] = [
     ("/run-probe.bat", "text/plain; charset=utf-8"),
 ];
 
-fn serve_ui(ui_dir: &Option<std::path::PathBuf>, target: &str) -> Option<Vec<u8>> {
+/// 由请求头取**访问来源 origin**（host[:port]），用于按访问者实际地址动态生成脚本。
+/// 优先用 Host 头自带的端口（跨机/端口转发时才是用户真正可用的地址）；缺失则补监听端口。
+fn request_origin(headers: &[String], listen_port: u16) -> String {
+    for line in headers {
+        let l = line.trim();
+        if let Some(v) = l.strip_prefix("Host:") {
+            let hv = v.trim().to_string();
+            if hv.is_empty() {
+                continue;
+            }
+            let host_part = hv.rsplit(':').next().unwrap_or("");
+            let has_port = hv.matches(':').count() == 1
+                && !host_part.is_empty()
+                && host_part.chars().all(|c| c.is_ascii_digit());
+            if has_port || listen_port == 80 {
+                return hv;
+            }
+            return format!("{hv}:{listen_port}");
+        }
+    }
+    format!("127.0.0.1:{listen_port}")
+}
+
+/// 动态生成一键探针脚本：地址按**访问者实际使用的 origin** 生成——
+/// 开发机 IP 变化（DHCP 重分配）不再导致目标机脚本失效。
+fn run_probe_bat(origin: &str) -> Vec<u8> {
+    let body = format!(
+        "@echo off\r\n\
+title Cloud Probe One-Click\r\n\
+cd /d %~dp0\r\n\
+echo [1/3] Downloading cloud-probe.exe from http://{origin} ...\r\n\
+curl -s -f -o cloud-probe.exe \"http://{origin}/cloud-probe.exe\"\r\n\
+if not exist cloud-probe.exe ( powershell -NoProfile -Command \"Invoke-WebRequest -UseBasicParsing -Uri 'http://{origin}/cloud-probe.exe' -OutFile 'cloud-probe.exe'\" )\r\n\
+if not exist cloud-probe.exe ( echo [ERROR] download failed & pause & exit /b 1 )\r\n\
+echo [2/3] Running probe and reporting to gateway ...\r\n\
+cloud-probe.exe --report http://{origin}/v1/probe\r\n\
+echo [3/3] Done. If you see \"probe posted\" above, success.\r\n\
+pause\r\n"
+    );
+    body.into_bytes()
+}
+
+fn serve_ui(
+    ui_dir: &Option<std::path::PathBuf>,
+    target: &str,
+    headers: &[String],
+    port: u16,
+) -> Option<Vec<u8>> {
     let dir = ui_dir.as_ref()?;
     let name = if target == "/" { "/index.html" } else { target };
+    // ---- 动态脚本：按 Host 生成（不读磁盘，IP 漂移免疫） ----
+    if name == "/run-probe.bat" {
+        let origin = request_origin(headers, port);
+        let body = run_probe_bat(&origin);
+        let header = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n\
+Content-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        let mut out = header.into_bytes();
+        out.extend(body);
+        return Some(out);
+    }
     let ctype = UI_ALLOW.iter().find(|(p, _)| *p == name)?.1;
     let path = dir.join(name.trim_start_matches('/'));
     // 防穿越兜底：只接受白名单文件名

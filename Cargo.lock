@@ -15,6 +15,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "cloud-discover"
+version = "0.2.0"
+dependencies = [
+ "cloud-probe",
+ "meta-kernel-core",
+]
+
+[[package]]
+name = "cloud-probe"
+version = "0.2.0"
+dependencies = [
+ "meta-kernel-core",
+]
+
+[[package]]
 name = "futures-core"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -51,7 +66,7 @@ dependencies = [
 
 [[package]]
 name = "manifest-journal"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "npb-appkit",
  "npb-gateway",
@@ -59,9 +74,10 @@ dependencies = [
 
 [[package]]
 name = "manifest-ui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "js-sys",
+ "meta-kernel-core",
  "npb-appkit",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -70,25 +86,25 @@ dependencies = [
 
 [[package]]
 name = "meta-kernel-core"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "npb"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "meta-kernel-core",
 ]
 
 [[package]]
 name = "npb-appkit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "npb-gateway",
 ]
 
 [[package]]
 name = "npb-gateway"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "npb",
 ]

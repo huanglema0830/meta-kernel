@@ -7,6 +7,7 @@ fn main() {
     // 用法：npb-gateway [PORT|IP:PORT] [--ui <dir>]
     let mut ui_dir: Option<String> = None;
     let mut port: u16 = 3000;
+    let mut bind_ip: String = "127.0.0.1".to_string();
     let mut idx = 1;
     while idx < args.len() {
         let lower = args[idx].to_ascii_lowercase();
@@ -19,8 +20,14 @@ fn main() {
                 ui_dir = Some(lower.trim_start_matches("--ui=").to_string());
             }
             other => {
-                if let Some(p) = other.rsplit(':').next().and_then(|s| s.parse().ok()) {
-                    port = p;
+                // IP:PORT（含点号：192.168.1.3:3000）→ 局域网绑定 + 端口
+                if other.contains(':') && other.split(':').count() == 2 {
+                    if let Some((ip, p)) = other.split_once(':') {
+                        if let Ok(pn) = p.parse() {
+                            if ip.contains('.') { bind_ip = ip.to_string(); }
+                            port = pn;
+                        }
+                    }
                 } else if let Ok(p) = other.parse() {
                     port = p;
                 }
@@ -28,14 +35,14 @@ fn main() {
         }
         idx += 1;
     }
-    let mut server = match npb_gateway::http::spawn_custom(port, ui_dir.clone()) {
+    let mut server = match npb_gateway::http::spawn_on(&bind_ip, port, ui_dir.clone()) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("gateway bind error: {e}");
             std::process::exit(1);
         }
     };
-    println!("cloud-kernel gateway listening on http://{}", server.addr);
+    println!("cloud-kernel gateway listening on http://{} (lan bind {bind_ip})", server.addr);
     if ui_dir.is_some() {
         println!("   UI (空海浏览器):  http://{}/  （--ui 同源托管）", server.addr);
     }
