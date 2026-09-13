@@ -1,6 +1,6 @@
 //! # 事件归一（纯逻辑，无 IO）—— wasm/native 通用
 //!
-//! L3 SSE `state_change`/`instruction` → [`KernelEvent`]（方向规则 L4 §3.3）与原样载荷
+//! L3 SSE `state_change`/`instruction` → [`KernelEvent`]（方向规则 应用框架设计 §3.3）与原样载荷
 //! [`RawEvent`]（供 Speaker/Journal 溯源）。纯函数，供 npb-appkit 各宿主与 wasm 前端复用。
 
 use crate::lifecycle::KernelEvent;

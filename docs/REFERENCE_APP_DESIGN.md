@@ -1,7 +1,7 @@
 # L5 参考应用设计 · 显化工作台（Manifest Journal）v1.0 定稿
 
 > 设计状态：**定稿 v1.0（2026-09-08，发起人审核通过）** ｜ 阶段：阶段 1 · L5 参考实现设计（实现随 L4 框架实现轮）
-> 依赖：L4 框架 v1.0（docs/L4_APPLICATION_FRAMEWORK_DESIGN.md）｜L3 网关已发布（main=6cd9d45）
+> 依赖：L4 框架 v1.0（docs/APPLICATION_FRAMEWORK_DESIGN.md）｜L3 网关已发布（main=6cd9d45）
 > 目标：给 L4 框架一个**具体可落地的参考应用**，同时展示 ①生命周期仪表 ②命名/语言组织 ③"念头→显化"的外显闭环。
 > 审核：Manifest Journal 选型与文本→种子映射 [0.25,0.95] 获发起人确认（2026-09-08）
 

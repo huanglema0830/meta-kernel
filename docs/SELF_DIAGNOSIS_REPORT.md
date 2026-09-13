@@ -194,6 +194,7 @@
 > **缺陷 D2：L6 定义漂移。** `LAYER_ARCHITECTURE` 定义 L6 = **与世界协议对齐**（WorldAdapter、回执、防自说自话）；而实际做的 `manifest-ui` 是**面客界面**。"对齐"与"界面"是两件事，现在被同一个层号指代，且"对齐"能力**一行未实现**。
 
 > **缺陷 D3：`reserved_l4_l5_l6/` 已成为幽灵目录。** 三个接口文件标 "NOT COMPILED"，其中 L4/L5 的原义已被 `npb-appkit`/`manifest-journal` 实现，L6 的 WorldAdapter 仍是愿景——目录名与内容都已失真。
+> ✅ **已修复（v0.097，方案 A）**：归档为 `archive/reserved-interfaces/`，文件更名为 `application_framework_interface.rs` / `reference_app_interface.rs`（`l6_interface.rs` 保留为 L6 契约参考），并附 README 说明来龙去脉。
 
 > **缺陷 D4：验证纪律曾失效。** `l4.rs` 未入库导致连续约 22 次 CI 全红，而本机因"工作树有未跟踪副本"一直显示绿——**"本机绿 ≠ CI 绿"** 这个教训必须固化为纪律（当前靠人记得，尚未自动化）。
 
@@ -389,6 +390,9 @@ L6 完成后，系统已能：感知世界、与世界对齐、被世界反馈�
 | # | 动作 | 验收 |
 |---|---|---|
 | 5 | L6 拆分：保留"对齐"本义；界面不占层号；`reserved_l4_l5_l6/` 归档改名 | LAYER_ARCHITECTURE 无自相矛盾 |
+| ✅ 4 | **D1 已执行（v0.097 · 方案 A）**：L4/L5 归位场域链；应用框架/参考应用改为产品形态名 | `LAYER_ARCHITECTURE v1.2` 新增 §1 层号命名纪律 |
+| ✅ 5a | **D3 已执行（v0.097）**：`reserved_l4_l5_l6/` → `archive/reserved-interfaces/` + README | 归档目录就位 |
+| ⬜ 5b | **D2 待裁决**：L6 定义（对齐 vs 界面）拆分方案 | 待发起人 |
 | 6 | **CI 增自动验证**（无头浏览器断言诊断结论出现在页面） | 每次推送自动目验，不再需要人工 |
 | 7 | L7–L10 定稿写入文档（标注"推演层"） | 层体系完整 |
 | 8 | 老笔记本本底场建立（多次采集 + `learn`） | 二次诊断精度可量化提升 |

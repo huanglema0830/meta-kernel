@@ -1,4 +1,4 @@
-//! Manifest Journal 端到端验收（L5 §7 五条准则）。
+//! Manifest Journal 端到端验收（参考应用设计 §7 五条准则）。
 //! 起真实 npb-gateway（进程内 HTTP/SSE）→ 真实网络栈全链路。
 
 use manifest_journal::{ManifestEntry, JournalSession, band_name, seed_of};

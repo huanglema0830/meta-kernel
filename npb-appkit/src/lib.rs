@@ -1,7 +1,7 @@
-//! # npb-appkit — L4 应用框架（点亮→外显）实现
+//! # npb-appkit — 应用框架（点亮→外显）实现
 //!
-//! 依据：docs/L4_APPLICATION_FRAMEWORK_DESIGN v1.0（发起人审核通过，2026-09-08）
-//! 层位：L4 · 框架·拒绝层（LAYER_ARCHITECTURE L0-L6）
+//! 依据：docs/APPLICATION_FRAMEWORK_DESIGN v1.0（发起人审核通过，2026-09-08）
+//! 层位：应用框架 · 正源操作系统产品形态（不占层号）
 //! 戒律：拒绝层——拒绝无溯源表达、拒绝越权造内核事实、拒绝低阈值抖动（防抖）。
 //!
 //! 模块：
@@ -11,7 +11,7 @@
 //! - [`event_pipe`]：L3 SSE 订阅 → 归一 [`KernelEvent`]（事件驱动，不空转）
 //! - [`httpc`]：极简 HTTP 客户端基元（POST push / SSE 读取；std，与 npb-gateway 服务器对称）
 //!
-//! 设计铁律：本 crate 不依赖 npb/npb-gateway 运行面（纯 std）；L4 只消费 L3 已发布协议；
+//! 设计铁律：本 crate 不依赖 npb/npb-gateway 运行面（纯 std）；本层只消费 L3 已发布协议；
 //! 生命周期是应用侧仪表，不是内核字段——所有输入来自网关事件，来源字段全程携带（可溯源）。
 
 pub mod lifecycle;

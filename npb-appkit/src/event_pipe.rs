@@ -1,7 +1,7 @@
-//! # EventPipe — L3 SSE 订阅 → 归一 KernelEvent（L4 EventPipe）
+//! # EventPipe — L3 SSE 订阅 → 归一 KernelEvent（EventPipe）
 //!
 //! 连接 npb-gateway `/v1/events`（SSE），把 `state_change`/`instruction` 帧归一为
-//! [`KernelEvent`]（方向规则 L4 §3.3 / 本文件），并原样保留 `data` 供 Speaker/Journal 溯源。
+//! [`KernelEvent`]（方向规则 应用框架设计 §3.3 / 本文件），并原样保留 `data` 供 Speaker/Journal 溯源。
 //! 规则：
 //! - `state_change`：field ∈ {budget,flow,anchor_band,self_band,low_energy}；code 降（更能量）
 //!   → Awaken；code 升（更固）→ Settle；low_energy=true → Settle（false 方向忽略或 Awaken 视前后文，

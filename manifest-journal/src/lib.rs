@@ -1,8 +1,8 @@
-//! # Manifest Journal（L5 参考应用最小版）
+//! # Manifest Journal（参考应用最小版）
 //!
-//! 依据：docs/L5_REFERENCE_APP_DESIGN v1.0（发起人审核通过）
+//! 依据：docs/REFERENCE_APP_DESIGN v1.0（发起人审核通过）
 //! 端到端：文本 → 确定性种子[0.25,0.95] → push 网关 → SSE 订阅 → 生命周期仪表 → 显化日志流。
-//! 戒律（审计层 L5）：原文零修改、日志可溯源（source）、seed 可重放、归档=早退回融。
+//! 戒律（审计）：原文零修改、日志可溯源（source）、seed 可重放、归档=早退回融。
 //!
 //! 布局：`seed_of`（文本指纹→种子）、`ManifestEntry`（条目）、`JournalSession`（会话：
 //! 引擎+日志+意图）、CLI 入口见 `main.rs`，验收端到端见 `tests/e2e_manifest.rs`。
@@ -195,7 +195,7 @@ impl JournalSession {
         self.entry.rounds = self.engine.rounds;
     }
 
-    /// 注入补充扰动：seed 微变体（L5 §5：seed' = clamp(seed+0.05)）→ push。
+    /// 注入补充扰动：seed 微变体（参考应用设计 §5：seed' = clamp(seed+0.05)）→ push。
     pub fn boost_seed(&self) -> f32 {
         (self.entry.seed + 0.05).min(0.95)
     }

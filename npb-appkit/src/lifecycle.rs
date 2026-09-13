@@ -1,7 +1,7 @@
-//! # 显化生命周期状态机（L4 §3，纯函数）
+//! # 显化生命周期状态机（应用框架设计 §3，纯函数）
 //!
 //! 状态集：`0`（锚点态）∪ `{10..=99}`（十位=圈层 1..9，个位=带内微步 0..9）。
-//! 圈层名与微步语义见 `namer::Namer::band_of`；转移规则（L4 §3.3）：
+//! 圈层名与微步语义见 `namer::Namer::band_of`；转移规则（应用框架设计 §3.3）：
 //! - `0` + Awaken → 10（点亮，轮次 +1 由调用方记账）
 //! - 同带 Awaken → 个位 +1（19→20 进位）；跨带需**连续 ≥2 Awaken**（防抖）
 //! - Settle → 个位 -1（≥10 兜底）；跨带回退亦需连续 ≥2 Settle
@@ -28,7 +28,7 @@ pub struct LifecycleEngine {
     pub rounds: u32,
 }
 
-/// 归一内核事件（L4 §3.3 表）。
+/// 归一内核事件（应用框架设计 §3.3 表）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KernelEvent {
     /// 点亮/正向推进（StateChanged→低 code、Compound、Resonance、Self 升）

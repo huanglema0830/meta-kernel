@@ -153,7 +153,7 @@ L3 事件 JSON ──►① 指称层（抽实体→归一命名）──►② 
 ### 5.1 分层总图（扩展 L3）
 
 ```
-L5 应用层（参考实现见 L5_REFERENCE_APP_DESIGN.md）
+L5 应用层（参考实现见 REFERENCE_APP_DESIGN.md）
    │  应用级事件 app_event（lifecycle_changed / named_statement / intent）
 L4 框架层（新 crate：npb-appkit，本设计）
    ├─ LifecycleEngine   显化生命周期状态机（§3，纯函数可单测）
@@ -196,7 +196,7 @@ L1-L3 内核+网关（已发布：npb-gateway main=6cd9d45）
 
 ## 6. 参考实现（L5）——见独立文档
 
-`docs/L5_REFERENCE_APP_DESIGN.md`：推荐应用 + 种子映射（文本→0-1 扰动）+ UI 面 + 显化日志 + 验收准则。
+`docs/REFERENCE_APP_DESIGN.md`：推荐应用 + 种子映射（文本→0-1 扰动）+ UI 面 + 显化日志 + 验收准则。
 
 ## 7. 审核确认记录（v1.0 · 2026-09-08，发起人）
 

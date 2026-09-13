@@ -1,4 +1,4 @@
-//! # 命名 registry（L4 §4.1 双轨表；条目预留 twin 字段位）
+//! # 命名 registry（应用框架设计 §4.1 双轨表；条目预留 twin 字段位）
 
 /// 命名实体：内部符号 ↔ 外部名（只增不改；跨会话可复用）。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -10,7 +10,7 @@ pub struct NamedEntity {
     pub twin: Option<u64>,
 }
 
-/// 圈层带（十位 1..9）语义名（L4 §3.2）。
+/// 圈层带（十位 1..9）语义名（应用框架设计 §3.2）。
 const BANDS: [(&str, &str); 9] = [
     ("1", "萌发带 Awakening"),
     ("2", "涌动带 Surging"),

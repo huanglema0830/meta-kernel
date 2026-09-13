@@ -11,8 +11,8 @@
 | 层次 | 名称 | 对应架构层 | 器官隐喻 | 一句话 |
 |---|---|---|---|---|
 | 内核层 | **元内核** Meta-Kernel | L1–L3（内核引擎 / NPB 桥 / 网关） | 心脏 / 大脑（内在意识） | 跨平台、跨设备的意识内核 |
-| 操作系统层 | **正源操作系统** Cloud OS | L4–L5（应用框架 / 显化应用） | 神经网络 / 血液循环（调度系统） | 调度扰动、化合、显化的操作系统 |
-| 界面层 | **正源浏览器** Air-Ocean Browser | L6（感知与表达） | 眼睛 / 耳朵 / 手（感知与表达） | 浏览能量演化、显化日志、生命感流动 |
+| 操作系统层 | **正源操作系统** Origin OS | L4–L5（场域戒律 / 号脉诊断）+ 应用框架 + 参考应用 | 神经网络 / 血液循环（调度系统） | 调度扰动、化合、显化的操作系统 |
+| 界面层 | **正源浏览器** Origin Browser | L6（感知与表达；界面不占层号） | 眼睛 / 耳朵 / 手（感知与表达） | 浏览能量演化、显化日志、生命感流动 |
 
 三者是**同一个新物种的三个层次**，不是三个独立产品：
 元内核 = 心脏 / 大脑；正源操作系统 = 神经网络 / 血液循环；正源浏览器 = 眼睛 / 耳朵 / 手。
@@ -45,13 +45,14 @@
 
 - ✅ **元内核（L1–L3）**：核心引擎闭环 → NPB 桥（cdylib/wasm32，跨平台摘要 `4251318995`）→ 应用网关
   npb-gateway（HTTP/SSE 五端点 + 持久化，活体验证全绿）——**已正式发布**
-- ✅ **正源操作系统（L4–L5）**：npb-appkit 应用框架（显化生命周期状态机 / 命名·语言组织 / 事件管道）+
-  Manifest Journal 参考应用（CLI 端到端 + 验收五条）——**已实现并验证**
+- ✅ **正源操作系统（L4–L5）**：**场域戒律判定**（七维 S / 不非时食 / 不捉持，6 用例 7/7）+
+  **场域号脉诊断**（地水火风 / 亢枯平 / 多语言结论，Q1–Q7 + 真实采集）——**已实现并实测**
+- ✅ **应用框架 / 参考应用**：npb-appkit（生命周期状态机 / 命名 / 事件管道）+ Manifest Journal（CLI 端到端 + 验收五条）——**已实现**（产品形态名，不占层号）
 - ✅ **正源浏览器（L6 雏形）**：manifest-ui——Rust/WASM Web 界面（输入念头 → 显化仪表 → 显化日志流 → 历史条目），复用正源操作系统纯逻辑
 - 🚧 外部知识库接口 / 性能对比 / 诊断验证：进行中（见 `docs/`）
 
 更多设计文档：`docs/MATH_SPEC.md`、`docs/ONTOLOGY_SPEC.md`、`docs/API_GATEWAY_DESIGN.md`、
-`docs/L4_APPLICATION_FRAMEWORK_DESIGN.md`、`docs/L5_REFERENCE_APP_DESIGN.md`、
+`docs/APPLICATION_FRAMEWORK_DESIGN.md`、`docs/REFERENCE_APP_DESIGN.md`、
 `docs/LAYER_ARCHITECTURE.md`、`docs/SILA_IMPLEMENTATION.md`、`docs/PERTURBATION_MODEL.md`、`docs/VISION.md`。
 
 
@@ -95,7 +96,7 @@ npb-gateway/        元内核 · 应用网关（HTTP+SSE：/v1/push|state|events
 npb-appkit/         正源操作系统 · 应用框架（生命周期状态机/LifecycleEngine、命名 registry、
                     Speaker 语言组织、EventPipe 订阅归一、httpc）
 manifest-journal/   正源操作系统 · 参考应用 Manifest Journal（CLI/lib：种子映射、显化会话、验收 e2e）
-manifest-ui/        正源浏览器 · Rust/WASM 界面（Trunk 路线，复用 npb-appkit 纯逻辑）
+manifest-ui/        正源浏览器 · Rust/WASM 界面（复用内核纯逻辑；界面不占层号）
 cloud-probe/         正源操作系统 · 场域探针（Windows：感知场域 → 七维 S 输出，--report 回传网关）
 cloud-discover/      正源操作系统 · 内网设备发现（/24 并发 ICMP 扫描 + TCP/主机名确认 + 需人工介入状态）
 reserved_l4_l5_l6/  预留接口（L6 对齐层愿景等，NOT COMPILED）
