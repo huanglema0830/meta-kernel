@@ -98,7 +98,9 @@ jobs:
           test -f examples/zen-oscilloscope/index.html
           test -f examples/zen-oscilloscope/zen.js
           test -f examples/tools/serve.py
-          test -f manifest-journal/manifest-ui/index.html
+          test -f manifest-ui/index.html
+          test -f manifest-ui/src/app.rs
+          test -f manifest-ui/src/l6_app.rs
           echo SITE_FILES_OK
 
       - name: Build NPB cdylib (native)
