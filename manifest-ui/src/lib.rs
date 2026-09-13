@@ -6,6 +6,8 @@
 //! 历史条目存 localStorage（键 mj_entries_v1 / mj_gw / mj_active）。
 
 mod app;
+mod l6_app;
+mod l6_i18n;
 
 use wasm_bindgen::prelude::*;
 

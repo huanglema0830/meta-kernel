@@ -69,18 +69,18 @@ struct App {
     es: Option<EventSource>,
 }
 
-fn doc() -> web_sys::Document {
+pub(crate) fn doc() -> web_sys::Document {
     web_sys::window().unwrap().document().unwrap()
 }
-fn el<T: JsCast>(id: &str) -> T {
+pub(crate) fn el<T: JsCast>(id: &str) -> T {
     doc().get_element_by_id(id).unwrap().unchecked_into::<T>()
 }
-fn set_text(id: &str, t: &str) {
+pub(crate) fn set_text(id: &str, t: &str) {
     if let Some(n) = doc().get_element_by_id(id) {
         n.set_text_content(Some(t));
     }
 }
-fn storage() -> Option<web_sys::Storage> {
+pub(crate) fn storage() -> Option<web_sys::Storage> {
     web_sys::window().unwrap().local_storage().ok().flatten()
 }
 fn status(txt: &str, ok: bool) {
@@ -276,7 +276,7 @@ async fn post_push(gw: &str, seed: f32) -> Result<String, JsValue> {
 }
 
 /// 统一 HTTP：fetch → Promise(JsFuture) → Response → text。
-async fn http_json(method: &str, url: &str, body: Option<&str>) -> Result<String, JsValue> {
+pub(crate) async fn http_json(method: &str, url: &str, body: Option<&str>) -> Result<String, JsValue> {
     use wasm_bindgen_futures::JsFuture;
     let win = web_sys::window().unwrap();
     let mut init = web_sys::RequestInit::new();
@@ -298,6 +298,8 @@ async fn http_json(method: &str, url: &str, body: Option<&str>) -> Result<String
 
 impl App {
     fn light(&mut self) {
+        // 授权链（菩萨戒）：关键操作需用户明确授权
+        if !crate::l6_app::auth_confirm("点亮并注入内核（写一条念头）") { return; }
         let raw = el::<HtmlTextAreaElement>("input").value().trim().to_string();
         if raw.is_empty() { return; }
         let seed = Self::seed_of(&raw);
@@ -372,6 +374,8 @@ impl App {
     }
 
     fn archive(&mut self) {
+        // 授权链（菩萨戒）：归档（不可逆的状态跃迁）需明确授权
+        if !crate::l6_app::auth_confirm("归档（早退回融 0 锚点）") { return; }
         let _ = self.engine.apply(KernelEvent::Reset);
         if let Some(i) = self.active {
             self.entries[i].lifecycle = self.engine.state;
@@ -393,8 +397,20 @@ pub fn init() {
         bind_click("btn-boost", move || APP.with(|x| x.borrow_mut().boost()));
         bind_click("btn-archive", move || APP.with(|x| x.borrow_mut().archive()));
         bind_click("btn-diag", move || APP.with(|x| x.borrow_mut().diag()));
+        // ---- L6 空海浏览器绑定 ----
+        bind_click("tab-diag", || crate::l6_app::show("view-diag", "tab-diag"));
+        bind_click("tab-manifest", || crate::l6_app::show("view-manifest", "tab-manifest"));
+        bind_click("tab-device", || crate::l6_app::show("view-device", "tab-device"));
+        bind_click("tab-settings", || crate::l6_app::show("view-settings", "tab-settings"));
+        bind_click("btn-refresh", || crate::l6_app::refresh_diag());
+        bind_click("btn-auth-clear", || {
+            if crate::l6_app::auth_confirm("撤销全部授权并清空日志") {
+                crate::l6_app::auth_clear();
+            }
+        });
         a.connect();
         a.render();
+        crate::l6_app::init_bindings();
     });
 }
 
@@ -406,7 +422,7 @@ fn bind_click(id: &str, f: impl Fn() + 'static) {
 }
 
 /// 轻量时间戳（避免引入 chrono：零依赖保持）。
-fn chrono_lite() -> String {
+pub(crate) fn chrono_lite() -> String {
     js_sys::Date::new_0().to_locale_time_string("zh-CN").as_string().unwrap_or_default()
 }
 
