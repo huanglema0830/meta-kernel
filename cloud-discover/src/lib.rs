@@ -1,4 +1,4 @@
-//! cloud-discover：云操作系统内网设备发现（Windows 一期）。
+//! cloud-discover：正源操作系统内网设备发现（Windows 一期）。
 //!
 //! 流程：取本机 /24 → ARP 并发扫描 .1-254 → 在线设备 →（提示 HTTP 下载探针到目标执行）
 //! → 探针 `--report http://<本机>:3000` 回传网关。任何不可自动完成的环节 →
@@ -198,7 +198,7 @@ mod win {
             manual.push(Manual {
                 ip: ip.clone(),
                 hostname,
-                reason: "探针需在目标设备上执行：请在该设备打开 http://<云操作系统主机>:3000/ 下载 cloud-probe.exe 并以 --report 回传（或人工共享运行）".to_string(),
+                reason: "探针需在目标设备上执行：请在该设备打开 http://<正源操作系统主机>:3000/ 下载 cloud-probe.exe 并以 --report 回传（或人工共享运行）".to_string(),
             });
         }
         if online.is_empty() {

@@ -2,6 +2,9 @@
 
 use meta_kernel_core::l5_senses::FieldReading;
 
+/// USB 场检测（探针扩展：事件日志断连频率 → 接触不良判定）。
+pub mod usb;
+
 /// 采集后按需回传网关（--report http://host:port → POST /v1/probe）。
 /// 平台无关（零依赖 HTTP POST；超时保护）。
 pub fn post_probe(endpoint: &str, json: &str) -> Result<String, String> {

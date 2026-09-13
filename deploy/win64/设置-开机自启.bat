@@ -1,5 +1,5 @@
 @echo off
-title Cloud Kernel - Enable Auto-Start
+title ZhengYuan OS - Enable Auto-Start
 cd /d "%~dp0"
 cscript //nologo "%~dp0enable-autostart.vbs"
 echo.

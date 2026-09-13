@@ -24,7 +24,7 @@ sh.RegWrite "HKCU\Software\Microsoft\Windows\CurrentVersion\Run\CloudKernelGatew
 sh.Run """" & wd & """", 0, False
 
 WScript.Echo "OK - auto-start enabled." & vbCrLf & vbCrLf & _
-             "The Cloud Kernel gateway will now:" & vbCrLf & _
+             "The ZhengYuan OS gateway will now:" & vbCrLf & _
              "  1) start automatically every time you log in" & vbCrLf & _
              "  2) auto-restart within ~10s if it ever crashes or is closed" & vbCrLf & vbCrLf & _
              "Registered path:" & vbCrLf & "  " & wd

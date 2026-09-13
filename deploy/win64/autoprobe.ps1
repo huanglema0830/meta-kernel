@@ -1,5 +1,5 @@
 ﻿# ============================================================
-#  Cloud Kernel  -  Auto Probe  (for the old notebook)
+#  ZhengYuan OS  -  Auto Probe  (for the old notebook)
 #  1) scans the local /24 to find the gateway (port 3000 + /v1/health)
 #  2) downloads cloud-probe.exe from it
 #  3) samples the field and reports back
@@ -16,7 +16,7 @@ function Step($m) { Write-Host $m }
 
 Write-Host ""
 Write-Host "  =================================================="
-Write-Host "   Cloud Kernel  -  Auto Probe"
+Write-Host "   ZhengYuan OS  -  Auto Probe"
 Write-Host "  =================================================="
 Write-Host ""
 
@@ -33,7 +33,7 @@ $prefix = $ip -replace '\.\d+$', ''
 Step "  [1/4] This machine: $ip     scanning: $prefix.0/24"
 
 # ---------- 2) find the gateway ----------
-Step "  [2/4] Scanning LAN for the Cloud Kernel gateway ..."
+Step "  [2/4] Scanning LAN for the ZhengYuan OS gateway ..."
 $clients = New-Object System.Collections.ArrayList
 foreach ($i in 1..254) {
     $c = New-Object System.Net.Sockets.TcpClient
@@ -57,7 +57,7 @@ foreach ($x in $clients) { try { $x.C.Close() } catch { } }
 
 if (-not $gateway) {
     Step "  [x] Gateway not found."
-    Step "      Make sure the other PC is ON and has Cloud Kernel running."
+    Step "      Make sure the other PC is ON and has ZhengYuan OS running."
     exit 3
 }
 Step "  [ok] Gateway found: $gateway"

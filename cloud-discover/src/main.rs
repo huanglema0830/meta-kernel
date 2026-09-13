@@ -54,7 +54,7 @@ fn main() {
             if r.online.is_empty() {
                 println!("[提示] 未发现其他在线设备（仅本机网段自身）");
             }
-            println!("[探针指引] 在目标设备运行：cloud-probe.exe --report http://<云操作系统主机>:3000");
+            println!("[探针指引] 在目标设备运行：cloud-probe.exe --report http://<正源操作系统主机>:3000");
         }
         Err(e) => {
             eprintln!("cloud-discover error: {e}");

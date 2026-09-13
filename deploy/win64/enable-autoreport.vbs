@@ -1,7 +1,7 @@
 ' ============================================================
 '  Enable AUTO-REPORT on this machine (the old notebook).
 '  Run this ONCE. After that, every logon will automatically:
-'     1) scan the LAN  -> find the Cloud Kernel gateway
+'     1) scan the LAN  -> find the ZhengYuan OS gateway
 '     2) sample the field -> report back
 '  No admin required. No IP or port needed.
 ' ============================================================

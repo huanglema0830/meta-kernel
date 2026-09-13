@@ -1,5 +1,5 @@
 ' ============================================================
-'  Cloud Kernel - hidden auto-probe runner
+'  ZhengYuan OS - hidden auto-probe runner
 '  Waits for the network, then runs autoprobe.ps1 invisibly.
 '  Used by the auto-start entry (runs at every logon).
 ' ============================================================

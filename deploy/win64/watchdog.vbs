@@ -1,5 +1,5 @@
 ' ============================================================
-'  Cloud Kernel - Gateway Watchdog (hidden)
+'  ZhengYuan OS - Gateway Watchdog (hidden)
 '  Keeps npb-gateway.exe alive: if it exits or crashes, restart
 '  within ~10 seconds. Runs invisibly (no window).
 '  Single-instance safe: double-launching will not stack.

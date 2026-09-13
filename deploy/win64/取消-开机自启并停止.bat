@@ -1,5 +1,5 @@
 @echo off
-title Cloud Kernel - Disable Auto-Start / Stop All
+title ZhengYuan OS - Disable Auto-Start / Stop All
 cd /d "%~dp0"
 cscript //nologo "%~dp0disable-autostart.vbs"
 echo.

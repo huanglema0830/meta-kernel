@@ -1,5 +1,5 @@
 @echo off
-title Cloud Kernel - Enable Auto Report
+title ZhengYuan OS - Enable Auto Report
 cd /d "%~dp0"
 cscript //nologo "%~dp0enable-autoreport.vbs"
 echo.

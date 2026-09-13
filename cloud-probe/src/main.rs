@@ -4,9 +4,37 @@
 //!   cloud-probe --report http://127.0.0.1:3000   采集后 POST 到网关 /v1/probe 并回显确认
 //!   cloud-probe --file out.json    采集并写入文件（供共享传输）
 //!   cloud-probe --diagnose-file in.json   读取场域 JSON → L4/L5 诊断（schema2 多语言）
+//!   cloud-probe --usb              仅做 USB 场检测（不采集七维）
+//!   cloud-probe --usb-report http://127.0.0.1:3000    USB 场检测并回传 /v1/probe/usb
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+
+    // ---- USB 场检测（独立路径：不触发整机七维采集）----
+    if args.len() >= 2 && (args[1] == "--usb" || args[1] == "--usb-report") {
+        match cloud_probe::usb::probe_usb() {
+            Ok(r) => {
+                let json = r.to_json();
+                if args[1] == "--usb-report" && args.len() >= 3 {
+                    match cloud_probe::post_probe(&args[2], &json) {
+                        Ok(msg) => println!("{msg}\n{json}"),
+                        Err(e) => {
+                            eprintln!("cloud-probe usb report error: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    println!("{json}");
+                }
+            }
+            Err(e) => {
+                eprintln!("cloud-probe usb error: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     match cloud_probe::collect() {
         Ok(r) => {
             let json = r.to_json();

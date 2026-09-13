@@ -247,6 +247,17 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
         stream.write_all(http_ok(&gw.latest_probe_json()).as_bytes())?;
         return Ok(());
     }
+    // ---- USB 场检测（探针扩展；同 probe：只存取不解释）----
+    if method == "POST" && target == "/v1/probe/usb" {
+        gw.store_usb(body.clone());
+        let ok = http_ok(&format!("{{\"usb_accepted\":true,\"len\":{}}}", body.len()));
+        stream.write_all(ok.as_bytes())?;
+        return Ok(());
+    }
+    if method == "GET" && target == "/v1/probe/usb" {
+        stream.write_all(http_ok(&gw.latest_usb_json()).as_bytes())?;
+        return Ok(());
+    }
 
     let resp = match (method, target) {
         // 注入扰动：外部 push 驱动内核（网关不空转）

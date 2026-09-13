@@ -44,7 +44,7 @@ fn main() {
     };
     println!("cloud-kernel gateway listening on http://{} (lan bind {bind_ip})", server.addr);
     if ui_dir.is_some() {
-        println!("   UI (空海浏览器):  http://{}/  （--ui 同源托管）", server.addr);
+        println!("   UI (正源浏览器):  http://{}/  （--ui 同源托管）", server.addr);
     }
     println!("try:  curl -s http://{}/v1/health", server.addr);
     println!("      curl -s http://{}/v1/state", server.addr);

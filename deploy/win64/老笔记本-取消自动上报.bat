@@ -1,5 +1,5 @@
 @echo off
-title Cloud Kernel - Disable Auto Report
+title ZhengYuan OS - Disable Auto Report
 cd /d "%~dp0"
 cscript //nologo "%~dp0disable-autoreport.vbs"
 echo.

@@ -1,5 +1,5 @@
 @echo off
-title Cloud Kernel Gateway (close this window to stop)
+title ZhengYuan OS Gateway (close this window to stop)
 cd /d %~dp0
 echo.
 echo   Starting gateway on ALL network interfaces, port 3000 ...

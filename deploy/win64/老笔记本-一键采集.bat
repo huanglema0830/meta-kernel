@@ -1,5 +1,5 @@
 @echo off
-title Cloud Kernel - Auto Collect (old notebook)
+title ZhengYuan OS - Auto Collect (old notebook)
 cd /d "%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0autoprobe.ps1"
 echo.
