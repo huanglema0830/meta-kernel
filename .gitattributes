@@ -1,1 +1,9 @@
 * text=auto eol=lf
+
+# Windows deployment scripts MUST keep CRLF line endings.
+# With LF, cmd.exe mis-parses labels/goto and .vbs files can fail.
+deploy/win64/*.bat text eol=crlf
+deploy/win64/*.cmd text eol=crlf
+deploy/win64/*.vbs text eol=crlf
+deploy/win64/*.ps1 text eol=crlf
+deploy/win64/*.txt text eol=crlf
