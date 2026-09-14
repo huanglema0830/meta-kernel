@@ -408,6 +408,7 @@ pub fn init() {
         bind_click("btn-archive", move || APP.with(|x| x.borrow_mut().archive()));
         bind_click("btn-diag", move || APP.with(|x| x.borrow_mut().diag()));
         // ---- L6 空天浏览器绑定 ----
+        bind_click("tab-work", || crate::l6_app::show("view-work", "tab-work"));
         bind_click("tab-diag", || crate::l6_app::show("view-diag", "tab-diag"));
         bind_click("tab-manifest", || crate::l6_app::show("view-manifest", "tab-manifest"));
         bind_click("tab-device", || crate::l6_app::show("view-device", "tab-device"));

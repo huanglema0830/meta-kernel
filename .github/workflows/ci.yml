@@ -159,6 +159,10 @@ jobs:
           test -f manifest-ui/dist/manifest_ui_bg.wasm
           echo MANIFEST_UI_WASM_OK
 
+      - name: 工作台纯函数测试（安全 XSS/注入 + 混沌健壮 · 无需浏览器）
+        shell: bash
+        run: node examples/ui-verify/logic-test.mjs
+
       - name: UI 自动目验（真实浏览器断言诊断结论可读）
         shell: bash
         run: |

@@ -40,9 +40,10 @@ fn set_attr(id: &str, name: &str, val: &str) {
 }
 
 /// 视图切换（tabs）。固定 id 切换（零额外 web-sys 特性依赖）。
+/// v0.105：新增「工作台」（view-work / tab-work）——空天浏览器从"诊断工具"转为"干活工具"。
 pub fn show(view_id: &str, tab_id: &str) {
-    let views = ["view-diag", "view-manifest", "view-device", "view-settings"];
-    let tabs = ["tab-diag", "tab-manifest", "tab-device", "tab-settings"];
+    let views = ["view-work", "view-diag", "view-manifest", "view-device", "view-settings"];
+    let tabs = ["tab-work", "tab-diag", "tab-manifest", "tab-device", "tab-settings"];
     for v in views {
         set_attr(v, "class", if v == view_id { "view active" } else { "view" });
     }

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>兼容性测试 · 空天浏览器</title>
+<style>
+  body{font-family:system-ui,"Microsoft YaHei",sans-serif;margin:0;background:#f6f6f8;color:#1e1e24}
+  .wrap{max-width:860px;margin:0 auto;padding:20px}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{color:#6b6b78;font-size:12px;margin-bottom:14px}
+  .card{background:#fff;border:1px solid #e6e6ec;border-radius:12px;padding:14px;margin-bottom:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td{padding:5px 6px;border-bottom:1px solid #f0f0f4;vertical-align:top}
+  td.k{width:46%;color:#4a4a55}
+  .ok{color:#1f7a37;font-weight:600}
+  .no{color:#b3261e;font-weight:600}
+  .verdict{font-size:15px;font-weight:700;padding:10px 12px;border-radius:10px}
+  .v-ok{background:#eef7ef;color:#1f7a37}
+  .v-no{background:#fdecea;color:#b3261e}
+  .dim{color:#8a8a95;font-size:12px}
+  code{background:#f2f2f6;padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>兼容性测试报告</h1>
+  <div class="sub">用途：在老笔记本上打开本页，确认「空天浏览器 · 工作台」所需的 API 全部可用。<b>本页只读取，不修改任何设置。</b></div>
+
+  <div class="card" id="verdict-card">
+    <div class="verdict" id="verdict">检测中……</div>
+    <div class="dim" id="verdict-note" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card">
+    <div style="font-weight:600;font-size:14px;margin-bottom:6px">必需能力（缺一不可）</div>
+    <table id="req"></table>
+  </div>
+
+  <div class="card">
+    <div style="font-weight:600;font-size:14px;margin-bottom:6px">可选能力（缺少时功能降级）</div>
+    <table id="opt"></table>
+  </div>
+
+  <div class="card">
+    <div style="font-weight:600;font-size:14px;margin-bottom:6px">环境信息</div>
+    <table id="env"></table>
+  </div>
+
+  <div class="card">
+    <div style="font-weight:600;font-size:14px;margin-bottom:6px">结果（可复制回开发机）</div>
+    <textarea id="dump" style="width:100%;min-height:150px;font-family:ui-monospace,Consolas,monospace;font-size:12px"></textarea>
+    <div class="row" style="margin-top:8px"><button id="copy">复制结果</button></div>
+  </div>
+</div>
+
+<script>
+/* 全 ES3/ES5 语法（老浏览器也能跑） */
+(function () {
+  var results = [];
+  function has(name, fn) {
+    var ok = false, note = '';
+    try { ok = !!fn(); } catch (e) { ok = false; note = String(e && e.message ? e.message : e); }
+    return { name: name, ok: ok, note: note };
+  }
+  function row(tblId, r) {
+    var tbl = document.getElementById(tblId);
+    if (!tbl) { return; }
+    var tr = document.createElement('tr');
+    var td1 = document.createElement('td'); td1.className = 'k'; td1.textContent = r.name;
+    var td2 = document.createElement('td');
+    td2.className = r.ok ? 'ok' : 'no';
+    td2.textContent = (r.ok ? '支持' : '不支持') + (r.note ? ('（' + r.note + '）') : '');
+    if (tbl.tBodies[0]) { tbl.tBodies[0].appendChild(tr); }
+    else { var tb = document.createElement('tbody'); tb.appendChild(tr); tbl.appendChild(tb); }
+    tr.appendChild(td1); tr.appendChild(td2);
+  }
+
+  var req = [];
+  req.push(has('DOM 基础（getElementById / createElement / appendChild）', function () {
+    var d = document.createElement('div'); d.appendChild(document.createElement('span'));
+    return !!document.getElementById('verdict') && d.childNodes.length === 1;
+  }));
+  req.push(has('addEventListener（事件绑定）', function () {
+    return !!document.addEventListener && !!window.addEventListener;
+  }));
+  req.push(has('textContent（安全文本写入）', function () {
+    var d = document.createElement('div'); d.textContent = 'x'; return d.textContent === 'x';
+  }));
+  req.push(has('innerHTML（预览渲染）', function () {
+    var d = document.createElement('div'); d.innerHTML = '<b>a</b>'; return d.innerHTML.indexOf('b') >= 0;
+  }));
+  req.push(has('localStorage（本地存储／离线可用）', function () {
+    if (!window.localStorage) { return false; }
+    window.localStorage.setItem('__t', '1'); var v = window.localStorage.getItem('__t');
+    window.localStorage.removeItem('__t'); return v === '1';
+  }));
+  req.push(has('JSON（序列化）', function () {
+    return JSON.parse(JSON.stringify({ a: 1 })).a === 1;
+  }));
+  req.push(has('String.replace 正则替换（Markdown 渲染）', function () {
+    return ('**a**').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>') === '<b>a</b>';
+  }));
+  req.push(has('Function.prototype.bind 或闭包（事件回调）', function () {
+    var f = function (x) { return x; }; return f(1) === 1;
+  }));
+  req.push(has('Array.prototype.indexOf（列表处理）', function () {
+    return [1, 2].indexOf(2) === 1;
+  }));
+  req.push(has('Object.keys（文件清单）', function () {
+    return Object.keys({ a: 1 }).length === 1;
+  }));
+
+  var opt = [];
+  opt.push(has('Blob + URL.createObjectURL（导出 .md 下载）', function () {
+    return !!window.Blob && !!window.URL && !!window.URL.createObjectURL;
+  }));
+  opt.push(has('prompt / confirm（重命名确认）', function () {
+    return typeof window.prompt === 'function' && typeof window.confirm === 'function';
+  }));
+  opt.push(has('WebAssembly（诊断视图需要）', function () {
+    return typeof window.WebAssembly === 'object' && !!window.WebAssembly.instantiate;
+  }));
+  opt.push(has('performance.memory（性能断言，仅 Chrome 系）', function () {
+    return !!(window.performance && window.performance.memory);
+  }));
+  opt.push(has('fetch / XMLHttpRequest（联网取数据）', function () {
+    return typeof window.fetch === 'function' || !!window.XMLHttpRequest;
+  }));
+  opt.push(has('iframe（查资料内嵌）', function () {
+    var f = document.createElement('iframe'); return !!f;
+  }));
+
+  var reqOk = 0, i;
+  for (i = 0; i < req.length; i++) { if (req[i].ok) { reqOk++; } }
+  for (i = 0; i < req.length; i++) { row('req', req[i]); }
+  for (i = 0; i < opt.length; i++) { row('opt', opt[i]); }
+
+  var v = document.getElementById('verdict');
+  var note = document.getElementById('verdict-note');
+  if (reqOk === req.length) {
+    v.className = 'verdict v-ok';
+    v.textContent = '结论：通过（' + reqOk + '/' + req.length + ' 项必需能力全部支持）';
+    note.textContent = '可以在此设备上使用「空天浏览器 · 工作台」（写文档 + 文件管理，离线可用）。';
+  } else {
+    v.className = 'verdict v-no';
+    v.textContent = '结论：不通过（' + reqOk + '/' + req.length + ' 项必需能力）';
+    note.textContent = '缺少必需能力，需要调整实现或更换浏览器后再开发。';
+  }
+
+  function rowKV(k, val) {
+    var tbl = document.getElementById('env');
+    var tr = document.createElement('tr');
+    var td1 = document.createElement('td'); td1.className = 'k'; td1.textContent = k;
+    var td2 = document.createElement('td'); td2.textContent = val;
+    tr.appendChild(td1); tr.appendChild(td2);
+    if (tbl.tBodies[0]) { tbl.tBodies[0].appendChild(tr); }
+    else { var tb = document.createElement('tbody'); tb.appendChild(tr); tbl.appendChild(tb); }
+  }
+  var ua = navigator.userAgent || '';
+  rowKV('User-Agent', ua);
+  rowKV('平台', (navigator.platform || '—'));
+  rowKV('屏幕', (screen.width + '×' + screen.height + ' @' + (window.devicePixelRatio || 1) + 'x'));
+  rowKV('语言', (navigator.language || navigator.userLanguage || '—'));
+  rowKV('硬件并发（CPU 核数，可能不可用）', (navigator.hardwareConcurrency || '—'));
+  rowKV('设备内存（GB，可能不可用）', (navigator.deviceMemory || '—'));
+  var isIE = /MSIE |Trident\//.test(ua);
+  var isOld = /Windows NT 5|Windows NT 6\.0/.test(ua);
+  rowKV('旧浏览器提示', (isIE ? 'IE 内核（本工作台不支持 IE，请用 Edge/Chrome）' : (isOld ? '系统较老' : '正常')));
+
+  var lines = ['# 兼容性测试报告', '时间: ' + (new Date()).toString(), 'UA: ' + ua, ''];
+  lines.push('必需能力: ' + reqOk + '/' + req.length);
+  for (i = 0; i < req.length; i++) { lines.push('  [' + (req[i].ok ? 'OK' : 'NO') + '] ' + req[i].name); }
+  lines.push('可选能力:');
+  for (i = 0; i < opt.length; i++) { lines.push('  [' + (opt[i].ok ? 'OK' : 'NO') + '] ' + opt[i].name); }
+  var dump = document.getElementById('dump');
+  if (dump) { dump.value = lines.join('\n'); }
+  var cp = document.getElementById('copy');
+  if (cp) {
+    cp.onclick = function () {
+      try { dump.select(); document.execCommand('copy'); cp.textContent = '已复制'; }
+      catch (e) { cp.textContent = '请手动全选复制'; }
+    };
+  }
+})();
+</script>
+</body>
+</html>
