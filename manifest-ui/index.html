@@ -99,6 +99,7 @@
       <button class="tab active" id="wt-doc">文档</button>
       <button class="tab" id="wt-files">文件</button>
       <button class="tab" id="wt-diag">诊断（辅助）</button>
+      <button class="tab" id="wt-owner">任务归属</button>
       <span class="dim" id="wc-stat" style="margin-left:auto;font-size:12px;align-self:center"></span>
     </div>
 
@@ -159,6 +160,27 @@
           <button class="ghost" id="wc-gonetfix">网络修复</button>
         </div>
         <div class="meta dim" id="wc-gwinfo" style="margin-top:8px">网关：检测中……</div>
+      </div>
+    </div>
+
+    <!-- 任务归属（元内核接管：自我监控 · 健康报告 · 异常告警 · 运行日志） -->
+    <div id="wp-owner" style="display:none">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-weight:600;font-size:14px">元内核 · 健康报告</div>
+          <span class="dim" id="own-live" style="font-size:11px">自监控</span>
+          <button class="ghost" id="own-refresh" style="margin-left:auto">刷新</button>
+        </div>
+        <div class="meta" id="own-report">（读取中……）</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;font-size:14px">异常告警</div>
+        <div class="meta" id="own-alerts">（无）</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;font-size:14px">运行日志（含任务归属）</div>
+        <div class="meta" style="margin-bottom:6px">每行前缀：<b>[元内核]</b>（系统自身）或 <b>[WorkBuddy]</b>（执行者投递）</div>
+        <div id="own-log" class="dsub" style="font-family:ui-monospace,Consolas,monospace;font-size:12px;max-height:300px;overflow:auto;white-space:pre-wrap">（读取中……）</div>
       </div>
     </div>
   </div>
@@ -473,10 +495,10 @@
 
   /* ---------- 面板切换（不用 CSS 类，避免依赖） ---------- */
   function showPanel(which) {
-    var ids = ['wp-doc', 'wp-files', 'wp-diag'];
-    var tabs = ['wt-doc', 'wt-files', 'wt-diag'];
-    var want = { 'doc': 'wp-doc', 'files': 'wp-files', 'diag': 'wp-diag' }[which];
-    var wantTab = { 'doc': 'wt-doc', 'files': 'wt-files', 'diag': 'wt-diag' }[which];
+    var ids = ['wp-doc', 'wp-files', 'wp-diag', 'wp-owner'];
+    var tabs = ['wt-doc', 'wt-files', 'wt-diag', 'wt-owner'];
+    var want = { 'doc': 'wp-doc', 'files': 'wp-files', 'diag': 'wp-diag', 'owner': 'wp-owner' }[which];
+    var wantTab = { 'doc': 'wt-doc', 'files': 'wt-files', 'diag': 'wt-diag', 'owner': 'wt-owner' }[which];
     for (var i = 0; i < ids.length; i++) {
       var e = $(ids[i]);
       if (e) { e.style.display = (ids[i] === want) ? 'block' : 'none'; }
@@ -485,6 +507,72 @@
       var t = $(tabs[j]);
       if (t) { t.className = (tabs[j] === wantTab) ? 'tab active' : 'tab'; }
     }
+    if (which === 'owner') { loadOwner(); }
+  }
+
+  /* ---------- 任务归属（元内核接管：健康报告 / 告警 / 运行日志） ---------- */
+  function gwBase() {
+    try {
+      if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+        return window.location.protocol + '//' + window.location.host;
+      }
+    } catch (e) { }
+    return '';
+  }
+  function getText(url, cb) {
+    /* XHR + 回调（最基础、老浏览器可用；不用 Promise/fetch —— P2 兼容优先） */
+    var base = gwBase();
+    if (!base) { cb(''); return; }
+    try {
+      var x = new XMLHttpRequest();
+      x.open('GET', base + url, true);
+      x.onreadystatechange = function () {
+        if (x.readyState === 4) { cb(x.status === 200 ? x.responseText : ''); }
+      };
+      x.send();
+    } catch (e) { cb(''); }
+  }
+  function fmtUptime(s) {
+    s = Number(s) || 0;
+    if (s < 60) { return s + ' 秒'; }
+    if (s < 3600) { return Math.floor(s / 60) + ' 分 ' + (s % 60) + ' 秒'; }
+    return Math.floor(s / 3600) + ' 时 ' + Math.floor((s % 3600) / 60) + ' 分';
+  }
+  function loadOwner() {
+    getText('/v1/report', function (t) {
+      var el = $('own-report');
+      if (!el) { return; }
+      if (!t) { el.textContent = '（无法读取健康报告——需经网关打开本页）'; return; }
+      var j = null;
+      try { j = JSON.parse(t); } catch (e) { j = null; }
+      if (!j) { el.textContent = t.substring(0, 400); return; }
+      var c = j.counters || {};
+      el.textContent = '云内核项目 / 元内核系统 ｜ 组件 ' + j.version +
+        ' ｜ 能力 ' + (j.features || '—') + ' ｜ 运行 ' + fmtUptime(j.uptime_s) +
+        ' ｜ 请求 ' + c.requests + ' / 错误 ' + c.errors +
+        ' ｜ 探针 ' + c.probes + ' ｜ 推注 ' + c.pushes + '（被拒 ' + c.rejected + '）' +
+        ' ｜ 任务投递 ' + c.task_posts + ' ｜ 日志 ' + j.log_lines + '/' + j.log_cap +
+        ' ｜ 告警 ' + j.alerts;
+      setText('own-live', j.ok ? '自监控正常' : '有告警');
+    });
+    getText('/v1/alerts', function (t) {
+      var el = $('own-alerts');
+      if (!el) { return; }
+      if (!t) { el.textContent = '（无法读取）'; return; }
+      var j = null; try { j = JSON.parse(t); } catch (e) { j = null; }
+      var list = (j && j.alerts) || [];
+      if (!list.length) { el.textContent = '（无告警）'; return; }
+      var out = [];
+      for (var i = 0; i < list.length; i++) {
+        out.push('· [' + list[i].level + '] ' + list[i].code + ' — ' + list[i].message);
+      }
+      el.textContent = out.join('\n');
+    });
+    getText('/v1/tasks.txt', function (t) {
+      var el = $('own-log');
+      if (!el) { return; }
+      el.textContent = t ? t : '（暂无日志——需经网关打开本页）';
+    });
   }
 
   /* ---------- 绑定 ---------- */
@@ -495,6 +583,8 @@
     bind('wt-doc', function () { showPanel('doc'); });
     bind('wt-files', function () { showPanel('files'); });
     bind('wt-diag', function () { showPanel('diag'); });
+    bind('wt-owner', function () { showPanel('owner'); });
+    bind('own-refresh', loadOwner);
 
     /* 文档 */
     bind('doc-new', newDoc);

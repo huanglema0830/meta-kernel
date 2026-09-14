@@ -19,6 +19,7 @@
 //! 3. 单写者语义显式声明：`/v1/health` 返回 `"writer":"single"`，且本文档注释固化。
 
 pub mod http;
+pub mod selfmon;
 
 use std::ffi::CStr;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -189,6 +190,8 @@ pub struct Gateway {
     probe: Arc<std::sync::Mutex<Option<String>>>,
     /// USB 场检测最新上报（探针扩展；同样只存取不解释）。
     usb: Arc<std::sync::Mutex<Option<String>>>,
+    /// 自我监控 / 健康报告 / 异常告警 / 运行日志（含任务归属；只观测不干预）。
+    mon: Arc<selfmon::SelfMon>,
 }
 
 impl Gateway {
@@ -203,7 +206,13 @@ impl Gateway {
             proj,
             probe: Arc::new(std::sync::Mutex::new(None)),
             usb: Arc::new(std::sync::Mutex::new(None)),
+            mon: Arc::new(selfmon::SelfMon::new()),
         }
+    }
+
+    /// 自我监控器（自我监控 / 健康报告 / 异常告警 / 运行日志）。只观测，不干预内核。
+    pub fn mon(&self) -> &Arc<selfmon::SelfMon> {
+        &self.mon
     }
 
     /// 存储场域探针上报（POST /v1/probe；原文保存，零语义解释）。

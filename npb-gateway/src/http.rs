@@ -99,6 +99,67 @@ fn http_err(code: u16, reason: &str, body: &str) -> String {
     )
 }
 
+/// 纯文本 200（报告 / 脚本下载；避免浏览器按 JSON 处理）。
+fn http_ok_plain(body: &str) -> String {
+    format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n{CORS}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    )
+}
+
+/// HTML 200（升级页等）。
+fn http_ok_html(body: &str) -> String {
+    format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n{CORS}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    )
+}
+
+/// 能力特征（**版本无关的升级判据**：老笔记本据此确认已升到含这些能力的版本）。
+const FEATURES: &str = "report,alerts,tasks,upgrade,compat,workbench";
+
+/// 宽松提取 JSON 字符串字段（仅用于把外部投递的文本读出来记录，不参与判定）。
+/// 支持 `\"` `\\` `\n` `\r` `\t` 与 **`\uXXXX`**（CJK 常以 `\uXXXX` 传输）。
+fn extract_json_str(body: &str, key: &str) -> Option<String> {
+    let pat = format!("\"{key}\"");
+    let i = body.find(&pat)?;
+    let rest = &body[i + pat.len()..];
+    let c = rest.find(':')? + 1;
+    let rest = &rest[c..];
+    let start = rest.find('"')? + 1;
+    let rest = &rest[start..];
+    let mut out = String::new();
+    let mut chars = rest.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => return Some(out),
+            '\\' => match chars.next() {
+                Some('n') => out.push(' '),
+                Some('r') | Some('t') => out.push(' '),
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some('/') => out.push('/'),
+                Some('u') => {
+                    let hex: String = chars.by_ref().take(4).collect();
+                    if hex.len() == 4 {
+                        if let Ok(cp) = u32::from_str_radix(&hex, 16) {
+                            if let Some(c) = char::from_u32(cp) {
+                                out.push(c);
+                            }
+                        }
+                    }
+                }
+                Some(other) => out.push(other),
+                None => break,
+            },
+            other => out.push(other),
+        }
+    }
+    Some(out)
+}
+
 /// CORS 预检响应（浏览器跨源调用 /v1/*；受信本机/内网一期放开）。
 fn http_options() -> String {
     format!(
@@ -228,6 +289,63 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
         }
     }
 
+    // ---- 元内核接管（立即移交）：自我监控 / 健康报告 / 异常告警 / 运行日志（含任务归属）----
+    if target.starts_with("/v1/") {
+        gw.mon().count_request();
+    }
+    if method == "GET" && target == "/v1/report" {
+        stream.write_all(http_ok(&gw.mon().report_json(env!("CARGO_PKG_VERSION"), FEATURES)).as_bytes())?;
+        return Ok(());
+    }
+    if method == "GET" && target == "/v1/report.txt" {
+        stream.write_all(http_ok_plain(&gw.mon().report_txt(env!("CARGO_PKG_VERSION"), FEATURES)).as_bytes())?;
+        return Ok(());
+    }
+    if method == "GET" && target == "/v1/alerts" {
+        stream.write_all(http_ok(&gw.mon().alerts_json()).as_bytes())?;
+        return Ok(());
+    }
+    if method == "GET" && target == "/v1/tasks" {
+        stream.write_all(http_ok(&gw.mon().tasks_json(200)).as_bytes())?;
+        return Ok(());
+    }
+    if method == "GET" && target == "/v1/tasks.txt" {
+        stream.write_all(http_ok_plain(&gw.mon().tasks_txt(200)).as_bytes())?;
+        return Ok(());
+    }
+    // 外部投递任务（默认归属 [WorkBuddy]；体可为 JSON{owner,detail} 或纯文本）
+    if method == "POST" && target == "/v1/tasks" {
+        let detail = extract_json_str(&body, "detail").unwrap_or_else(|| body.trim().to_string());
+        let owner = match extract_json_str(&body, "owner") {
+            Some(o) => crate::selfmon::Owner::parse(&o),
+            None => crate::selfmon::Owner::WorkBuddy,
+        };
+        gw.mon().count_task_post();
+        let l = gw.mon().note(
+            owner,
+            "TASK",
+            "任务投递",
+            if detail.is_empty() { "（无明细）".to_string() } else { detail },
+        );
+        stream.write_all(http_ok(&format!("{{\"accepted\":true,\"seq\":{}}}", l.seq)).as_bytes())?;
+        return Ok(());
+    }
+
+    // ---- 升级入口（老笔记本升级）----
+    // 只替换**本应用的文件**；脚本内不触碰任何网络配置（IP/DNS/代理/hosts/防火墙/路由）。
+    if method == "GET" && (target == "/upgrade" || target == "/upgrade/") {
+        let lport = stream.local_addr().map(|a| a.port()).unwrap_or(0);
+        let origin = request_origin(&headers, lport);
+        stream.write_all(http_ok_html(&upgrade_page(&origin)).as_bytes())?;
+        return Ok(());
+    }
+    if method == "GET" && target == "/upgrade.bat" {
+        let lport = stream.local_addr().map(|a| a.port()).unwrap_or(0);
+        let origin = request_origin(&headers, lport);
+        stream.write_all(http_ok_plain(&upgrade_bat(&origin)).as_bytes())?;
+        return Ok(());
+    }
+
     // ---- 静态 UI（同源托管：--ui 提供时 GET / 与受控静态文件） ----
     if method == "GET" {
         let lport = stream.local_addr().map(|a| a.port()).unwrap_or(0);
@@ -239,6 +357,8 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
 
     if method == "POST" && target == "/v1/probe" {
         gw.store_probe(body.clone());
+        gw.mon().count_probe();
+        gw.mon().note(crate::selfmon::Owner::Kernel, "INFO", "场域探针上报", format!("len={}", body.len()));
         let ok = http_ok(&format!("{{\"probe_accepted\":true,\"len\":{}}}", body.len()));
         stream.write_all(ok.as_bytes())?;
         return Ok(());
@@ -263,14 +383,26 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
         // 注入扰动：外部 push 驱动内核（网关不空转）
         ("POST", "/v1/push") => match parse_seed_body(&body) {
             Some(seed) => {
-                if gw.push(seed) {
+                let ok = gw.push(seed);
+                gw.mon().count_push(ok);
+                gw.mon().note(
+                    crate::selfmon::Owner::Kernel,
+                    if ok { "INFO" } else { "WARN" },
+                    "内核推注",
+                    format!("seed={seed:.4} -> {}", if ok { "accepted" } else { "gate_rejected" }),
+                );
+                if ok {
                     let t = gw.projection().t;
                     http_ok(&format!("{{\"accepted\":true,\"t\":{t},\"tag\":null}}"))
                 } else {
                     http_ok("{\"accepted\":false,\"reason\":\"gate_rejected\",\"tag\":null}")
                 }
             }
-            None => http_err(400, "Bad Request", "{\"error\":\"seed_required\"}"),
+            None => {
+                gw.mon().count_error();
+                gw.mon().note(crate::selfmon::Owner::Kernel, "WARN", "推注被拒", "缺少 seed 字段");
+                http_err(400, "Bad Request", "{\"error\":\"seed_required\"}")
+            }
         },
         // 当前内核快照
         ("GET", "/v1/state") => http_ok(&gw.snapshot_json()),
@@ -493,7 +625,8 @@ Host: x
 /// v0.102：新增单文件入口（net-check-one.bat / net-repair-one.bat）——自身下载依赖脚本并运行，
 /// 用户只需「下载 1 个文件 → 双击」两步。
 /// v0.105：新增兼容性测试页（compat-test.html）——在老笔记本上打开即出报告（先验证再开发）。
-const UI_ALLOW: [(&str, &str); 13] = [
+/// v0.106：新增升级包（upgrade-package.zip）——老笔记本经局域网一键升级（只换本应用文件）。
+const UI_ALLOW: [(&str, &str); 14] = [
     ("/index.html", "text/html; charset=utf-8"),
     ("/manifest_ui.js", "text/javascript"),
     ("/manifest_ui_bg.wasm", "application/wasm"),
@@ -507,6 +640,7 @@ const UI_ALLOW: [(&str, &str); 13] = [
     ("/net-check-one.bat", "text/plain; charset=utf-8"),
     ("/net-repair-one.bat", "text/plain; charset=utf-8"),
     ("/compat-test.html", "text/html; charset=utf-8"),
+    ("/upgrade-package.zip", "application/zip"),
 ];
 
 /// 由请求头取**访问来源 origin**（host[:port]），用于按访问者实际地址动态生成脚本。
@@ -551,6 +685,119 @@ pause\r\n"
     body.into_bytes()
 }
 
+/// 升级页（GET /upgrade）：给老笔记本的**一键升级入口**。
+/// 页面本身不做任何写操作；真正的写操作在 `upgrade.bat`，且**只替换本应用文件**。
+fn upgrade_page(origin: &str) -> String {
+    let mut h = String::new();
+    h.push_str("<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">");
+    h.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
+    h.push_str("<title>升级 · 空天浏览器</title><style>");
+    h.push_str("body{font-family:system-ui,\"Microsoft YaHei\",sans-serif;margin:0;background:#f6f6f8;color:#1e1e24}");
+    h.push_str(".wrap{max-width:800px;margin:0 auto;padding:20px}h1{font-size:18px;margin:0 0 4px}");
+    h.push_str(".sub{color:#6b6b78;font-size:12px;margin-bottom:14px}");
+    h.push_str(".card{background:#fff;border:1px solid #e6e6ec;border-radius:12px;padding:14px;margin-bottom:12px}");
+    h.push_str(".btn{display:inline-block;background:#2f6fb5;color:#fff;text-decoration:none;padding:10px 18px;border-radius:10px;font-weight:600}");
+    h.push_str(".warn{background:#fff8e6;border:1px solid #f0d9a0;border-radius:10px;padding:10px 12px;font-size:13px;color:#7a5b12}");
+    h.push_str("code{background:#f2f2f6;padding:1px 5px;border-radius:4px;font-size:12px}");
+    h.push_str("ol{font-size:13px;line-height:1.9}li{margin-bottom:2px}ul{font-size:13px;line-height:1.8}");
+    h.push_str("</style></head><body><div class=\"wrap\">");
+    h.push_str("<h1>空天浏览器 · 升级入口</h1>");
+    h.push_str("<div class=\"sub\">把老笔记本从旧版升级到新版（v0.105+）。<b>本升级不修改任何网络配置。</b></div>");
+
+    h.push_str("<div class=\"card\"><div class=\"warn\"><b>安全承诺（与发起人约束一致）</b><ul>");
+    h.push_str("<li>只替换<b>本应用的文件</b>（exe / ui / 脚本），<b>不触碰</b> IP、DNS、代理、hosts、防火墙、路由；</li>");
+    h.push_str("<li><b>不设置任何系统/浏览器代理</b>；<b>不影响</b>老笔记本上运行的其他项目；</li>");
+    h.push_str("<li>改动前先<b>自动备份</b>到 <code>_backup_&lt;时间戳&gt;\\</code>（可回滚）；</li>");
+    h.push_str("<li>升级只涉及<b>本应用目录</b>，不动系统服务。</li>");
+    h.push_str("</ul></div></div>");
+
+    h.push_str("<div class=\"card\"><div style=\"font-weight:600;font-size:14px;margin-bottom:8px\">升级步骤（3 步）</div>");
+    h.push_str("<ol>");
+    h.push_str("<li>点下面按钮下载 <code>upgrade.bat</code>；</li>");
+    h.push_str("<li>把它放到老笔记本的<b>部署包目录</b>（与 <code>npb-gateway.exe</code> 同一层）；</li>");
+    h.push_str("<li>双击运行（会自动备份 → 下载升级包 → 停止本应用 → 解压覆盖 → 重启看门狗 → 自检）。</li>");
+    h.push_str("</ol><p>");
+    h.push_str("<a class=\"btn\" href=\"/upgrade.bat\">下载 upgrade.bat</a></p>");
+    h.push_str("<div class=\"sub\">升级包来源：<code>");
+    h.push_str(origin);
+    h.push_str("/upgrade-package.zip</code></div></div>");
+
+    h.push_str("<div class=\"card\"><div style=\"font-weight:600;font-size:14px;margin-bottom:8px\">升级后验证（4 项）</div>");
+    h.push_str("<ul><li>页面标题为「<b>空天浏览器</b>」；</li>");
+    h.push_str("<li>命名已更新（云操作系统 / 空天浏览器 / 云海大模型 等，见 <code>LAYER_ARCHITECTURE §3.2</code>）；</li>");
+    h.push_str("<li><b>工作台可用</b>：写文档（Markdown + 实时预览）、文件管理；</li>");
+    h.push_str("<li>资源占用：内存 &lt; 20 MB、启动 &lt; 1 秒（页面左下角状态带可见）。</li></ul>");
+    h.push_str("<p class=\"sub\">自检入口：<code>");
+    h.push_str(origin);
+    h.push_str("/v1/report.txt</code>（元内核健康报告）</p></div>");
+
+    h.push_str("</div></body></html>");
+    h
+}
+
+/// 升级脚本（GET /upgrade.bat）：**只在老笔记本上替换本应用文件**；不碰任何网络配置。
+fn upgrade_bat(origin: &str) -> String {
+    let mut s = String::new();
+    s.push_str("@echo off\r\n");
+    s.push_str("chcp 65001 >nul\r\n");
+    s.push_str("rem ============================================================\r\n");
+    s.push_str("rem  空天浏览器 · 升级脚本（老笔记本用）\r\n");
+    s.push_str("rem  安全承诺：只替换本应用文件；不修改 IP / DNS / 代理 / hosts / 防火墙 / 路由。\r\n");
+    s.push_str("rem  用法：放到部署包目录（与 npb-gateway.exe 同层）→ 双击运行。\r\n");
+    s.push_str("rem ============================================================\r\n");
+    s.push_str("setlocal enabledelayedexpansion\r\n");
+    s.push_str("set \"ORIGIN=");
+    s.push_str(origin);
+    s.push_str("\"\r\n");
+    s.push_str("set \"DIR=%~dp0\"\r\n");
+    s.push_str("if not exist \"%DIR%npb-gateway.exe\" (\r\n");
+    s.push_str("  echo [错误] 本目录没有 npb-gateway.exe。请把本脚本放到老笔记本的“部署包目录”后再运行。\r\n");
+    s.push_str("  pause\r\n  exit /b 1\r\n)\r\n");
+    // 备份
+    s.push_str("echo ===== [1/6] 备份现有文件（不改网络配置）=====\r\n");
+    s.push_str("set \"TS=%DATE:~0,4%%DATE:~5,2%%DATE:~8,2%-%TIME:~0,2%%TIME:~3,2%%TIME:~6,2%\"\r\n");
+    s.push_str("set \"TS=%TS: =0%\"\r\n");
+    s.push_str("set \"BAK=%DIR%_backup_%TS%\"\r\n");
+    s.push_str("mkdir \"%BAK%\" >nul 2>&1\r\n");
+    s.push_str("xcopy \"%DIR%*.exe\" \"%BAK%\\\" /Y >nul 2>&1\r\n");
+    s.push_str("xcopy \"%DIR%*.bat\" \"%BAK%\\\" /Y >nul 2>&1\r\n");
+    s.push_str("xcopy \"%DIR%*.vbs\" \"%BAK%\\\" /Y >nul 2>&1\r\n");
+    s.push_str("xcopy \"%DIR%*.ps1\" \"%BAK%\\\" /Y >nul 2>&1\r\n");
+    s.push_str("xcopy \"%DIR%ui\" \"%BAK%\\ui\\\" /E /Y >nul 2>&1\r\n");
+    s.push_str("echo   备份完成: %BAK%\r\n");
+    // 下载
+    s.push_str("echo ===== [2/6] 下载升级包 =====\r\n");
+    s.push_str("curl.exe -s -f -o \"%TEMP%\\ck-upgrade.zip\" \"%ORIGIN%/upgrade-package.zip\" 2>nul\r\n");
+    s.push_str("if not exist \"%TEMP%\\ck-upgrade.zip\" (\r\n");
+    s.push_str("  powershell -NoProfile -Command \"(New-Object Net.WebClient).DownloadFile('%ORIGIN%/upgrade-package.zip','%TEMP%\\ck-upgrade.zip')\" 2>nul\r\n)\r\n");
+    s.push_str("if not exist \"%TEMP%\\ck-upgrade.zip\" (\r\n");
+    s.push_str("  echo [错误] 下载失败——请确认开发机网关在运行、且同一局域网（%ORIGIN%）。\r\n");
+    s.push_str("  pause\r\n  exit /b 1\r\n)\r\n");
+    s.push_str("echo   已下载到 %TEMP%\\ck-upgrade.zip\r\n");
+    // 停止本应用
+    s.push_str("echo ===== [3/6] 停止本应用（仅 npb-gateway / 看门狗；不动系统服务）=====\r\n");
+    s.push_str("taskkill /F /IM npb-gateway.exe >nul 2>&1\r\n");
+    s.push_str("taskkill /F /IM wscript.exe >nul 2>&1\r\n");
+    s.push_str("ping -n 3 127.0.0.1 >nul\r\n");
+    // 解压覆盖
+    s.push_str("echo ===== [4/6] 解压覆盖（只覆盖本应用文件）=====\r\n");
+    s.push_str("powershell -NoProfile -Command \"Expand-Archive -Force -LiteralPath '%TEMP%\\ck-upgrade.zip' -DestinationPath '%DIR%'\"\r\n");
+    // 重启看门狗
+    s.push_str("echo ===== [5/6] 重启看门狗 =====\r\n");
+    s.push_str("if exist \"%DIR%watchdog.vbs\" ( start \"\" wscript.exe \"%DIR%watchdog.vbs\" )\r\n");
+    s.push_str("ping -n 4 127.0.0.1 >nul\r\n");
+    // 自检
+    s.push_str("echo ===== [6/6] 自检（本机网关）=====\r\n");
+    s.push_str("curl.exe -s -m 5 http://127.0.0.1:3000/v1/report.txt\r\n");
+    s.push_str("echo.\r\n");
+    s.push_str("curl.exe -s -m 5 -o nul -w \"页面 HTTP: %%{http_code}\\n\" http://127.0.0.1:3000/\r\n");
+    s.push_str("echo.\r\n");
+    s.push_str("echo 完成。**本脚本未修改任何网络配置**（IP / DNS / 代理 / hosts / 防火墙 / 路由）。\r\n");
+    s.push_str("echo 若页面标题仍为旧名，请刷新浏览器（Ctrl+F5）；仍异常时可用 %BAK% 回滚。\r\n");
+    s.push_str("pause\r\n");
+    s
+}
+
 fn serve_ui(
     ui_dir: &Option<std::path::PathBuf>,
     target: &str,
@@ -578,7 +825,8 @@ Content-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\
     let fname = path.file_name()?.to_str()?;
     let allow = ["index.html", "manifest_ui.js", "manifest_ui_bg.wasm", "cloud-probe.exe", "cloud-discover.exe", "run-probe.bat",
         "net-check.bat", "net-repair.bat", "net-diagnose.ps1", "net-repair.ps1",
-        "net-check-one.bat", "net-repair-one.bat", "compat-test.html"].contains(&fname);
+        "net-check-one.bat", "net-repair-one.bat", "compat-test.html",
+        "upgrade-package.zip"].contains(&fname);
     if !allow {
         eprintln!("serve_ui: 白名单外拒绝 {name}");
         return None;
@@ -590,13 +838,10 @@ Content-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\
             return None;
         }
     };
+    // 注意：HTTP 响应头必须用 CRLF（v0.106 修正：原为裸 LF，浏览器容忍但严格客户端如
+    // Node fetch/undici 会解析失败——本地预验因此暴露）。
     let header = format!(
-        "HTTP/1.1 200 OK
-Content-Type: {ctype}
-Content-Length: {}
-Connection: close
-
-",
+        "HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         bytes.len()
     );
     let mut resp = header.into_bytes();

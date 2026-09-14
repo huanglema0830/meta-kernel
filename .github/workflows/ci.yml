@@ -179,6 +179,13 @@ jobs:
               src = src.replace('</body>', inject + '</body>')
           io.open('manifest-ui/dist/index.html', 'w', encoding='utf-8', newline='\n').write(src)
           print('dist/index.html assembled')
+
+          # 占位升级包：验证 /upgrade-package.zip 的路由与白名单（STORED 避免被压缩到 <1KB）
+          import zipfile
+          z = zipfile.ZipFile('manifest-ui/dist/upgrade-package.zip', 'w', zipfile.ZIP_STORED)
+          z.writestr('placeholder.txt', 'x' * 4096)
+          z.close()
+          print('dist/upgrade-package.zip placeholder')
           PY
           test -f $DIST/index.html
 

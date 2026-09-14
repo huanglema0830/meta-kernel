@@ -136,6 +136,59 @@ try {
   const stillAlive = await page.evaluate(() => window.__wcReady === 1 && !!document.getElementById('doc-preview'));
   check('混沌：空名/超长/纯符号/空内容 均未使页面崩溃', chaosOk && stillAlive);
 
+  // ---- 7.5) 元内核接管：自我监控 / 健康报告 / 告警 / 运行日志（含任务归属）+ 升级入口 ----
+  const base = new globalThis.URL('/', URL).href.replace(/\/$/, '');
+  const jget = async (p) => {
+    try { const r = await fetch(base + p); return { ok: r.ok, status: r.status, text: await r.text() }; }
+    catch { return { ok: false, status: 0, text: '' }; }
+  };
+
+  const rep = await jget('/v1/report');
+  let repJ = null; try { repJ = JSON.parse(rep.text); } catch { /* 非法 JSON */ }
+  check('元内核自监控：/v1/report 可用且含 版本/计数器/运行时长',
+    rep.ok && !!repJ && !!repJ.version && !!repJ.counters && typeof repJ.uptime_s === 'number',
+    `status=${rep.status}`);
+  const alr = await jget('/v1/alerts');
+  let alrJ = null; try { alrJ = JSON.parse(alr.text); } catch { /* 非法 JSON */ }
+  check('元内核异常告警：/v1/alerts 可用', alr.ok && !!alrJ && Array.isArray(alrJ.alerts), `status=${alr.status}`);
+
+  // 任务归属：先投递一条 [WorkBuddy] 任务，再校验"每行都有前缀"
+  const post = await fetch(base + '/v1/tasks', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ owner: 'workbuddy', detail: 'CI 集成测试任务投递' }),
+  }).catch(() => null);
+  check('任务归属：POST /v1/tasks 接受投递', !!post && post.ok);
+  const tk = await jget('/v1/tasks.txt');
+  const tklines = tk.text.split('\n').filter((l) => l.trim().length > 0);
+  check('任务归属：运行日志每行带 [元内核]/[WorkBuddy] 前缀',
+    tklines.length > 0 && tklines.every((l) => l.startsWith('[元内核]') || l.startsWith('[WorkBuddy]')),
+    `lines=${tklines.length}`);
+  check('任务归属：[WorkBuddy] 投递已被记录', tk.text.includes('[WorkBuddy]') && tk.text.includes('CI 集成测试任务投递'));
+
+  // 工作台「任务归属」面板
+  await page.click('#wt-owner');
+  await page.waitForTimeout(800);
+  const ownTxt = await page.innerText('#wp-owner');
+  check('工作台：「任务归属」面板显示健康报告与带前缀日志',
+    /运行/.test(ownTxt) && (ownTxt.indexOf('[元内核]') >= 0 || ownTxt.indexOf('[WorkBuddy]') >= 0),
+    ownTxt.substring(0, 50).replace(/\s+/g, ' '));
+  await page.click('#wt-doc');
+
+  // 升级入口（**不改网络配置**）
+  const up = await jget('/upgrade');
+  check('升级入口：/upgrade 页面可用', up.ok && up.text.includes('升级'));
+  check('升级入口：页面声明不修改网络配置',
+    up.text.includes('不触碰') || up.text.includes('不修改任何网络配置'));
+  const upb = await jget('/upgrade.bat');
+  check('升级入口：/upgrade.bat 可下载且含"备份 + 不改网络配置"',
+    upb.ok && upb.text.includes('备份') &&
+    (upb.text.includes('未修改任何网络配置') || upb.text.includes('不修改任何网络配置')),
+    'len=' + upb.text.length);
+  const pkg = await fetch(base + '/upgrade-package.zip').catch(() => null);
+  check('升级入口：升级包可下载（zip > 1KB）',
+    !!pkg && pkg.ok && Number(pkg.headers.get('content-length') || 0) > 1024,
+    pkg ? `status=${pkg.status} len=${pkg.headers.get('content-length')}` : 'fetch failed');
+
   // ---- 8) 性能断言 ----
   const perf = await page.evaluate(() => window.__wcPerf || { startupMs: -1, heapMB: -1 });
   check('性能：工作台初始化 < 1 秒', perf.startupMs >= 0 && perf.startupMs < MAX_STARTUP_MS,
