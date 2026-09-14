@@ -1,5 +1,5 @@
 /**
- * 正源浏览器 · 自动目验（UI_AUTO_VERIFY）
+ * 空天浏览器 · 自动目验（UI_AUTO_VERIFY）
  * ============================================================
  * 目的：把「待用户目验」转为「CI 自动验证」。
  *
@@ -54,7 +54,7 @@ try {
   const body = await page.innerText('body');
 
   // ---- 3) 内容断言 ----
-  check('标题为「正源浏览器」', body.includes('正源浏览器'));
+  check('标题为「空天浏览器」', body.includes('空天浏览器'));
   check('四个视图标签齐全',
     ['诊断台', '显化台', '设备台', '设置'].every((t) => body.includes(t)));
   check('出现四场状态字（亢/枯/平）', /[亢枯平]/.test(body));
