@@ -48,6 +48,7 @@ pub mod l5_diagnosis; // 诊断结论（三量运算：存量/变量/补充增�
 pub mod l5_senses;   // 地水火风拆解（七维采样 → 四场分量）
 pub mod l5_translate; // 编译翻译（语言对照表 → 多语言总结；缺词保留原文+待补）
 pub mod l5_router;   // 零依赖 JSON 输出给 L6（含多语言 summary）
+pub mod l7;          // L7 执行层（多内核互联 + 动作分级 + 动作账；修复执行待确认）
 // 基因内核（学习能力：痕迹匹配→自适应生成；发起人补足指令）
 pub mod dna_trace;    // 痕迹库：签名/库/最近邻匹配/命中计数（学习瞬间完成）
 pub mod dna_generate; // 自适应生成：试探→归纳（线性/阈值/直通）→验证→成品
