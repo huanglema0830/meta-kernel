@@ -43,6 +43,7 @@ pub mod l4; // L4 场域戒律判定引擎（应用框架·拒绝层 v0.002：�
 // L5 诊断层（审计 · 最终版 v2.0：地水火风/本底场/亢枯平/三量/翻译/JSON→L6）
 pub mod l5_baseline; // 本底场：建立（学习均值）与编解码（纯，持久由宿主）
 pub mod l5_compare;  // 当前场 vs 本底场 → 亢/枯/平 逐分量
+pub mod l5_context;  // 语境模块（v2.1）：类型/时间/历史/环境 → 场景识别（场景公式选择）
 pub mod l5_diagnosis; // 诊断结论（三量运算：存量/变量/补充增量；单一主结论）
 pub mod l5_senses;   // 地水火风拆解（七维采样 → 四场分量）
 pub mod l5_translate; // 编译翻译（语言对照表 → 多语言总结；缺词保留原文+待补）
@@ -51,6 +52,7 @@ pub mod l5_router;   // 零依赖 JSON 输出给 L6（含多语言 summary）
 pub mod dna_trace;    // 痕迹库：签名/库/最近邻匹配/命中计数（学习瞬间完成）
 pub mod dna_generate; // 自适应生成：试探→归纳（线性/阈值/直通）→验证→成品
 pub mod dna_adapt;    // 四层自适应入口（L1 场域/L2 接口/L3 协议/L4 本底/L5 基线）
+pub mod gene_library; // 基因库（核心资产 · 四层结构：基础公式/场景公式/计算关系/验证记录哈希链）
 
 // ===== 存在论/波动层新增模块（波粒二象性 + 感官 + 进化时间线）=====
 pub mod evolution; // 进化过程记录与回放（步数为底层时间线）

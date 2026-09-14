@@ -1,6 +1,6 @@
-# L5 设计 · 最终版：诊断层（号脉）DESIGN v2.1
+# L5 设计 · 最终版：诊断层（号脉）DESIGN v2.2
 
-> 状态：**v2.1（2026-09-14，诊断层定名 + 场景公式 + 语境模块 + 三戒修正）** ｜ 基础：v2.0（2026-09-09，最终版——替代 v1.0）
+> 状态：**v2.2（2026-09-14，语境模块实现落地）** ｜ 基础：v2.1（2026-09-14，诊断层定名 + 场景公式 + 语境模块 + 三戒修正）、v2.0（2026-09-09，最终版——替代 v1.0）
 > 依据：发起人指令（L5 最终版定义 + 基因内核推进 · L0-L6 迭代修正）。
 > 一句话：**L5 是正源操作系统的诊断层（号脉）**——感知对象的"地水火风"场，建立内部标准地图（**场景公式**），
 > 对比发现亢/枯/平模式，编译翻译成用户可理解的结论。**一切诊断依据都来自对象自身的场，
@@ -167,7 +167,9 @@ pub struct Traceability { pub baseline_id: String, pub object: String, pub at: S
 2. 实现 `meta-kernel-core/src/l5/`（senses → baseline → compare → diagnosis → translate → router）+ 单测（已完成）；
 3. 实测定型（§7 用例；已完成 Q1–Q7 + 真实采集）；
 4. cloud-probe 按映射表采集 → 本底场建立 → L4/L5 链真实验证 → 老笔记本续测；
-5. **v2.1 增量（待实现）**：语境模块（类型/时间/历史/环境）→ 场景公式（按场景参数化本底场）。
+5. **v2.1 增量（已实现）**：语境模块 `meta-kernel-core/src/l5_context.rs`（类型/时间/历史/环境 → 场景识别 `scene_id`）
+   + 场景公式 `gene_library::SceneGene`（`learn_scene` 按场景分类存储本底场）。
+   ⚠️ 边界：**L5 诊断主链尚未改为"从场景公式读取本底场"**（当前仍用 `l5_baseline` 数值地图）——下一步接线。
 
 ## 9. 版本记录
 
@@ -181,3 +183,9 @@ pub struct Traceability { pub baseline_id: String, pub object: String, pub at: S
   - **不饮酒**：明确边界——**诊断逻辑不引入外部算法；翻译层可引入词汇表**。
   - 词汇表来源明确为**基因库场景公式层**；执行类动作明确归 **L7 执行层**。
   - 同步：`LAYER_ARCHITECTURE.md`（v1.4）、`SILA_IMPLEMENTATION.md`（v1.2）、`GENE_LIBRARY_DESIGN.md`（v1.0）。
+- **v2.2（2026-09-14）：语境模块实现落地**
+  - `meta-kernel-core/src/l5_context.rs`：`Context{kind,time,history,environment}` + `capture()`（语境采集）
+    + `scene_id()`（场景识别，纯函数）+ `params()/label()`；测试 6 项。
+  - 场景公式：`meta-kernel-core/src/gene_library.rs` 的 `SceneGene` + `learn_scene`（按场景分类存储本底场，
+    同场景复用只切参数）。
+  - **边界**：语境/场景公式模块已实现并测试；**L5 诊断主链与基因库的接线尚未完成**（下一步）。
