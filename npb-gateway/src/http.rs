@@ -490,7 +490,9 @@ Host: x
 /// 白名单：index.html / manifest_ui.js / manifest_ui_bg.wasm（防止路径穿越与任意文件外泄）。
 /// v0.101：新增网络排查/修复脚本（net-check.bat / net-repair.bat / net-diagnose.ps1 / net-repair.ps1），
 /// 供老笔记本经局域网直接下载（地址随访问 Host 变化，无需知道开发机 IP 之外的任何信息）。
-const UI_ALLOW: [(&str, &str); 10] = [
+/// v0.102：新增单文件入口（net-check-one.bat / net-repair-one.bat）——自身下载依赖脚本并运行，
+/// 用户只需「下载 1 个文件 → 双击」两步。
+const UI_ALLOW: [(&str, &str); 12] = [
     ("/index.html", "text/html; charset=utf-8"),
     ("/manifest_ui.js", "text/javascript"),
     ("/manifest_ui_bg.wasm", "application/wasm"),
@@ -501,6 +503,8 @@ const UI_ALLOW: [(&str, &str); 10] = [
     ("/net-repair.bat", "text/plain; charset=utf-8"),
     ("/net-diagnose.ps1", "text/plain; charset=utf-8"),
     ("/net-repair.ps1", "text/plain; charset=utf-8"),
+    ("/net-check-one.bat", "text/plain; charset=utf-8"),
+    ("/net-repair-one.bat", "text/plain; charset=utf-8"),
 ];
 
 /// 由请求头取**访问来源 origin**（host[:port]），用于按访问者实际地址动态生成脚本。
@@ -571,7 +575,8 @@ Content-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\
     // 防穿越兜底：只接受白名单文件名
     let fname = path.file_name()?.to_str()?;
     let allow = ["index.html", "manifest_ui.js", "manifest_ui_bg.wasm", "cloud-probe.exe", "cloud-discover.exe", "run-probe.bat",
-        "net-check.bat", "net-repair.bat", "net-diagnose.ps1", "net-repair.ps1"].contains(&fname);
+        "net-check.bat", "net-repair.bat", "net-diagnose.ps1", "net-repair.ps1",
+        "net-check-one.bat", "net-repair-one.bat"].contains(&fname);
     if !allow {
         eprintln!("serve_ui: 白名单外拒绝 {name}");
         return None;
