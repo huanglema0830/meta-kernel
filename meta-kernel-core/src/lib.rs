@@ -50,6 +50,7 @@ pub mod l5_translate; // 编译翻译（语言对照表 → 多语言总结；�
 pub mod l5_router;   // 零依赖 JSON 输出给 L6（含多语言 summary）
 pub mod l1_field_parse; // L1–L3 场域解析器：内容信号 → 场域状态（v0.111）
 pub mod l1_mapping;     // L1–L3 场域映射库：场域状态 → 画面参数（公式存基因库；v0.111）
+pub mod l1_source_parse; // L1–L3 场域解析器·**源码直解版**（不依赖渲染/DOM/宿主；v0.114）
 pub mod l6_face;        // L6 脸切换：原版/场域/混合（叠层强度，永不遮内容；v0.111）
 pub mod l4_risk;        // L4 风险判断戒律（不害/不妄动/可回退/自承）挂接四元组（v0.112）
 pub mod l5_quad;        // L5 四元组内在变量（紧张/平静/喜欢/安全）+ 探测策略（v0.112）

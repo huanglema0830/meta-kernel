@@ -255,6 +255,301 @@ pub fn learn_field_scene(
     (sid, false)
 }
 
+// ===== v0.114 接线：Gabor / DoG「神经科学初始公式」存入基因库 =====
+//
+// 依据：专家源头设计 §二.2 —— 视觉皮层**简单细胞**用 Gabor 函数建模，视网膜**神经节细胞**用高斯差（DoG）。
+// 这些参数**有物理意义、可解释**，不是训练出来的黑箱；因此可作为映射库的**初始公式**。
+//
+// 约定：非线性形态（如 `λ = 2π / (地·100 + 1)`）无法用现成 `Formula` 表达，
+// 故把**系数**存进基因库基础公式层（`gabor.*` / `dog.*`），由 `field_to_gabor_with()` 组装计算。
+// **改基因库即改映射**——与 L4/L5 的接线原则一致。
+
+/// Gabor 参数（视觉皮层简单细胞感受野模型）。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GaborParams {
+    /// 波长 λ（越大越"疏"）。
+    pub lambda: f64,
+    /// 方向 θ（弧度）。
+    pub theta: f64,
+    /// 包络宽度 σ。
+    pub sigma: f64,
+    /// 空间纵横比 γ（0.3–1.0）。
+    pub gamma: f64,
+    /// 相位 ψ。
+    pub psi: f64,
+}
+
+impl Default for GaborParams {
+    fn default() -> Self {
+        Self { lambda: 1.0, theta: 0.0, sigma: 0.5, gamma: 0.5, psi: 0.0 }
+    }
+}
+
+/// 高斯差参数（视网膜神经节细胞中心—周边拮抗）。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DogParams {
+    pub sigma_center: f64,
+    pub sigma_surround: f64,
+    /// 平衡系数 B。
+    pub balance: f64,
+}
+
+impl Default for DogParams {
+    fn default() -> Self {
+        Self { sigma_center: 1.0, sigma_surround: 3.0, balance: 0.7 }
+    }
+}
+
+/// 基因库中的 Gabor/DoG 系数名。
+pub const GABOR_NAMES: [&str; 7] = [
+    "gabor.lambda.k",
+    "gabor.lambda.offset",
+    "gabor.theta.k",
+    "gabor.sigma.k",
+    "gabor.sigma.offset",
+    "gabor.gamma.floor",
+    "gabor.gamma.k",
+];
+pub const DOG_NAMES: [&str; 3] = ["dog.center.k", "dog.surround.k", "dog.balance"];
+
+/// 默认系数（专家给定公式的直译）。
+pub const GABOR_DEFAULTS: [f64; 7] = [100.0, 1.0, 1.0, 5.0, 0.5, 0.3, 0.7];
+pub const DOG_DEFAULTS: [f64; 3] = [1.0, 3.0, 0.7];
+
+/// **登记 Gabor/DoG 初始公式到基因库**（幂等；返回登记条数）。
+pub fn seed_gabor_into(lib: &mut GeneLibrary) -> usize {
+    for i in 0..GABOR_NAMES.len() {
+        lib.set_base_constant(GABOR_NAMES[i], GABOR_DEFAULTS[i], [1.0; 7]);
+    }
+    for i in 0..DOG_NAMES.len() {
+        lib.set_base_constant(DOG_NAMES[i], DOG_DEFAULTS[i], [1.0; 7]);
+    }
+    GABOR_NAMES.len() + DOG_NAMES.len()
+}
+
+/// 读取系数（基因库优先，缺项回退默认）。
+pub fn gabor_coeffs(lib: &GeneLibrary) -> [f64; 7] {
+    let mut out = GABOR_DEFAULTS;
+    for i in 0..7 {
+        if let Some(v) = lib.base_constant(GABOR_NAMES[i]) {
+            out[i] = v;
+        }
+    }
+    out
+}
+pub fn dog_coeffs(lib: &GeneLibrary) -> [f64; 3] {
+    let mut out = DOG_DEFAULTS;
+    for i in 0..3 {
+        if let Some(v) = lib.base_constant(DOG_NAMES[i]) {
+            out[i] = v;
+        }
+    }
+    out
+}
+
+fn safe_pos(x: f64, min: f64) -> f64 {
+    if x.is_finite() && x > min { x } else { min }
+}
+
+/// **场域状态 → Gabor 参数**（系数取自基因库）。
+///
+/// 专家公式：`λ = 2π/(地·k + offset)`｜`θ = 风·k·π`｜`σ = 水·k + offset`｜`γ = floor + 火·k`｜`ψ = 0`
+pub fn field_to_gabor_with(f: &FieldReading, lib: &GeneLibrary) -> GaborParams {
+    let c = gabor_coeffs(lib);
+    let e = f.earth.clamp(0.0, 1.0);
+    let w = f.water.clamp(0.0, 1.0);
+    let fi = f.fire.clamp(0.0, 1.0);
+    let wi = f.wind.clamp(0.0, 1.0);
+    GaborParams {
+        lambda: safe_pos(std::f64::consts::TAU / (e * c[0] + safe_pos(c[1], 1e-9)), 1e-6),
+        theta: wi * c[2] * std::f64::consts::PI,
+        sigma: safe_pos(w * c[3] + c[4], 1e-6),
+        gamma: (c[5] + fi * c[6]).clamp(1e-6, 1.0),
+        psi: 0.0,
+    }
+}
+
+/// 便捷版（用内置系数，不建基因库）。
+pub fn field_to_gabor(f: &FieldReading) -> GaborParams {
+    let empty = GeneLibrary::new();
+    field_to_gabor_with(f, &empty)
+}
+
+/// **场域状态 → 高斯差参数**：火（刺激）收窄中心、水（信息量）展宽周边。
+pub fn field_to_dog_with(f: &FieldReading, lib: &GeneLibrary) -> DogParams {
+    let c = dog_coeffs(lib);
+    let w = f.water.clamp(0.0, 1.0);
+    let fi = f.fire.clamp(0.0, 1.0);
+    let sc = safe_pos(c[0] * (1.0 - 0.6 * fi), 1e-3);
+    DogParams {
+        sigma_center: sc,
+        sigma_surround: safe_pos(sc * (c[1] + w), 1e-3),
+        balance: c[2].clamp(0.0, 1.0),
+    }
+}
+
+/// **四元组调制**（专家表格；用**连续**权重而非硬阈值，保证平滑可测）：
+///
+/// | 状态 | 调制 |
+/// |---|---|
+/// | 紧张 ↑ | `λ ×= 1 − 0.3·紧张`（频率升高）｜`γ ×= 1 + 0.3·紧张`（对比度增强） |
+/// | 平静 ↑ | `λ ×= 1 + 0.3·平静`｜`γ ×= 1 − 0.2·平静` |
+/// | 喜欢 ↑ | `ψ += 0.5·喜欢`（色调偏移） |
+/// | 安全 ↑ | `σ ×= 1 + 0.5·安全`（包络展宽） |
+pub fn modulate_gabor(g: GaborParams, q: &crate::l5_quad::Quad) -> GaborParams {
+    let t = q.tension.clamp(0.0, 1.0);
+    let c = q.calm.clamp(0.0, 1.0);
+    let l = q.liking.clamp(0.0, 1.0);
+    let s = q.safety.clamp(0.0, 1.0);
+    GaborParams {
+        lambda: safe_pos(g.lambda * (1.0 - 0.3 * t + 0.3 * c), 1e-6),
+        theta: g.theta,
+        sigma: safe_pos(g.sigma * (1.0 + 0.5 * s), 1e-6),
+        gamma: (g.gamma * (1.0 + 0.3 * t - 0.2 * c)).clamp(1e-6, 1.0),
+        psi: g.psi + 0.5 * l,
+    }
+}
+
+/// 生成 Gabor 核的 **WGSL 代码骨架**（供第二阶段呈现器直接使用；此处只产出文本，不执行）。
+pub fn gabor_wgsl() -> &'static str {
+    r#"fn gabor_kernel(x: f32, y: f32, lambda: f32, theta: f32, psi: f32, sigma: f32, gamma: f32) -> f32 {
+    let xp = x * cos(theta) + y * sin(theta);
+    let yp = -x * sin(theta) + y * cos(theta);
+    let gauss = exp(-(xp * xp + gamma * gamma * yp * yp) / (2.0 * sigma * sigma));
+    let sinus = cos(2.0 * 3.14159265 * xp / max(lambda, 1e-4) + psi);
+    return gauss * sinus;
+}"#
+}
+
+#[cfg(test)]
+mod gabor_tests {
+    use super::*;
+    use crate::l1_field_parse::{parse, PageSignal};
+    use crate::l5_quad::Quad;
+
+    fn hot() -> FieldReading {
+        parse(&PageSignal { text_len: 300, image_count: 40, media_count: 5, ..Default::default() })
+    }
+    fn calmf() -> FieldReading {
+        parse(&PageSignal { text_len: 6000, paragraph_count: 20, heading_count: 6, ..Default::default() })
+    }
+
+    fn lib() -> GeneLibrary {
+        let mut l = GeneLibrary::new();
+        seed_gabor_into(&mut l);
+        l
+    }
+
+    // ===== 验收清单第三层 =====
+
+    /// **参数范围**：极端场域 → λ>0、σ>0、γ∈(0,1]、无 NaN。
+    #[test]
+    fn gabor_params_are_bounded_for_extremes() {
+        let l = lib();
+        let extremes = [
+            FieldReading { earth: 0.0, water: 0.0, fire: 0.0, wind: 0.0, confidence: 0.0 },
+            FieldReading { earth: 1.0, water: 1.0, fire: 1.0, wind: 1.0, confidence: 1.0 },
+            FieldReading { earth: f64::NAN, water: f64::INFINITY, fire: -1.0, wind: 1e300, confidence: 0.0 },
+        ];
+        for f in extremes {
+            let g = field_to_gabor_with(&f, &l);
+            assert!(g.lambda > 0.0 && g.lambda.is_finite(), "λ={}", g.lambda);
+            assert!(g.sigma > 0.0 && g.sigma.is_finite(), "σ={}", g.sigma);
+            assert!(g.gamma > 0.0 && g.gamma <= 1.0, "γ={}", g.gamma);
+            assert!(g.theta.is_finite() && g.psi.is_finite());
+            let d = field_to_dog_with(&f, &l);
+            assert!(d.sigma_center > 0.0 && d.sigma_surround > 0.0 && d.sigma_surround > d.sigma_center);
+            assert!((0.0..=1.0).contains(&d.balance));
+        }
+    }
+
+    /// **单调性**：地 ↑ → λ 单调递减（结构越强，空间频率越高）。
+    #[test]
+    fn lambda_decreases_monotonically_with_earth() {
+        let l = lib();
+        let mut prev = f64::INFINITY;
+        for i in 0..=10 {
+            let e = i as f64 / 10.0;
+            let f = FieldReading { earth: e, water: 0.5, fire: 0.5, wind: 0.5, confidence: 1.0 };
+            let g = field_to_gabor_with(&f, &l);
+            assert!(g.lambda < prev, "地={e} 时 λ 未递减: {} >= {}", g.lambda, prev);
+            prev = g.lambda;
+        }
+    }
+
+    /// **四元组调制**：紧张 ↑ → λ 单调递减；安全 ↑ → σ 单调递增。
+    #[test]
+    fn quad_modulation_is_monotone() {
+        let g = field_to_gabor(&calmf());
+        let mut prev_lambda = f64::INFINITY;
+        let mut prev_sigma = 0.0;
+        for i in 0..=10 {
+            let t = i as f64 / 10.0;
+            let mt = modulate_gabor(g, &Quad { tension: t, calm: 0.0, liking: 0.0, safety: t });
+            assert!(mt.lambda < prev_lambda, "紧张↑ 应使 λ↓");
+            assert!(mt.sigma > prev_sigma, "安全↑ 应使 σ↑");
+            prev_lambda = mt.lambda;
+            prev_sigma = mt.sigma;
+        }
+        // 平静 ↑ → λ 递增；喜欢 ↑ → ψ 递增
+        let muted = modulate_gabor(g, &Quad { tension: 0.0, calm: 1.0, liking: 0.0, safety: 0.0 });
+        assert!(muted.lambda > g.lambda, "平静↑ 应使 λ↑");
+        let liked = modulate_gabor(g, &Quad { tension: 0.0, calm: 0.0, liking: 1.0, safety: 0.0 });
+        assert!(liked.psi > g.psi, "喜欢↑ 应使 ψ↑");
+    }
+
+    /// **基因库往返**：三次读取一致；改基因库即改映射。
+    #[test]
+    fn gene_library_roundtrip_and_override() {
+        let mut l = GeneLibrary::new();
+        assert_eq!(seed_gabor_into(&mut l), 10);
+        seed_gabor_into(&mut l);
+        assert_eq!(l.base.len(), 10, "重复 seed 不新增");
+        let a = gabor_coeffs(&l);
+        let b = gabor_coeffs(&l);
+        let c = gabor_coeffs(&l);
+        assert_eq!(a, b);
+        assert_eq!(b, c);
+        assert_eq!(a, GABOR_DEFAULTS);
+        // 改库 → 映射改变
+        let f = FieldReading { earth: 1.0, water: 1.0, fire: 1.0, wind: 1.0, confidence: 1.0 };
+        let before = field_to_gabor_with(&f, &l).lambda;
+        l.set_base_constant("gabor.lambda.k", 10.0, [1.0; 7]);
+        let after = field_to_gabor_with(&f, &l).lambda;
+        assert!(after > before, "k 变小 → 波长变大");
+        assert_eq!(gabor_coeffs(&l)[0], 10.0);
+    }
+
+    #[test]
+    fn dog_center_sharpens_with_fire_and_surround_widens_with_water() {
+        let l = lib();
+        let dull = field_to_dog_with(&FieldReading { earth: 0.5, water: 0.1, fire: 0.0, wind: 0.0, confidence: 1.0 }, &l);
+        let sharp = field_to_dog_with(&FieldReading { earth: 0.5, water: 0.1, fire: 1.0, wind: 0.0, confidence: 1.0 }, &l);
+        assert!(sharp.sigma_center < dull.sigma_center, "火强 → 中心更窄（更锐）");
+        let wide = field_to_dog_with(&FieldReading { earth: 0.5, water: 1.0, fire: 0.0, wind: 0.0, confidence: 1.0 }, &l);
+        assert!(wide.sigma_surround > dull.sigma_surround, "水大 → 周边更宽");
+    }
+
+    #[test]
+    fn wgsl_skeleton_has_required_pieces() {
+        let w = gabor_wgsl();
+        for k in ["fn gabor_kernel", "exp(", "cos(", "lambda", "theta", "psi", "sigma", "gamma"] {
+            assert!(w.contains(k), "缺 {k}");
+        }
+        assert!(w.contains("max(lambda, 1e-4)"), "除零保护");
+        assert!(!w.contains("NaN"));
+    }
+
+    #[test]
+    fn hot_and_calm_pages_get_different_gabor() {
+        let l = lib();
+        let gh = field_to_gabor_with(&hot(), &l);
+        let gc = field_to_gabor_with(&calmf(), &l);
+        assert!(gh.gamma > gc.gamma, "火高 → γ（对比度）更大");
+        assert!((gh.lambda - gc.lambda).abs() > 1e-6, "两者波长不同");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
