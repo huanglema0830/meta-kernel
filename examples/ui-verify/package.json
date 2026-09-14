@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "正源浏览器 自动目验（CI 用；仅测试工具，产物仍零依赖）",
+  "description": "空天浏览器 自动目验（CI 用；仅测试工具，产物仍零依赖）",
   "scripts": {
     "verify": "node verify.mjs"
   },

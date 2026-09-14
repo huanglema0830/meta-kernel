@@ -54,6 +54,7 @@
 | 检查项 | 结果 | 证据 |
 |---|---|---|
 | **命名统一** | 🟢 已收敛（本轮再修 7 文件） | 本轮修复：`CONTRAST_REPORT` / `DIAGNOSIS_VALIDATION` / `QUANTUM_CLOCK_DESIGN` / `examples/*.html`×2 / `manifest-journal/src/main.rs` / `meta-kernel-core/src/lib.rs`，共 7 文件的「元内核」→「基因内核」 |
+| ⚠️ 后续变更（v0.103） | — | 本报告成档后，发起人裁定**命名体系两族分离**（电信号版＝元内核系统 / 量子版＝量子云系统），全库再替换 109 处 / 27 文件；**权威定义见 `LAYER_ARCHITECTURE §3.2`**。本行以下结论仍成立，仅名称口径以 §3.2 为准 |
 | 有意保留（非缺陷） | ✅ | `README.md`（命名规范"历史名称"列表）、`LAYER_ARCHITECTURE`/`VISION`/`SELF_DIAGNOSIS_REPORT`/`L5_DESIGN`/`SILA_IMPLEMENTATION`（版本记录与"旧称"说明） |
 | 待裁决 1 处 | 🟡 | `docs/CREATION_LOG.md` —《元内核极简创世录》是**叙事作品名**，是否随命名统一而改，属内容决策，未自动改 |
 | **层号唯一** | ✅ 一致 | 权威=`LAYER_ARCHITECTURE v1.5`；L4=场域戒律拒绝层｜L5=场域诊断层｜L6=与外界交互层｜**L7=执行层**｜L8–L10=推演（🔒冻结）；产品形态名不占层号 |

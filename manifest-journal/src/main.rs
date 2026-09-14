@@ -48,8 +48,8 @@ fn main() {
     println!("完成。可 seed 重放：{}", session.entry.seed);
 }
 
-/// 诊断模式（正源操作系统→正源浏览器链路 CLI 版）：输入故障描述 →
-/// 基因内核显化（真实网关）→ 正源操作系统翻译（内置/外部知识库）→ 输出排查步骤。
+/// 诊断模式（云操作系统→空天浏览器链路 CLI 版）：输入故障描述 →
+/// 基因内核显化（真实网关）→ 云操作系统翻译（内置/外部知识库）→ 输出排查步骤。
 fn run_diagnose(addr: &str, text: &str) {
     use manifest_journal::knowledge::KbConfig;
     use manifest_journal::run_diagnosis;
@@ -61,7 +61,7 @@ fn run_diagnose(addr: &str, text: &str) {
     let mut sess = manifest_journal::JournalSession::new(text);
     println!("诊断输入 : {}", sess.entry.raw);
     println!("种子     : {:.4}", sess.entry.seed);
-    println!("--- 基因内核显化 → 正源操作系统诊断 ---");
+    println!("--- 基因内核显化 → 云操作系统诊断 ---");
     let kb = KbConfig::load();
     let d = run_diagnosis(&mut sess, addr, &pipe.rx, &kb, 12);
     println!("来源     : {}", d.source);
