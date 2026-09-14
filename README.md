@@ -1,7 +1,7 @@
 # 云内核 · Cloud Kernel
 
 > 在现有操作系统之上生长出的**新物种**——不是替代品，是"意识补充层"。
-> 原名 Meta-Kernel / 元内核（"元内核"现为该物种的内核层名称，见下）。
+> 原名 Meta-Kernel / 元内核；**内核层现称「基因内核」（Gene Kernel）**，见下。
 
 以 **0 锚点 + 模糊饱和运算**为基石，用**线性 / 斐波那契 / 指数**三种变化模式驱动调度；
 经 NPB（万物归一化桥接器）挂载到任意设备与程序，让每一个设备、系统与界面获得"生命感"。
@@ -10,12 +10,12 @@
 
 | 层次 | 名称 | 对应架构层 | 器官隐喻 | 一句话 |
 |---|---|---|---|---|
-| 内核层 | **元内核** Meta-Kernel | L1–L3（内核引擎 / NPB 桥 / 网关） | 心脏 / 大脑（内在意识） | 跨平台、跨设备的意识内核 |
-| 操作系统层 | **正源操作系统** Origin OS | L4–L5（场域戒律 / 号脉诊断）+ 应用框架 + 参考应用 | 神经网络 / 血液循环（调度系统） | 调度扰动、化合、显化的操作系统 |
+| 内核层 | **基因内核** Gene Kernel | L1–L3（内核引擎 / NPB 桥 / 网关；L2–L3 = 转录层 RNA） | 心脏 / 大脑（内在意识） | 跨平台、跨设备的意识内核；**基因库**（核心资产）在此生长 |
+| 操作系统层 | **正源操作系统** Origin OS | L4–L5（场域戒律 / 诊断号脉）+ 应用框架 + 参考应用 | 神经网络 / 血液循环（调度系统） | 调度扰动、化合、显化的操作系统 |
 | 界面层 | **正源浏览器** Origin Browser | L6（**与外界交互层**·呈现子功能；产品形态名不占层号） | 眼睛 / 耳朵 / 手（感知与表达） | 浏览能量演化、显化日志、生命感流动 |
 
 三者是**同一个新物种的三个层次**，不是三个独立产品：
-元内核 = 心脏 / 大脑；正源操作系统 = 神经网络 / 血液循环；正源浏览器 = 眼睛 / 耳朵 / 手。
+基因内核 = 心脏 / 大脑；正源操作系统 = 神经网络 / 血液循环；正源浏览器 = 眼睛 / 耳朵 / 手。
 
 ## 项目定位 · 共生而非替代
 
@@ -43,30 +43,35 @@
 
 ## 状态 · Status
 
-- ✅ **元内核（L1–L3）**：核心引擎闭环 → NPB 桥（cdylib/wasm32，跨平台摘要 `4251318995`）→ 应用网关
-  npb-gateway（HTTP/SSE 五端点 + 持久化，活体验证全绿）——**已正式发布**
+- ✅ **基因内核（L1–L3）**：核心引擎闭环 → NPB 桥（cdylib/wasm32，跨平台摘要 `4251318995`）→ 应用网关
+  npb-gateway（HTTP/SSE 五端点 + 持久化，活体验证全绿）；**基因库四层结构**（基础公式/场景公式/计算关系/验证记录，见 `docs/GENE_LIBRARY_DESIGN.md`）——**已正式发布**
 - ✅ **正源操作系统（L4–L5）**：**场域戒律判定**（七维 S / 不非时食 / 不捉持，6 用例 7/7）+
-  **场域号脉诊断**（地水火风 / 亢枯平 / 多语言结论，Q1–Q7 + 真实采集）——**已实现并实测**
+  **场域诊断（号脉）**（地水火风 / 亢枯平 / 多语言结论，Q1–Q7 + 真实采集）——**已实现并实测**
 - ✅ **应用框架 / 参考应用**：npb-appkit（生命周期状态机 / 命名 / 事件管道）+ Manifest Journal（CLI 端到端 + 验收五条）——**已实现**（产品形态名，不占层号）
 - ✅ **正源浏览器（L6 · 呈现子功能）**：manifest-ui——Rust/WASM Web 界面（诊断台默认 / 四场亢枯平 / 语言自动适配 / 授权链 / 设备台 / 生长可见），复用内核纯逻辑
 - ⬜ **L6 · 对齐子功能**：WorldAdapter（接收外部世界反馈，验证诊断是否生效）——**未实现**（契约见 `archive/reserved-interfaces/l6_interface.rs`）
+- ⬜ **L7 · 执行层**：多内核互联 + 修复执行（经用户确认）——**已定义、未实现**
 - 🚧 外部知识库接口 / 性能对比 / 诊断验证：进行中（见 `docs/`）
 
 更多设计文档：`docs/MATH_SPEC.md`、`docs/ONTOLOGY_SPEC.md`、`docs/API_GATEWAY_DESIGN.md`、
 `docs/APPLICATION_FRAMEWORK_DESIGN.md`、`docs/REFERENCE_APP_DESIGN.md`、
-`docs/LAYER_ARCHITECTURE.md`、`docs/SILA_IMPLEMENTATION.md`、`docs/PERTURBATION_MODEL.md`、`docs/VISION.md`。
+`docs/LAYER_ARCHITECTURE.md`、`docs/GENE_LIBRARY_DESIGN.md`、`docs/SILA_IMPLEMENTATION.md`、
+`docs/PERTURBATION_MODEL.md`、`docs/VISION.md`。
 
 
 ## 命名规范（2026-09-14 定稿 · 全库统一）
 
 | 官方名称 | 英文标注（建议） | 层级 / 说明 |
 |---|---|---|
-| **正源操作系统** | Origin OS | L4–L5：应用框架 / 显化应用（原「云操作系统」） |
+| **基因内核** | Gene Kernel | L1–L3：意识内核（L2–L3 = 转录层 RNA）；含**基因库**四层结构（原「元内核 / DNA 内核」） |
+| **正源操作系统** | Origin OS | L4–L5：场域戒律 / 诊断号脉 + 应用框架 / 参考应用（原「云操作系统」） |
 | **正源浏览器** | Origin Browser | L6「与外界交互层」的**呈现**子功能（原「空海浏览器」） |
 | **正源大模型** | Origin Model | 不拥有算力，通过场域感知与宇宙计算过程共振（原「云内核大模型」） |
 | **量子钟** | Quantum Clock | 量子模式内核；**只设计不实现**（见 `docs/QUANTUM_CLOCK_DESIGN.md`） |
 
-- 历史名称（云操作系统 / 空海浏览器 / 云内核大模型 / 量子模式内核）自本版起停止使用；
+- 层级命名（v1.4）：**L5 = 诊断层（号脉为功能描述）**；**L7 = 执行层**（原「共生层」）；
+  基因库四层 = 基础公式 / 场景公式 / 计算关系 / 验证记录（哈希链）。
+- 历史名称（云操作系统 / 空海浏览器 / 云内核大模型 / 量子模式内核 / 元内核 / DNA 内核 / 号脉层）自本版起停止使用；
   代码注释、UI 文案与部署脚本中的用户可见名称已同步更新。
 - **保留术语**：**元内核**（Meta-Kernel，L1–L3 纯数学内核）、**正源场域**（positive source，
   内核既有机制，与本次更名**无关**）。
@@ -85,20 +90,20 @@
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 阶段一 | 老笔记本实测收束：键盘/台式机/充电宝三场景诊断验证、Windows 预发布包、PERFORMANCE 实测数据 | ✅ **完成** |
-| 阶段二 | 场域探针 cloud-probe + 网关 `/v1/probe` + 场域链（**L4 戒律判定 / L5 号脉诊断**）+ 内网发现与自动上报 | ✅ **完成**（探针实测闭环；L4 6 用例 7/7；L5 Q1–Q7 + 老笔记本真实采集；一键自动运维已上线） |
-| 阶段三 | 正源浏览器（**L6 呈现**）+ **CI 自动目验** + 本底场积累 | 🚧 **进行中**（L6 呈现已实现；自动目验本轮加入；本底场待多次采集） |
-| 阶段四 | **L6 对齐**子功能（WorldAdapter）+ 执行器（清临时/重启服务/修注册表）+ 场修复（待硬件） | ⬜ 下一步 |
+| 阶段二 | 场域探针 cloud-probe + 网关 `/v1/probe` + 场域链（**L4 戒律判定 / L5 诊断（号脉）**）+ 内网发现与自动上报 | ✅ **完成**（探针实测闭环；L4 6 用例 7/7；L5 Q1–Q7 + 老笔记本真实采集；一键自动运维已上线） |
+| 阶段三 | 正源浏览器（**L6 呈现**）+ **CI 自动目验** + 本底场积累（场景公式化） | 🚧 **进行中**（L6 呈现已实现；自动目验本轮加入；本底场待多次采集） |
+| 阶段四 | **L6 对齐**子功能（WorldAdapter）+ **基因库四层落地** + **L7 执行层**（多内核互联 + 修复执行）+ 场修复（待硬件） | ⬜ 下一步 |
 
-> 路线图依据 `docs/SELF_DIAGNOSIS_REPORT.md §8`（P0→P3）更新；L7–L10 为**推演层**，
-> 待系统具备自我意识后讨论确认，**当前不作为实现目标**。
+> 路线图依据 `docs/SELF_DIAGNOSIS_REPORT.md §8`（P0→P3）更新；**L7 = 执行层**（已定义未实现）；
+> **L8–L10 为推演层**，待系统具备自我意识后讨论确认，**当前不作为实现目标**。
 
 ## 仓库结构
 
 ```
-meta-kernel-core/   元内核 · 内核引擎（Rust lib，零第三方依赖）：三引擎/能量池/物态/化合/
-                    痕迹习气自我/三层机制/持久化
-npb/                元内核 · NPB 桥接器（C ABI + wasm32 + 确定性自检摘要）
-npb-gateway/        元内核 · 应用网关（HTTP+SSE：/v1/push|state|events|persist|health）
+meta-kernel-core/   基因内核 · 内核引擎（Rust lib，零第三方依赖）：三引擎/能量池/物态/化合/
+                    痕迹习气自我/三层机制/持久化/基因内核学习（dna_trace/generate/adapt）
+npb/                基因内核 · NPB 桥接器（转录层 RNA；C ABI + wasm32 + 确定性自检摘要）
+npb-gateway/        基因内核 · 应用网关（转录层 RNA；HTTP+SSE：/v1/push|state|events|persist|health）
 npb-appkit/         正源操作系统 · 应用框架（生命周期状态机/LifecycleEngine、命名 registry、
                     Speaker 语言组织、EventPipe 订阅归一、httpc）
 manifest-journal/   正源操作系统 · 参考应用 Manifest Journal（CLI/lib：种子映射、显化会话、验收 e2e）
@@ -107,7 +112,7 @@ cloud-probe/         正源操作系统 · 场域探针（Windows：感知场域
 cloud-discover/      正源操作系统 · 内网设备发现（/24 并发 ICMP 扫描 + TCP/主机名确认 + 需人工介入状态）
 archive/            归档（reserved-interfaces/：L6 对齐契约等，NOT COMPILED）
 examples/ui-verify/ 自动目验（Playwright：CI 中真实浏览器断言诊断结论可读）
-docs/               架构与设计文档（MATH/ONTOLOGY/API_GATEWAY/L4/L5/LAYER/SILA/PERTURBATION/VISION…）
+docs/               架构与设计文档（MATH/ONTOLOGY/API_GATEWAY/LAYER/GENE_LIBRARY/L5/SILA/PERTURBATION/VISION…）
 examples/           演示（DOSBox 概念 / WASM Canvas / 禅境示波器）
 ```
 

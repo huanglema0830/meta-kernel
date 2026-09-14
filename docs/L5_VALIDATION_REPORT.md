@@ -1,4 +1,4 @@
-# L5 号脉层 · 实测定型报告（L5_VALIDATION_REPORT）v0.081
+# L5 诊断层 · 实测定型报告（L5_VALIDATION_REPORT）v0.081
 
 > 状态：**v0.081（2026-09-09）** ｜ 依据：发起人指令（Q1–Q7 完整数据 + 偏差说明 + 多语言与中医词条确认）
 > 测试对象：L5 六模块（senses → baseline → compare → diagnosis → translate → router）
