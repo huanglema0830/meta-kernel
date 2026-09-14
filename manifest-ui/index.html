@@ -978,7 +978,22 @@
   function webNew() {
     var v = $('web-url') ? $('web-url').value : '';
     var url = webNorm(v) || ('https://www.bing.com/search?q=' + encodeURIComponent(v));
+    /* 原生宿主模式：交给宿主开新标签（真正的 WebView，不受 X-Frame-Options 限制，
+       且能读取页面信号 → 场域解析对第三方站点可用） */
+    if (inHost()) {
+      try {
+        window.ipc.postMessage(JSON.stringify({ cmd: 'open', url: url }));
+        setText('web-note', '已交给宿主打开（新标签）：' + url);
+        return;
+      } catch (e) { /* 回落新窗口 */ }
+    }
     try { window.open(url, '_blank'); } catch (e) { /* 弹窗被拦则由用户手动打开 */ }
+  }
+  /* 是否在原生 WebView 宿主中运行 */
+  function inHost() {
+    try {
+      return !!(window.ipc && window.ipc.postMessage) && /host=webview/.test(String(window.location.search || ''));
+    } catch (e) { return false; }
   }
   function webMark() {
     var v = $('web-url') ? $('web-url').value : '';

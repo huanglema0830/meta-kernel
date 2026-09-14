@@ -1,0 +1,15 @@
+# 独立 crate：**刻意不并入根 workspace**（宿主依赖 WebView2/GTK，会让 CI 的 Linux 构建失败）。
+# 构建：cd host/sky-browser && cargo build --release  （仅 Windows）
+[package]
+name = "sky-browser"
+version = "0.1.0"
+edition = "2021"
+description = "空天浏览器 · 原生 WebView2 宿主（只读+叠层；Runtime 缺失时降级）"
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+tao = "0.37.0"
+url = "2.5.8"
+wry = "0.57.0"
