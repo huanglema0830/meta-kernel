@@ -410,23 +410,37 @@ impl GeneLibrary {
         id
     }
 
-    /// **基础公式层 · upsert 常量公式**（供 L4 等读取"判据常量"）。
-    /// 同名已存在则更新其值（**改基因库即改判据**）；否则新增。
-    pub fn set_base_constant(&mut self, name: &'static str, v: f64, sig: [f64; 7]) -> u32 {
+    /// **基础公式层 · upsert 命名公式**（通用版：常量/加权/线性…皆可）。
+    /// 这是"公式存储"的通用入口——L1 场域映射库等经此登记映射公式。
+    pub fn set_base_formula(&mut self, name: &'static str, f: Formula, sig: [f64; 7]) -> u32 {
         if let Some(g) = self.base.iter_mut().find(|g| g.name == name && g.layer == GeneLayer::Base) {
-            g.formula = Formula::Constant { v };
+            g.formula = f;
             return g.id;
         }
         let id = self.base.iter().map(|g| g.id).max().unwrap_or(0) + 1;
         self.base.push(FormulaGene {
             id,
             layer: GeneLayer::Base,
-            formula: Formula::Constant { v },
+            formula: f,
             signature: sig,
             hits: 0,
             name,
         });
         id
+    }
+
+    /// **基础公式层 · 读取命名公式**（未命中返回 `None` → 调用方回退内置缺省）。
+    pub fn base_formula(&self, name: &str) -> Option<Formula> {
+        self.base
+            .iter()
+            .find(|g| g.name == name && g.layer == GeneLayer::Base)
+            .map(|g| g.formula)
+    }
+
+    /// **基础公式层 · upsert 常量公式**（供 L4 等读取"判据常量"）。
+    /// 同名已存在则更新其值（**改基因库即改判据**）；否则新增。
+    pub fn set_base_constant(&mut self, name: &'static str, v: f64, sig: [f64; 7]) -> u32 {
+        self.set_base_formula(name, Formula::Constant { v }, sig)
     }
 
     /// **基础公式层 · 读取常量公式的值**（未命中返回 `None` → 调用方回退内置缺省）。

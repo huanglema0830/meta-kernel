@@ -121,14 +121,36 @@
       <div class="card">
         <div style="display:flex;align-items:center;gap:8px">
           <div style="font-weight:600;font-size:14px">编辑</div>
-          <span class="dim" id="doc-info" style="font-size:12px">—</span>
+          <span class="dim" style="font-size:12px">改动会在「预览」上方即时显示，并可被「场域解析」读取</span>
         </div>
         <textarea id="doc-edit" class="field" style="min-height:200px;font-family:ui-monospace,Consolas,monospace"
           placeholder="在此写 Markdown：# 标题 / **加粗** / - 列表 / `代码` / [链接](https://...)"></textarea>
       </div>
       <div class="card">
-        <div style="font-weight:600;font-size:14px">预览（实时）</div>
-        <div id="doc-preview" class="dsub"></div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div style="font-weight:600;font-size:14px">场域呈现（脸切换）</div>
+          <button class="ghost" id="fc-original">原版</button>
+          <button class="ghost" id="fc-field">场域</button>
+          <button class="ghost" id="fc-blend">混合</button>
+          <span class="pill" id="fc-mode">原版</span>
+          <button class="ghost" id="fc-refresh" style="margin-left:auto">重新解析</button>
+        </div>
+        <div class="meta" id="fc-read" style="margin-top:6px">（未解析）</div>
+        <div class="meta dim" id="fc-params" style="font-size:11px"></div>
+        <div class="meta dim" style="font-size:11px;margin-top:4px">
+          说明：**网页内容始终可见**——场域模式只是叠加一层场域呈现（强度随置信度，上限 35%），
+          不做替换。当前解析对象是**本页文档内容**；解析**第三方网站**需要原生 WebView 宿主（同源策略限制）。
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-weight:600;font-size:14px">预览（实时）</div>
+          <span class="dim" id="doc-info" style="font-size:12px">—</span>
+        </div>
+        <div id="doc-preview-wrap" style="position:relative;border-radius:10px;padding:10px;transition:background .35s ease">
+          <div id="doc-preview" class="dsub"></div>
+          <div id="fp-overlay" style="position:absolute;inset:0;border-radius:10px;pointer-events:none;opacity:0;transition:opacity .35s ease"></div>
+        </div>
       </div>
     </div>
 
@@ -968,6 +990,86 @@
     bmRender();
   }
 
+  /* ---------- 场域解析 / 映射 / 脸切换（逻辑在内核 wasm，本处只取样与套用） ---------- */
+  var FACE_KEY = 'sb.face.v1';
+  var FACE = 'original';
+  function faceInit() {
+    try { FACE = window.localStorage.getItem(FACE_KEY) || 'original'; } catch (e) { FACE = 'original'; }
+    if (['original', 'field', 'blend'].indexOf(FACE) < 0) { FACE = 'original'; }
+  }
+  function faceSet(m) {
+    FACE = m;
+    try { window.localStorage.setItem(FACE_KEY, m); } catch (e) { }
+    fpRun();
+  }
+  /* 从 Markdown 文本抽取页面信号（本页内容的 L1 抽取；内核不碰 DOM） */
+  function fpSignal(txt) {
+    var text = String(txt || '');
+    var lines = text.split('\n');
+    var paragraphs = 0, headings = 0, i;
+    for (i = 0; i < lines.length; i++) {
+      if (/^\s*#{1,6}\s+/.test(lines[i])) { headings++; continue; }
+      if (lines[i].replace(/\s/g, '').length > 0) { paragraphs++; }
+    }
+    var links = (text.match(/\[[^\]]*\]\(https?:\/\/[^)\s]+\)/g) || []).length;
+    var imgs = (text.match(/!\[[^\]]*\]\([^)\s]+\)/g) || []).length;
+    return {
+      text_len: text.length, paragraph_count: paragraphs, heading_count: headings,
+      link_count: links, image_count: imgs, media_count: 0, interactive_count: 0, script_count: 0
+    };
+  }
+  function fpRun() {
+    var el = $('fc-read');
+    if (!el) { return; }
+    var txt = $('doc-edit') ? $('doc-edit').value : '';
+    var s = fpSignal(txt);
+    var fn = window.__fieldParse;
+    if (typeof fn !== 'function') {
+      el.textContent = '（内核 wasm 未就绪——请稍候或刷新）';
+      return;
+    }
+    var raw = '';
+    try {
+      raw = fn(s.text_len, s.paragraph_count, s.heading_count, s.link_count,
+               s.image_count, s.media_count, s.interactive_count, s.script_count, FACE);
+    } catch (e) { el.textContent = '解析失败：' + e; return; }
+    var j = null;
+    try { j = JSON.parse(raw); } catch (e) { j = null; }
+    if (!j) { el.textContent = '解析结果异常'; return; }
+    var f = j.fields;
+    setText('fc-read', '场域读数 地 ' + f.earth.toFixed(2) + ' ｜ 水 ' + f.water.toFixed(2) +
+      ' ｜ 火 ' + f.fire.toFixed(2) + ' ｜ 风 ' + f.wind.toFixed(2) +
+      ' ｜ 主导：' + f.dominant + ' ｜ 置信度 ' + f.confidence.toFixed(2) +
+      ' ｜ 内容类别：' + j['class'].label);
+    setText('fc-params', '画面参数 hue ' + j.visual.hue.toFixed(2) + ' / sat ' + j.visual.sat.toFixed(2) +
+      ' / light ' + j.visual.light.toFixed(2) + ' / contrast ' + j.visual.contrast.toFixed(2) +
+      ' / tempo ' + j.visual.tempo.toFixed(2) + ' / density ' + j.visual.density.toFixed(2) +
+      ' / radius ' + j.visual.radius.toFixed(2));
+    setText('fc-mode', j.face.label + (j.face.render ? '（叠加 ' + Math.round(j.face.alpha * 100) + '%）' : '（不叠加）'));
+    // 按钮态
+    var pairs = [['fc-original', 'original'], ['fc-field', 'field'], ['fc-blend', 'blend']];
+    for (var k = 0; k < pairs.length; k++) {
+      var b = $(pairs[k][0]);
+      if (b) { b.className = (FACE === pairs[k][1]) ? 'tab active' : 'ghost'; }
+    }
+    // **套用画面**：只叠加半透明层 + 微调预览外观，**不替换内容**
+    var w = $('doc-preview-wrap'), ov = $('fp-overlay');
+    var hue = 200 + j.visual.hue * 140, sat = 18 + j.visual.sat * 62, light = 82 - j.visual.light * 44;
+    if (w) {
+      w.style.background = 'hsl(' + hue.toFixed(0) + ',' + sat.toFixed(0) + '%,' + Math.min(97, light + 12).toFixed(0) + '%)';
+      w.style.borderRadius = (6 + j.visual.radius * 12).toFixed(0) + 'px';
+      w.style.letterSpacing = (j.visual.density * 0.4).toFixed(2) + 'px';
+    }
+    if (ov) {
+      if (j.face.render) {
+        ov.style.background = 'hsla(' + hue.toFixed(0) + ',' + sat.toFixed(0) + '%,' + light.toFixed(0) + '%,' + j.face.alpha.toFixed(3) + ')';
+        ov.style.opacity = '1';
+      } else {
+        ov.style.opacity = '0';
+      }
+    }
+  }
+
   /* ---------- 绑定 ---------- */
   function bind(id, fn) { var e = $(id); if (e) { e.addEventListener('click', fn, false); } }
 
@@ -1010,6 +1112,23 @@
     bind('own-refresh', loadOwner);
     bind('mt-refresh', loadMaint);
 
+    /* 脸切换 */
+    bind('fc-original', function () { faceSet('original'); });
+    bind('fc-field', function () { faceSet('field'); });
+    bind('fc-blend', function () { faceSet('blend'); });
+    bind('fc-refresh', fpRun);
+    faceInit();
+    (function () {
+      /* wasm 就绪后自动跑一次解析（不阻塞首屏） */
+      var tries = 0;
+      var timer = setInterval(function () {
+        tries++;
+        if (typeof window.__fieldParse === 'function') {
+          clearInterval(timer); fpRun();
+        } else if (tries > 40) { clearInterval(timer); fpRun(); }
+      }, 250);
+    })();
+
     /* 文档 */
     bind('doc-new', newDoc);
     bind('doc-save', saveDoc);
@@ -1025,6 +1144,12 @@
       ed.addEventListener('input', doPreview, false);
       ed.addEventListener('keyup', doPreview, false);
       ed.addEventListener('change', doPreview, false);
+      /* 场域解析跟随内容变化（节流：仅 keyup 后跑） */
+      var fpTimer = null;
+      ed.addEventListener('keyup', function () {
+        if (fpTimer) { clearTimeout(fpTimer); }
+        fpTimer = setTimeout(fpRun, 350);
+      }, false);
     }
 
     /* 文件 */

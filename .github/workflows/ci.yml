@@ -174,7 +174,7 @@ jobs:
           python3 - <<'PY'
           import io
           src = io.open('manifest-ui/index.html', encoding='utf-8').read()
-          inject = '\n<script type="module">\n  import init from "./manifest_ui.js";\n  await init();\n</script>\n'
+          inject = '\n<script type="module">\n  import init, { field_parse } from "./manifest_ui.js";\n  await init();\n  window.__fieldParse = field_parse;\n</script>\n'
           if 'manifest_ui.js' not in src:
               src = src.replace('</body>', inject + '</body>')
           io.open('manifest-ui/dist/index.html', 'w', encoding='utf-8', newline='\n').write(src)

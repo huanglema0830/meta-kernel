@@ -370,6 +370,82 @@ try {
   check('性能：页面总传输量 < 1 MB（含 wasm）', !!navT && navT.transferKB < 1024,
     navT ? `transfer=${navT.transferKB}KB resources=${navT.resources}` : 'n/a');
 
+  // ---- 7.9) 场域解析器 / 映射库 / 脸切换（v0.111 方向修正）----
+  check('场域：内核 wasm 导出可用（window.__fieldParse）',
+    await page.evaluate(() => typeof window.__fieldParse === 'function'));
+  await page.click('#wt-doc');
+  await page.waitForTimeout(400);
+  check('场域：脸切换三档按钮齐备（原版/场域/混合）',
+    (await page.locator('#fc-original').count()) === 1 &&
+    (await page.locator('#fc-field').count()) === 1 &&
+    (await page.locator('#fc-blend').count()) === 1);
+
+  // 放入一篇"文章型"内容，验证解析结果
+  const fpText = '# 标题\n\n第一段内容，用来提供足够的文本量。\n\n第二段继续，含一个 [链接](https://example.com/a)。\n\n第三段结束。';
+  await page.fill('#doc-edit', fpText);
+  await page.waitForTimeout(700);
+  const fp0 = await page.evaluate(() => {
+    const r = (document.getElementById('fc-read') || {}).textContent || '';
+    return { read: r, hasFn: typeof window.__fieldParse === 'function' };
+  });
+  check('场域：解析出四场读数与置信度', /地 [\d.]+/.test(fp0.read) && /置信度 [\d.]+/.test(fp0.read),
+    fp0.read.substring(0, 80));
+  const raw = await page.evaluate(() => {
+    const j = JSON.parse(window.__fieldParse(3000, 12, 4, 5, 3, 1, 1, 2, 'field'));
+    return j;
+  });
+  check('场域：解析输出结构完整（fields/class/visual/face）',
+    !!raw.fields && !!raw['class'] && !!raw.visual && !!raw.face);
+  check('场域：四场与置信度均在 0..1',
+    [raw.fields.earth, raw.fields.water, raw.fields.fire, raw.fields.wind, raw.fields.confidence]
+      .every((x) => x >= 0 && x <= 1), JSON.stringify(raw.fields));
+  check('场域：映射公式取自基因库（hue 权重可读）',
+    Array.isArray(raw.mapgeneweights_hue) && raw.mapgeneweights_hue.length === 4 &&
+    Math.abs(raw.mapgeneweights_hue[2] - 0.85) < 1e-6, JSON.stringify(raw.mapgeneweights_hue));
+
+  // 场域模式 → 叠加；原版 → 不叠加；两者内容都在
+  await page.click('#fc-field');
+  await page.waitForTimeout(400);
+  const fieldState = await page.evaluate(() => {
+    const ov = document.getElementById('fp-overlay');
+    return {
+      opacity: ov ? ov.style.opacity : '',
+      mode: (document.getElementById('fc-mode') || {}).textContent || '',
+      contentVisible: ((document.getElementById('doc-preview') || {}).innerText || '').trim().length,
+    };
+  });
+  check('脸切换：场域模式叠加场域呈现', fieldState.opacity === '1' && /叠加/.test(fieldState.mode),
+    `${fieldState.mode} opacity=${fieldState.opacity}`);
+  check('脸切换：叠加时网页内容仍然可见（不替换）', fieldState.contentVisible > 0,
+    `contentChars=${fieldState.contentVisible}`);
+
+  await page.click('#fc-original');
+  await page.waitForTimeout(400);
+  const origState = await page.evaluate(() => {
+    const ov = document.getElementById('fp-overlay');
+    return {
+      opacity: ov ? ov.style.opacity : '',
+      mode: (document.getElementById('fc-mode') || {}).textContent || '',
+      contentVisible: ((document.getElementById('doc-preview') || {}).innerText || '').trim().length,
+      persisted: localStorage.getItem('sb.face.v1'),
+    };
+  });
+  check('脸切换：原版模式不叠加', origState.opacity === '0' && /不叠加/.test(origState.mode),
+    `${origState.mode} opacity=${origState.opacity}`);
+  check('脸切换：模式可持久化（localStorage）', origState.persisted === 'original', String(origState.persisted));
+  check('脸切换：原版模式内容同样在（熟悉的画面）', origState.contentVisible > 0);
+
+  // 混沌：空内容 / 极长内容 / 伪模式 不崩
+  const chaosFp = await page.evaluate(() => {
+    const out = {};
+    try { out.empty = !!JSON.parse(window.__fieldParse(0, 0, 0, 0, 0, 0, 0, 0, 'field')); } catch { out.empty = false; }
+    try { out.max = !!JSON.parse(window.__fieldParse(4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 'field')); } catch { out.max = false; }
+    try { const j = JSON.parse(window.__fieldParse(10, 1, 1, 0, 0, 0, 0, 0, '<script>')); out.badMode = j.face.mode === 'original'; } catch { out.badMode = false; }
+    return out;
+  });
+  check('场域：混沌输入不崩（空/极大计数/伪模式）且伪模式安全降级为原版',
+    chaosFp.empty && chaosFp.max && chaosFp.badMode, JSON.stringify(chaosFp));
+
   // ---- 8) 性能断言 ----
   const perf = await page.evaluate(() => window.__wcPerf || { startupMs: -1, heapMB: -1 });
   check('性能：工作台初始化 < 1 秒', perf.startupMs >= 0 && perf.startupMs < MAX_STARTUP_MS,
