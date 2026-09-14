@@ -35,6 +35,20 @@ const M = new Function(
   code + '\nreturn { esc: esc, inlineMd: inlineMd, renderMd: renderMd, safeName: safeName };'
 )();
 
+// 第二段：阶段三新增的纯函数（webNorm / shBlank）——分区域抽取，避免耦合
+function grab(fnName, stopMarker) {
+  const i = html.indexOf('function ' + fnName + '(');
+  if (i < 0) return null;
+  const j = html.indexOf(stopMarker, i);
+  if (j < 0) return null;
+  return html.substring(i, j);
+}
+const W1 = grab('webNorm', '\n  function webOpen');
+const W2 = grab('shBlank', '\n  function shRender');
+const M2 = new Function(
+  (W1 || '') + '\n' + (W2 || '') + '\nreturn { webNorm: typeof webNorm === "function" ? webNorm : null, shBlank: typeof shBlank === "function" ? shBlank : null };'
+)();
+
 let pass = 0;
 let fail = 0;
 const checks = [];
@@ -92,6 +106,27 @@ t('safeName 去空白', M.safeName('  a b  ') === 'a b');
 t('safeName 禁路径分隔符', M.safeName('../../etc/passwd').indexOf('/') < 0);
 t('safeName 长度 <=60', M.safeName('x'.repeat(200)).length === 60);
 t('safeName 空输入安全', M.safeName(null) === '' && M.safeName(undefined) === '');
+
+// ---- 7) 阶段三新增纯函数（查资料 / 表格） ----
+t('webNorm 已抽取', !!M2.webNorm);
+if (M2.webNorm) {
+  t('webNorm 保留 https', M2.webNorm('https://example.com/a') === 'https://example.com/a');
+  t('webNorm 补全裸域名', M2.webNorm('example.com') === 'https://example.com');
+  t('webNorm 空输入安全', M2.webNorm('') === '' && M2.webNorm(null) === '' && M2.webNorm(undefined) === '');
+  t('webNorm 去空白', M2.webNorm('  example.com  ') === 'https://example.com');
+  // **安全**：伪协议一律不当作网址（会走搜索路径而非内嵌）
+  for (const bad of ['javascript:alert(1)', 'JavaScript:alert(1)', 'data:text/html,<script>1</script>',
+    'vbscript:msgbox', 'file:///C:/windows', 'about:blank']) {
+    t('webNorm 拒绝伪协议: ' + bad.substring(0, 20), M2.webNorm(bad) === '', '../');
+  }
+}
+t('shBlank 已抽取', !!M2.shBlank);
+if (M2.shBlank) {
+  const g = M2.shBlank(2, 3);
+  t('shBlank 尺寸正确', g.length === 2 && g[0].length === 3 && g[1][2] === '');
+  t('shBlank 行列独立（无共享引用）', M2.shBlank(2, 2)[0] !== M2.shBlank(2, 2)[1]);
+  t('shBlank 边界安全', M2.shBlank(0, 0).length === 0);
+}
 
 console.log(`\n==== 工作台纯函数测试汇总 ====\n共 ${checks.length} 项，通过 ${pass}，失败 ${fail}`);
 if (fail) {

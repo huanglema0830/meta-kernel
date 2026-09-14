@@ -20,6 +20,7 @@
 
 pub mod http;
 pub mod l7_exec;
+pub mod msg;
 pub mod selfmon;
 
 /// 部署目录（可执行文件所在目录；L7 执行器的动作作用域**仅限此处与 %TEMP%\ck-net**）。
@@ -206,6 +207,8 @@ pub struct Gateway {
     genelib: Arc<std::sync::Mutex<Option<String>>>,
     /// **L7 宿主侧执行器**（T1 闭环的"执行"半；只接受预置动作 id，无 shell 拼接）。
     exec: Arc<l7_exec::Executor>,
+    /// **消息收发**（本机自洽，不依赖外部 IM；老笔记本无外网也可用）。
+    msgs: Arc<msg::MsgStore>,
 }
 
 impl Gateway {
@@ -223,7 +226,13 @@ impl Gateway {
             mon: Arc::new(selfmon::SelfMon::new()),
             genelib: Arc::new(std::sync::Mutex::new(None)),
             exec: Arc::new(l7_exec::Executor::new(desk_dir(), std::env::temp_dir().join("ck-net"))),
+            msgs: Arc::new(msg::MsgStore::new()),
         }
+    }
+
+    /// 消息收发（本机自洽）。
+    pub fn msgs(&self) -> &Arc<msg::MsgStore> {
+        &self.msgs
     }
 
     /// **L7 宿主侧执行器**（T1 闭环的"执行"半）。

@@ -324,6 +324,38 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
         }
     }
 
+    // ---- 消息收发（本机自洽；老笔记本无外网也可用）----
+    if method == "POST" && target == "/v1/msg" {
+        let from = extract_json_str(&body, "from").unwrap_or_else(|| "self".to_string());
+        let text = extract_json_str(&body, "text").unwrap_or_default();
+        if text.trim().is_empty() {
+            gw.mon().count_error();
+            stream.write_all(http_err(400, "Bad Request", "{\"error\":\"text_required\"}").as_bytes())?;
+            return Ok(());
+        }
+        let seq = gw.msgs().push(&from, &text);
+        gw.mon().note(
+            if crate::msg::owner_tag(&from) == "[WorkBuddy]" {
+                crate::selfmon::Owner::WorkBuddy
+            } else {
+                crate::selfmon::Owner::Kernel
+            },
+            "TASK",
+            "消息投递",
+            format!("seq={seq} from={from}"),
+        );
+        stream.write_all(http_ok(&format!("{{\"accepted\":true,\"seq\":{seq}}}")).as_bytes())?;
+        return Ok(());
+    }
+    if method == "GET" && target == "/v1/msg" {
+        stream.write_all(http_ok(&gw.msgs().json(200)).as_bytes())?;
+        return Ok(());
+    }
+    if method == "GET" && target == "/v1/msg.txt" {
+        stream.write_all(http_ok_plain(&gw.msgs().text(200)).as_bytes())?;
+        return Ok(());
+    }
+
     // ---- L7 执行层（T1 闭环 · 宿主侧执行器）----
     // 硬约束：只接受预置动作 id；请求体无命令/路径字段；无 shell 拼接。
     if method == "GET" && target == "/v1/actions" {
@@ -793,7 +825,8 @@ Host: x
 /// 用户只需「下载 1 个文件 → 双击」两步。
 /// v0.105：新增兼容性测试页（compat-test.html）——在老笔记本上打开即出报告（先验证再开发）。
 /// v0.106：新增升级包（upgrade-package.zip）——老笔记本经局域网一键升级（只换本应用文件）。
-const UI_ALLOW: [(&str, &str); 14] = [
+/// v0.110：新增性能自检页（perf-test.html）——老笔记本实测启动/内存/渲染基准（只读+本地基准）。
+const UI_ALLOW: [(&str, &str); 15] = [
     ("/index.html", "text/html; charset=utf-8"),
     ("/manifest_ui.js", "text/javascript"),
     ("/manifest_ui_bg.wasm", "application/wasm"),
@@ -807,6 +840,7 @@ const UI_ALLOW: [(&str, &str); 14] = [
     ("/net-check-one.bat", "text/plain; charset=utf-8"),
     ("/net-repair-one.bat", "text/plain; charset=utf-8"),
     ("/compat-test.html", "text/html; charset=utf-8"),
+    ("/perf-test.html", "text/html; charset=utf-8"),
     ("/upgrade-package.zip", "application/zip"),
 ];
 
@@ -992,7 +1026,7 @@ Content-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\
     let fname = path.file_name()?.to_str()?;
     let allow = ["index.html", "manifest_ui.js", "manifest_ui_bg.wasm", "cloud-probe.exe", "cloud-discover.exe", "run-probe.bat",
         "net-check.bat", "net-repair.bat", "net-diagnose.ps1", "net-repair.ps1",
-        "net-check-one.bat", "net-repair-one.bat", "compat-test.html",
+        "net-check-one.bat", "net-repair-one.bat", "compat-test.html", "perf-test.html",
         "upgrade-package.zip"].contains(&fname);
     if !allow {
         eprintln!("serve_ui: 白名单外拒绝 {name}");

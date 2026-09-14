@@ -97,7 +97,10 @@
   <div class="view active" id="view-work">
     <div class="tabs" style="margin-bottom:10px">
       <button class="tab active" id="wt-doc">文档</button>
+      <button class="tab" id="wt-sheet">表格</button>
       <button class="tab" id="wt-files">文件</button>
+      <button class="tab" id="wt-msg">消息</button>
+      <button class="tab" id="wt-web">查资料</button>
       <button class="tab" id="wt-diag">诊断（辅助）</button>
       <button class="tab" id="wt-owner">任务归属</button>
       <span class="dim" id="wc-stat" style="margin-left:auto;font-size:12px;align-self:center"></span>
@@ -146,6 +149,65 @@
         <div style="font-weight:600;font-size:14px">说明</div>
         <div class="meta">工作台的文件全部存在**本机浏览器**（localStorage），**离线可用**、不上传任何服务器。
           文档与文件是同一份数据：在「文档」里建的稿子，这里也能看到、重命名、下载。</div>
+      </div>
+    </div>
+
+    <!-- 表格（轻量级组件：行列操作 + 保存 + 导出 CSV） -->
+    <div id="wp-sheet" style="display:none">
+      <div class="card">
+        <div class="row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input id="sh-name" class="field" style="max-width:220px" placeholder="表格名（如：开销表）" />
+          <button class="ghost" id="sh-new">新建</button>
+          <button class="ghost" id="sh-save">保存</button>
+          <button class="ghost" id="sh-addrow">加行</button>
+          <button class="ghost" id="sh-addcol">加列</button>
+          <button class="ghost" id="sh-delrow">删行</button>
+          <button class="ghost" id="sh-delcol">删列</button>
+          <button class="ghost" id="sh-csv">导出 CSV</button>
+        </div>
+        <div class="meta" id="sh-list">（暂无表格——输入名称后点「新建」）</div>
+      </div>
+      <div class="card">
+        <div class="meta" id="sh-info">行列：— ｜ 提示：点单元格直接编辑，失焦即保存到内存</div>
+        <div id="sh-grid" style="overflow:auto;max-height:380px;margin-top:8px"></div>
+      </div>
+    </div>
+
+    <!-- 发消息（HTTP API：本机自洽，不依赖外部 IM） -->
+    <div id="wp-msg" style="display:none">
+      <div class="card">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input id="mg-text" class="field" style="flex:1;min-width:220px" placeholder="输入消息……（回车发送）" />
+          <button class="ghost" id="mg-send">发送</button>
+          <button class="ghost" id="mg-refresh">刷新</button>
+          <span class="dim" id="mg-info" style="font-size:11px">—</span>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;font-size:14px">消息记录</div>
+        <div id="mg-list" class="dsub" style="max-height:320px;overflow:auto;margin-top:6px">（暂无消息）</div>
+      </div>
+    </div>
+
+    <!-- 查资料（iframe 内嵌；被站点拒绝时回退新窗口） -->
+    <div id="wp-web" style="display:none">
+      <div class="card">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input id="web-url" class="field" style="flex:1;min-width:240px" placeholder="输入网址或搜索词" />
+          <button class="ghost" id="web-go">打开</button>
+          <button class="ghost" id="web-search">搜索</button>
+          <button class="ghost" id="web-new">新窗口</button>
+          <button class="ghost" id="web-mark">收藏</button>
+        </div>
+        <div class="meta" id="web-note">提示：部分网站禁止被内嵌（X-Frame-Options）——若上方空白，点「新窗口」用系统浏览器打开。</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;font-size:14px">书签（本机保存）</div>
+        <div id="web-bm" class="meta">（暂无书签）</div>
+      </div>
+      <div class="card">
+        <iframe id="web-frame" style="width:100%;height:460px;border:1px solid #e6e6ec;border-radius:10px;background:#fff"
+          sandbox="allow-same-origin allow-scripts allow-forms allow-popups"></iframe>
       </div>
     </div>
 
@@ -508,10 +570,10 @@
 
   /* ---------- 面板切换（不用 CSS 类，避免依赖） ---------- */
   function showPanel(which) {
-    var ids = ['wp-doc', 'wp-files', 'wp-diag', 'wp-owner'];
-    var tabs = ['wt-doc', 'wt-files', 'wt-diag', 'wt-owner'];
-    var want = { 'doc': 'wp-doc', 'files': 'wp-files', 'diag': 'wp-diag', 'owner': 'wp-owner' }[which];
-    var wantTab = { 'doc': 'wt-doc', 'files': 'wt-files', 'diag': 'wt-diag', 'owner': 'wt-owner' }[which];
+    var ids = ['wp-doc', 'wp-sheet', 'wp-files', 'wp-msg', 'wp-web', 'wp-diag', 'wp-owner'];
+    var tabs = ['wt-doc', 'wt-sheet', 'wt-files', 'wt-msg', 'wt-web', 'wt-diag', 'wt-owner'];
+    var want = { 'doc': 'wp-doc', 'sheet': 'wp-sheet', 'files': 'wp-files', 'msg': 'wp-msg', 'web': 'wp-web', 'diag': 'wp-diag', 'owner': 'wp-owner' }[which];
+    var wantTab = { 'doc': 'wt-doc', 'sheet': 'wt-sheet', 'files': 'wt-files', 'msg': 'wt-msg', 'web': 'wt-web', 'diag': 'wt-diag', 'owner': 'wt-owner' }[which];
     for (var i = 0; i < ids.length; i++) {
       var e = $(ids[i]);
       if (e) { e.style.display = (ids[i] === want) ? 'block' : 'none'; }
@@ -521,6 +583,9 @@
       if (t) { t.className = (tabs[j] === wantTab) ? 'tab active' : 'tab'; }
     }
     if (which === 'owner') { loadOwner(); loadMaint(); }
+    if (which === 'sheet') { shRender(); }
+    if (which === 'msg') { mgLoad(); }
+    if (which === 'web') { bmRender(); }
   }
 
   /* ---------- 任务归属（元内核接管：健康报告 / 告警 / 运行日志） ---------- */
@@ -685,15 +750,263 @@
   }
   function mtNote(s) { setText('mt-chain', s); }
 
+  /* ---------- 表格（轻量级组件：纯 DOM 构建，无 HTML 拼接） ---------- */
+  var SH_KEY = 'sb.sheets.v1';
+  var SH_CUR = null, SH_ROWS = 6, SH_COLS = 4;
+  function shAll() {
+    try {
+      var o = JSON.parse(window.localStorage.getItem(SH_KEY) || '{}');
+      return (o && typeof o === 'object') ? o : {};
+    } catch (e) { return {}; }
+  }
+  function shPersist(db) {
+    try { window.localStorage.setItem(SH_KEY, JSON.stringify(db)); return true; } catch (e) { return false; }
+  }
+  function shGrid() {
+    var db = shAll();
+    var s = SH_CUR && db[SH_CUR] ? db[SH_CUR] : { rows: shBlank(SH_ROWS, SH_COLS), updated: '' };
+    return s.rows;
+  }
+  function shBlank(r, c) {
+    var out = [];
+    for (var i = 0; i < r; i++) { var row = []; for (var j = 0; j < c; j++) { row.push(''); } out.push(row); }
+    return out;
+  }
+  function shRender() {
+    var host = $('sh-grid');
+    if (!host) { return; }
+    while (host.firstChild) { host.removeChild(host.firstChild); }
+    var rows = shGrid();
+    SH_ROWS = rows.length;
+    SH_COLS = rows[0] ? rows[0].length : 0;
+    var t = document.createElement('table');
+    t.style.cssText = 'border-collapse:collapse;font-size:13px';
+    for (var i = 0; i < SH_ROWS; i++) {
+      var tr = document.createElement('tr');
+      for (var j = 0; j < SH_COLS; j++) {
+        var td = document.createElement('td');
+        td.style.cssText = 'border:1px solid #e6e6ec;padding:0';
+        var inp = document.createElement('input');
+        inp.type = 'text';
+        inp.value = rows[i][j] === undefined ? '' : rows[i][j];   /* 属性赋值 → 天然防注入 */
+        inp.style.cssText = 'border:0;padding:5px 7px;width:120px;font-size:13px;background:transparent';
+        inp.setAttribute('data-r', String(i));
+        inp.setAttribute('data-c', String(j));
+        inp.onchange = function () { shCell(this); };
+        td.appendChild(inp);
+        tr.appendChild(td);
+      }
+      t.appendChild(tr);
+    }
+    host.appendChild(t);
+    setText('sh-info', '行列：' + SH_ROWS + ' × ' + SH_COLS + ' ｜ 点单元格直接编辑（失焦即入内存，点「保存」落盘）' +
+      (SH_CUR ? ' ｜ 当前：' + SH_CUR : ' ｜ 尚未命名（点「保存」时命名）'));
+    var names = Object.keys(shAll()).sort();
+    if ($('sh-list')) { $('sh-list').textContent = names.length ? ('已有：' + names.join('、')) : '（暂无表格——输入名称后点「新建」）'; }
+  }
+  function shCell(inp) {
+    var r = parseInt(inp.getAttribute('data-r'), 10), c = parseInt(inp.getAttribute('data-c'), 10);
+    var db = shAll();
+    if (!SH_CUR) { SH_CUR = safeName($('sh-name') ? $('sh-name').value : '') || ('表格-' + (new Date()).getTime()); }
+    if (!db[SH_CUR]) { db[SH_CUR] = { rows: shBlank(SH_ROWS, SH_COLS), updated: stamp() }; }
+    if (db[SH_CUR].rows[r]) { db[SH_CUR].rows[r][c] = inp.value; }
+    db[SH_CUR].updated = stamp();
+    shPersist(db);
+  }
+  function shNew() {
+    var nm = safeName($('sh-name') ? $('sh-name').value : '');
+    if (!nm) { nm = '表格-' + (new Date()).getTime(); }
+    var db = shAll();
+    db[nm] = { rows: shBlank(SH_ROWS, SH_COLS), updated: stamp() };
+    shPersist(db);
+    SH_CUR = nm;
+    shRender();
+  }
+  function shMutate(kind) {
+    var nm = SH_CUR || safeName($('sh-name') ? $('sh-name').value : '');
+    if (!nm) { nm = '表格-' + (new Date()).getTime(); }
+    var db = shAll();
+    if (!db[nm]) { db[nm] = { rows: shBlank(SH_ROWS, SH_COLS), updated: stamp() }; }
+    var rows = db[nm].rows;
+    if (kind === 'addrow') { var row = []; for (var j = 0; j < (rows[0] ? rows[0].length : SH_COLS); j++) { row.push(''); } rows.push(row); }
+    else if (kind === 'delrow' && rows.length > 1) { rows.pop(); }
+    else if (kind === 'addcol') { for (var i = 0; i < rows.length; i++) { rows[i].push(''); } }
+    else if (kind === 'delcol' && rows[0] && rows[0].length > 1) { for (var k = 0; k < rows.length; k++) { rows[k].pop(); } }
+    db[nm].updated = stamp();
+    shPersist(db); SH_CUR = nm; shRender();
+  }
+  function shSave() {
+    var nm = SH_CUR || safeName($('sh-name') ? $('sh-name').value : '');
+    if (!nm) { nm = '表格-' + (new Date()).getTime(); }
+    var db = shAll();
+    if (!db[nm]) { db[nm] = { rows: shGrid(), updated: stamp() }; } else { db[nm].updated = stamp(); }
+    var ok = shPersist(db);
+    SH_CUR = nm;
+    setText('sh-info', (ok ? '已保存：' : '保存失败：') + nm + ' ｜ 行列：' + SH_ROWS + ' × ' + SH_COLS);
+    shRender();
+  }
+  function shCsv() {
+    var rows = shGrid();
+    var lines = [];
+    for (var i = 0; i < rows.length; i++) {
+      var cells = [];
+      for (var j = 0; j < rows[i].length; j++) {
+        var v = String(rows[i][j] === undefined ? '' : rows[i][j]);
+        if (/[",\n]/.test(v)) { v = '"' + v.replace(/"/g, '""') + '"'; }
+        cells.push(v);
+      }
+      lines.push(cells.join(','));
+    }
+    var csv = '\ufeff' + lines.join('\r\n');
+    try {
+      var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = safeName(SH_CUR || 'table') + '.csv';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 3000);
+      setText('sh-info', '已导出 CSV：' + (SH_CUR || 'table') + '.csv');
+    } catch (e) { setText('sh-info', '导出失败（该浏览器不支持下载）'); }
+  }
+
+  /* ---------- 发消息（HTTP API） ---------- */
+  function mgRender(t) {
+    var box = $('mg-list');
+    if (!box) { return; }
+    var j = jp(t);
+    if (!j || !j.msgs) { box.textContent = '（无法读取消息——需经网关打开本页）'; return; }
+    if (!j.msgs.length) { box.textContent = '（暂无消息）'; return; }
+    while (box.firstChild) { box.removeChild(box.firstChild); }
+    for (var i = 0; i < j.msgs.length; i++) {
+      var m = j.msgs[i];
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:4px 0;border-bottom:1px solid #f2f2f6';
+      var tag = document.createElement('span');
+      tag.className = 'pill';
+      tag.textContent = m.owner;                       /* textContent → 防注入 */
+      var who = document.createElement('span');
+      who.className = 'dim';
+      who.style.cssText = 'font-size:11px;margin:0 6px';
+      who.textContent = m.from;
+      var txt = document.createElement('span');
+      txt.textContent = m.text;
+      row.appendChild(tag); row.appendChild(who); row.appendChild(txt);
+      box.appendChild(row);
+    }
+    setText('mg-info', '共 ' + j.count + ' 条 / 上限 ' + j.capacity);
+  }
+  function mgLoad() { getText('/v1/msg', mgRender); }
+  function mgSend() {
+    var el = $('mg-text');
+    if (!el) { return; }
+    var t = el.value;
+    if (!t || !t.replace(/\s/g, '')) { return; }
+    postJson('/v1/msg', { from: 'workbuddy', text: t }, function () {
+      el.value = '';
+      mgLoad();
+    });
+  }
+
+  /* ---------- 查资料（iframe；被拒时回退新窗口） ---------- */
+  var BM_KEY = 'sb.bookmarks.v1';
+  function bmAll() {
+    try { var o = JSON.parse(window.localStorage.getItem(BM_KEY) || '[]'); return o instanceof Array ? o : []; } catch (e) { return []; }
+  }
+  function bmRender() {
+    var box = $('web-bm');
+    if (!box) { return; }
+    var list = bmAll();
+    while (box.firstChild) { box.removeChild(box.firstChild); }
+    if (!list.length) { box.textContent = '（暂无书签——点「打开」后按「收藏」保存）'; return; }
+    for (var i = 0; i < list.length; i++) {
+      var a = document.createElement('a');
+      a.href = '#';
+      a.textContent = list[i].title || list[i].url;
+      a.style.cssText = 'color:#2f6fb5;text-decoration:none;margin-right:12px';
+      (function (u) { a.onclick = function (ev) { if (ev && ev.preventDefault) { ev.preventDefault(); } webOpen(u); return false; }; })(list[i].url);
+      box.appendChild(a);
+    }
+  }
+  function webNorm(s) {
+    var v = String(s || '').replace(/^\s+|\s+$/g, '');
+    if (!v) { return ''; }
+    if (/^https?:\/\//i.test(v)) { return v; }
+    if (/^[\w-]+(\.[\w-]+)+(\/|$)/.test(v)) { return 'https://' + v; }
+    return '';                                   /* 非网址 → 交给搜索 */
+  }
+  function webOpen(u) {
+    var url = webNorm(u);
+    if (!url) { return false; }
+    var f = $('web-frame');
+    if (f) { f.setAttribute('src', url); }
+    if ($('web-url')) { $('web-url').value = url; }
+    setText('web-note', '已尝试内嵌：' + url + '（若上方空白，说明该站点禁止内嵌，请点「新窗口」）');
+    return true;
+  }
+  function webSearch() {
+    var q = ($('web-url') ? $('web-url').value : '').replace(/^\s+|\s+$/g, '');
+    if (!q) { return; }
+    if (webOpen(q)) { return; }                  /* 是网址就直接打开 */
+    var u = 'https://www.bing.com/search?q=' + encodeURIComponent(q);
+    var f = $('web-frame');
+    if (f) { f.setAttribute('src', u); }
+    setText('web-note', '已搜索：' + q + '（引擎内嵌受限时请点「新窗口」）');
+  }
+  function webNew() {
+    var v = $('web-url') ? $('web-url').value : '';
+    var url = webNorm(v) || ('https://www.bing.com/search?q=' + encodeURIComponent(v));
+    try { window.open(url, '_blank'); } catch (e) { /* 弹窗被拦则由用户手动打开 */ }
+  }
+  function webMark() {
+    var v = $('web-url') ? $('web-url').value : '';
+    var url = webNorm(v);
+    if (!url) { return; }
+    var list = bmAll();
+    for (var i = 0; i < list.length; i++) { if (list[i].url === url) { return; } }
+    list.push({ url: url, title: url.replace(/^https?:\/\//, '').substring(0, 40) });
+    try { window.localStorage.setItem(BM_KEY, JSON.stringify(list)); } catch (e) { }
+    bmRender();
+  }
+
   /* ---------- 绑定 ---------- */
   function bind(id, fn) { var e = $(id); if (e) { e.addEventListener('click', fn, false); } }
 
   function init() {
     /* 工作台内部工具切换 */
     bind('wt-doc', function () { showPanel('doc'); });
+    bind('wt-sheet', function () { showPanel('sheet'); });
     bind('wt-files', function () { showPanel('files'); });
+    bind('wt-msg', function () { showPanel('msg'); });
+    bind('wt-web', function () { showPanel('web'); });
     bind('wt-diag', function () { showPanel('diag'); });
     bind('wt-owner', function () { showPanel('owner'); });
+
+    /* 表格 */
+    bind('sh-new', shNew);
+    bind('sh-save', shSave);
+    bind('sh-addrow', function () { shMutate('addrow'); });
+    bind('sh-addcol', function () { shMutate('addcol'); });
+    bind('sh-delrow', function () { shMutate('delrow'); });
+    bind('sh-delcol', function () { shMutate('delcol'); });
+    bind('sh-csv', shCsv);
+
+    /* 消息 */
+    bind('mg-send', mgSend);
+    bind('mg-refresh', mgLoad);
+    (function () {
+      var el = $('mg-text');
+      if (el) {
+        el.addEventListener('keydown', function (ev) {
+          if (ev && (ev.keyCode === 13 || ev.key === 'Enter')) { mgSend(); }
+        }, false);
+      }
+    })();
+
+    /* 查资料 */
+    bind('web-go', function () { webOpen($('web-url') ? $('web-url').value : ''); });
+    bind('web-search', webSearch);
+    bind('web-new', webNew);
+    bind('web-mark', webMark);
     bind('own-refresh', loadOwner);
     bind('mt-refresh', loadMaint);
 

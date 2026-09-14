@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>性能自检 · 空天浏览器</title>
+<style>
+  body{font-family:system-ui,"Microsoft YaHei",sans-serif;margin:0;background:#f6f6f8;color:#1e1e24}
+  .wrap{max-width:860px;margin:0 auto;padding:20px}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{color:#6b6b78;font-size:12px;margin-bottom:14px}
+  .card{background:#fff;border:1px solid #e6e6ec;border-radius:12px;padding:14px;margin-bottom:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td{padding:6px;border-bottom:1px solid #f0f0f4}
+  td.k{width:52%;color:#4a4a55}
+  .ok{color:#1f7a37;font-weight:600}.no{color:#b3261e;font-weight:600}
+  .verdict{font-size:15px;font-weight:700;padding:10px 12px;border-radius:10px}
+  .v-ok{background:#eef7ef;color:#1f7a37}.v-no{background:#fdecea;color:#b3261e}
+  .dim{color:#8a8a95;font-size:12px}
+  ol{font-size:13px;line-height:1.9}code{background:#f2f2f6;padding:1px 5px;border-radius:4px;font-size:12px}
+  button{padding:8px 14px;border-radius:8px;border:1px solid #2f6fb5;background:#2f6fb5;color:#fff;font-size:13px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>性能自检（老笔记本用）</h1>
+  <div class="sub">本页在本机跑基准，结果可复制回开发机。<b>只读取与本地存储，不改任何系统/网络设置。</b></div>
+
+  <div class="card">
+    <div class="verdict" id="verdict">检测中……</div>
+    <div class="dim" id="note" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card">
+    <div style="font-weight:600;font-size:14px;margin-bottom:6px">① 本应用实测（这一页）</div>
+    <table id="m"></table>
+  </div>
+
+  <div class="card">
+    <div style="font-weight:600;font-size:14px;margin-bottom:6px">② 与 Edge 对照（手工 3 步，各填一个数）</div>
+    <ol>
+      <li>打开一个<b>空白新标签页</b> → 按 <code>Shift+Esc</code>（Edge 任务管理器）→ 记「内存占用」＝ <b id="edge-ph">____</b> MB</li>
+      <li>在本页所在地址再开一个标签页 → 同样看任务管理器 → 记「内存占用」＝ <b id="edge-ph2">____</b> MB</li>
+      <li>在任务管理器里看「CPU」与页面响应是否卡顿</li>
+    </ol>
+    <div class="dim">判据：第 2 步 ≈ 第 1 步 + 应用自身开销；本应用为<b>单页 + 无框架 + 无后台进程</b>，通常远小于打开同等功能的网页应用。</div>
+    <div class="card" style="margin:10px 0 0;background:#fbfbfd">
+      <div style="font-size:13px;margin-bottom:6px">把上面两个数填进来（可选）：</div>
+      <input id="edge1" placeholder="Edge 空白页 内存 MB" style="padding:6px;border:1px solid #e6e6ec;border-radius:6px;margin-right:8px">
+      <input id="edge2" placeholder="本应用页 内存 MB" style="padding:6px;border:1px solid #e6e6ec;border-radius:6px">
+      <div class="dim" id="cmp" style="margin-top:6px">—</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="font-weight:600;font-size:14px;margin-bottom:6px">③ 环境</div>
+    <table id="env"></table>
+  </div>
+
+  <div class="card">
+    <div style="font-weight:600;font-size:14px;margin-bottom:6px">结果（可复制回开发机）</div>
+    <textarea id="dump" style="width:100%;min-height:170px;font-family:ui-monospace,Consolas,monospace;font-size:12px"></textarea>
+    <div style="margin-top:8px"><button id="copy">复制结果</button> <button id="run" style="background:#fff;color:#2f6fb5">重新测试</button></div>
+  </div>
+</div>
+
+<script>
+/* 全 ES5（老浏览器可跑）；只读 + localStorage 基准，不改系统/网络 */
+(function () {
+  var R = [];
+  function rowKV(tblId, k, v) {
+    var t = document.getElementById(tblId);
+    var tr = document.createElement('tr');
+    var a = document.createElement('td'); a.className = 'k'; a.textContent = k;
+    var b = document.createElement('td'); b.textContent = v;
+    tr.appendChild(a); tr.appendChild(b);
+    if (t.tBodies[0]) { t.tBodies[0].appendChild(tr); } else { var tb = document.createElement('tbody'); tb.appendChild(tr); t.appendChild(tb); }
+  }
+  function clear(tblId) {
+    var t = document.getElementById(tblId);
+    while (t.tBodies[0] && t.tBodies[0].firstChild) { t.tBodies[0].removeChild(t.tBodies[0].firstChild); }
+  }
+
+  function run() {
+    R = [];
+    clear('m'); clear('env');
+
+    /* ① 首屏（本页自身） */
+    var t = (new Date()).getTime();
+    var nav = (window.performance && performance.timing) ? performance.timing : null;
+    var dcl = -1, load = -1, ttfb = -1;
+    if (nav && nav.navigationStart) {
+      ttfb = nav.responseStart - nav.navigationStart;
+      dcl = nav.domContentLoadedEventEnd - nav.navigationStart;
+      load = nav.loadEventEnd - nav.navigationStart;
+    }
+    rowKV('m', '首屏 TTFB', (ttfb >= 0 ? ttfb + ' ms' : '（不支持计时 API）'));
+    rowKV('m', 'DOMContentLoaded', (dcl >= 0 ? dcl + ' ms' : '—'));
+    rowKV('m', 'load 事件', (load >= 0 ? load + ' ms' : '—'));
+
+    /* ② localStorage 写/读 2000 行 */
+    var rows = [], i;
+    for (i = 0; i < 2000; i++) { rows.push(['r' + i, String(i), 'xxxxxxxxxxxxxxxxxxxx']); }
+    var t1 = (new Date()).getTime();
+    var lsOk = true;
+    try { window.localStorage.setItem('__perf_bench', JSON.stringify(rows)); } catch (e) { lsOk = false; }
+    var wMs = (new Date()).getTime() - t1;
+    var t2 = (new Date()).getTime();
+    try { JSON.parse(window.localStorage.getItem('__perf_bench') || '[]'); } catch (e) { }
+    var rMs = (new Date()).getTime() - t2;
+    try { window.localStorage.removeItem('__perf_bench'); } catch (e) { }
+    rowKV('m', 'localStorage 写 2000 行', (lsOk ? wMs + ' ms' : '不可用（隐私模式？）'));
+    rowKV('m', 'localStorage 读 2000 行', (lsOk ? rMs + ' ms' : '—'));
+
+    /* ③ 渲染 1000 行表格 */
+    var host = document.createElement('div');
+    host.style.cssText = 'position:absolute;left:-9999px;top:0';
+    document.body.appendChild(host);
+    var tb = document.createElement('table');
+    var t3 = (new Date()).getTime();
+    for (i = 0; i < 1000; i++) {
+      var tr = document.createElement('tr');
+      for (var j = 0; j < 3; j++) { var td = document.createElement('td'); td.textContent = 'c' + i + j; tr.appendChild(td); }
+      tb.appendChild(tr);
+    }
+    host.appendChild(tb);
+    var renderMs = (new Date()).getTime() - t3;
+    document.body.removeChild(host);
+    rowKV('m', '渲染 1000 行表格', renderMs + ' ms');
+
+    /* ④ JS 堆（仅部分浏览器暴露） */
+    var heap = -1;
+    try { if (window.performance && performance.memory) { heap = performance.memory.usedJSHeapSize / 1048576; } } catch (e) { heap = -1; }
+    rowKV('m', 'JS 堆占用', (heap > 0 ? heap.toFixed(2) + ' MB（含浏览器基线）' : '该浏览器不暴露'));
+
+    /* ⑤ 判定 */
+    var verdict = document.getElementById('verdict');
+    var startupOk = (dcl < 0) || (dcl < 1000);
+    var lsOk2 = lsOk && (wMs < 300) && (rMs < 300);
+    var renderOk = renderMs < 1500;
+    var allOk = startupOk && lsOk2 && renderOk;
+    verdict.className = 'verdict ' + (allOk ? 'v-ok' : 'v-no');
+    verdict.textContent = allOk ? '结论：达标（启动 < 1 秒、存储与渲染流畅）'
+                                : '结论：有指标未达标（见下表，请把结果发回）';
+    document.getElementById('note').textContent =
+      '判据：DOMContentLoaded < 1000 ms；localStorage 读写 2000 行各 < 300 ms；渲染 1000 行 < 1500 ms。';
+
+    /* ⑥ 环境 */
+    var ua = navigator.userAgent || '';
+    rowKV('env', 'User-Agent', ua);
+    rowKV('env', '平台', (navigator.platform || '—'));
+    rowKV('env', '屏幕', (screen.width + '×' + screen.height + ' @' + (window.devicePixelRatio || 1) + 'x'));
+    rowKV('env', 'CPU 核数', (navigator.hardwareConcurrency || '—'));
+    rowKV('env', '设备内存(GB)', (navigator.deviceMemory || '—'));
+    rowKV('env', '时间', (new Date()).toString());
+
+    dump();
+  }
+
+  function dump() {
+    var lines = ['# 性能自检（老笔记本）', '时间: ' + (new Date()).toString(), ''];
+    var t = document.getElementById('m');
+    if (t.tBodies[0]) {
+      var trs = t.tBodies[0].getElementsByTagName('tr');
+      for (var i = 0; i < trs.length; i++) {
+        lines.push(trs[i].cells[0].textContent + ': ' + trs[i].cells[1].textContent);
+      }
+    }
+    var e1 = document.getElementById('edge1').value, e2 = document.getElementById('edge2').value;
+    lines.push('');
+    lines.push('Edge 空白页内存(MB): ' + e1);
+    lines.push('本应用页内存(MB): ' + e2);
+    if (e1 && e2) {
+      var d = Number(e2) - Number(e1);
+      lines.push('差值(MB): ' + (isNaN(d) ? '—' : d.toFixed(1)));
+    }
+    lines.push('');
+    var t2 = document.getElementById('env'), trs2 = t2.tBodies[0] ? t2.tBodies[0].getElementsByTagName('tr') : [];
+    for (var k = 0; k < trs2.length; k++) { lines.push(trs2[k].cells[0].textContent + ': ' + trs2[k].cells[1].textContent); }
+    document.getElementById('dump').value = lines.join('\n');
+  }
+
+  function cmp() {
+    var e1 = parseFloat(document.getElementById('edge1').value);
+    var e2 = parseFloat(document.getElementById('edge2').value);
+    var el = document.getElementById('cmp');
+    if (isNaN(e1) || isNaN(e2)) { el.textContent = '（填两个数后自动算差值）'; return; }
+    var d = e2 - e1;
+    el.textContent = '本应用自身开销 ≈ ' + d.toFixed(1) + ' MB' + (d < 20 ? '（达标：< 20 MB）' : '（超出 20 MB，请反馈）');
+  }
+
+  document.getElementById('run').onclick = run;
+  document.getElementById('copy').onclick = function () {
+    var d = document.getElementById('dump');
+    try { d.select(); document.execCommand('copy'); this.textContent = '已复制'; } catch (e) { this.textContent = '请手动全选复制'; }
+  };
+  document.getElementById('edge1').oninput = cmp;
+  document.getElementById('edge2').oninput = cmp;
+
+  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', run, false); } else { run(); }
+})();
+</script>
+</body>
+</html>

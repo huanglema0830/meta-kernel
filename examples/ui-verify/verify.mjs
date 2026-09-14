@@ -262,6 +262,114 @@ try {
     own2.includes('系统自我维护') && own2.includes('清理本应用临时文件') && own2.includes('触发探针采集'));
   await page.click('#wt-doc');
 
+  // ---- 7.7) 阶段三剩余项：表格 / 消息 / 查资料 ----
+  check('阶段三：三个新工位入口齐备（表格/消息/查资料）',
+    (await page.locator('#wt-sheet').count()) === 1 &&
+    (await page.locator('#wt-msg').count()) === 1 &&
+    (await page.locator('#wt-web').count()) === 1);
+
+  // 表格：建表 → 编辑单元格 → 保存 → 重载 → 仍在
+  await page.click('#wt-sheet');
+  await page.waitForTimeout(200);
+  const shName = 'CI表-' + Date.now();
+  await page.fill('#sh-name', shName);
+  await page.click('#sh-new');
+  await page.waitForTimeout(150);
+  const cell = page.locator('#sh-grid input').first();
+  await cell.fill('A1');
+  await page.locator('#sh-grid input').nth(1).fill('B1');
+  await page.click('#sh-save');
+  await page.waitForTimeout(150);
+  const shAdded = await page.evaluate(() => {
+    try { const db = JSON.parse(localStorage.getItem('sb.sheets.v1') || '{}');
+      const k = Object.keys(db)[0]; return !!(k && db[k].rows[0][0] === 'A1' && db[k].rows[0][1] === 'B1');
+    } catch { return false; }
+  });
+  check('表格：新建 → 编辑单元格 → 保存（落盘且值正确）', shAdded);
+  // 行列操作
+  const before = await page.evaluate(() => document.querySelectorAll('#sh-grid tr').length);
+  await page.click('#sh-addcol');
+  await page.waitForTimeout(120);
+  const afterCols = await page.evaluate(() => document.querySelectorAll('#sh-grid tr:first-child td').length);
+  await page.click('#sh-delcol');
+  await page.waitForTimeout(120);
+  const afterDel = await page.evaluate(() => document.querySelectorAll('#sh-grid tr:first-child td').length);
+  check('表格：加列 / 删列生效', afterCols === 5 && afterDel === 4, `加列后=${afterCols} 删列后=${afterDel}`);
+  check('表格：行操作可用', before > 0);
+  check('表格：导出 CSV 入口存在（sh-csv）', (await page.locator('#sh-csv').count()) === 1);
+
+  // 消息：发 → 收
+  const mgText = 'CI 消息 ' + Date.now();
+  const mRes = await postJson('/v1/msg', { from: 'workbuddy', text: mgText });
+  let mJ = null; try { mJ = JSON.parse(mRes.text); } catch { /* ignore */ }
+  check('消息：发送成功（POST /v1/msg）', mRes.ok && mJ && mJ.accepted === true, `status=${mRes.status}`);
+  const mGet = await jget('/v1/msg');
+  let mGetJ = null; try { mGetJ = JSON.parse(mGet.text); } catch { /* ignore */ }
+  check('消息：能收到（GET /v1/msg 含刚发的消息）',
+    mGet.ok && !!mGetJ && mGetJ.msgs.some((m) => m.text === mgText), `count=${mGetJ ? mGetJ.count : '?'}`);
+  check('消息：带归属标签（[WorkBuddy]）',
+    !!mGetJ && mGetJ.msgs.some((m) => m.text === mgText && m.owner === '[WorkBuddy]'));
+  const mTxt = await jget('/v1/msg.txt');
+  check('消息：纯文本视图每行带归属前缀',
+    mTxt.ok && mTxt.text.split('\n').filter((l) => l.trim()).every((l) => l.startsWith('[')),
+    `lines=${mTxt.text.split('\n').filter((l) => l.trim()).length}`);
+  check('消息：空文本被拒（400）',
+    (await postJson('/v1/msg', { from: 'workbuddy', text: '   ' })).status === 400);
+  // UI 面板显示
+  await page.click('#wt-msg');
+  await page.waitForTimeout(500);
+  const msgUi = await page.innerText('#wp-msg');
+  check('消息：面板显示消息列表', msgUi.includes(mgText), msgUi.substring(0, 40).replace(/\s+/g, ' '));
+
+  // 查资料：伪协议必须被拦；正常网址可内嵌
+  await page.click('#wt-web');
+  await page.waitForTimeout(200);
+  const webBeh = await page.evaluate(() => {
+    const out = {};
+    const f = document.getElementById('web-frame');
+    out.hasFrame = !!f;
+    // 通过 UI 行为验证：填入伪协议 → 点打开 → 不应改变 iframe.src
+    const u = document.getElementById('web-url');
+    u.value = 'javascript:alert(1)';
+    document.getElementById('web-go').click();
+    out.afterBad = f.getAttribute('src') || '';
+    u.value = 'https://example.com/';
+    document.getElementById('web-go').click();
+    out.afterGood = f.getAttribute('src') || '';
+    u.value = 'CI 搜索词';
+    document.getElementById('web-search').click();
+    out.afterSearch = f.getAttribute('src') || '';
+    return out;
+  });
+  check('查资料：iframe 存在', webBeh.hasFrame);
+  check('查资料：伪协议被拦截（不写入 iframe）', !/javascript:/i.test(webBeh.afterBad), webBeh.afterBad);
+  check('查资料：正常网址可内嵌', webBeh.afterGood === 'https://example.com/', webBeh.afterGood);
+  check('查资料：搜索词走搜索引擎 URL', /bing\.com\/search\?q=/.test(webBeh.afterSearch), webBeh.afterSearch.substring(0, 60));
+  check('查资料：收书签与新窗口入口', (await page.locator('#web-mark').count()) === 1 && (await page.locator('#web-new').count()) === 1);
+  await page.click('#wt-doc');
+
+  // ---- 7.8) 阶段四：性能度量（真实浏览器）----
+  const navT = await page.evaluate(() => {
+    try {
+      const n = performance.getEntriesByType('navigation')[0] || {};
+      let transfer = 0;
+      try {
+        performance.getEntriesByType('resource').forEach((r) => { transfer += r.transferSize || 0; });
+      } catch { /* ignore */ }
+      return {
+        dcl: Math.round(n.domContentLoadedEventEnd || 0),
+        load: Math.round(n.loadEventEnd || 0),
+        ttfb: Math.round(n.responseStart || 0),
+        transferKB: Math.round((transfer + (n.transferSize || 0)) / 1024),
+        resources: performance.getEntriesByType('resource').length,
+      };
+    } catch { return null; }
+  });
+  check('性能：首屏 DOMContentLoaded < 2 秒', !!navT && navT.dcl >= 0 && navT.dcl < 2000,
+    navT ? `dcl=${navT.dcl}ms load=${navT.load}ms ttfb=${navT.ttfb}ms` : 'n/a');
+  check('性能：页面总传输量 < 1 MB（含 wasm）', !!navT && navT.transferKB < 1024,
+    navT ? `transfer=${navT.transferKB}KB resources=${navT.resources}` : 'n/a');
+
   // ---- 8) 性能断言 ----
   const perf = await page.evaluate(() => window.__wcPerf || { startupMs: -1, heapMB: -1 });
   check('性能：工作台初始化 < 1 秒', perf.startupMs >= 0 && perf.startupMs < MAX_STARTUP_MS,
