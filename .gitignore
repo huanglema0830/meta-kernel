@@ -23,3 +23,6 @@ examples/ui-verify/ui_verify.png
 examples/ui-verify/package-lock.json
 ui_gw.log
 ui_dom.html
+
+# 宿主 crate 的构建产物（独立 crate，不并入 workspace）
+host/**/target/
