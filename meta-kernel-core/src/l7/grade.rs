@@ -161,15 +161,16 @@ pub enum Authorization {
 /// 授权判定（分级 + 授权账 + 本次是否已确认）。
 ///
 /// - T0 → `Allow`（只读不需确认）
-/// - T1 → 已授权且未撤销 → `Allow`；否则 `NeedConfirm`
-/// - T2 → 本次已确认 → `Allow`；否则 `NeedConfirm`（**每次都要确认**）
+/// - T1 → **本次已确认 或 已记忆授权且未撤销** → `Allow`；否则 `NeedConfirm`
+///   （"首次授权后免确认"：首次走 `confirmed_now=true`，之后靠 `Grants` 记忆）
+/// - T2 → 本次已确认 → `Allow`；否则 `NeedConfirm`（**每次都要确认**，不受记忆授权影响）
 /// - T3 → `Refuse`（**与是否确认无关**）
 pub fn authorize(s: &ActionSpec, g: &Grants, confirmed_now: bool) -> (Authorization, Grade) {
     let grade = grade_of(s);
     let a = match grade {
         Grade::T0Read => Authorization::Allow,
         Grade::T1LowRisk => {
-            if g.is_granted(s.id) {
+            if g.is_granted(s.id) || confirmed_now {
                 Authorization::Allow
             } else {
                 Authorization::NeedConfirm
@@ -246,10 +247,12 @@ mod tests {
         let s = spec(Scope::SelfApp, Touches::OwnFiles);
         let mut g = Grants::new();
         assert_eq!(authorize(&s, &g, false).0, Authorization::NeedConfirm, "未授权需确认");
+        assert_eq!(authorize(&s, &g, true).0, Authorization::Allow, "**首次确认即放行**");
         g.grant(s.id);
         assert_eq!(authorize(&s, &g, false).0, Authorization::Allow, "授权后免确认");
         g.revoke(s.id);
         assert_eq!(authorize(&s, &g, false).0, Authorization::NeedConfirm, "撤销后回到逐次确认");
+        assert_eq!(authorize(&s, &g, true).0, Authorization::Allow, "撤销后仍可逐次确认执行");
     }
 
     #[test]

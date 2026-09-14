@@ -189,6 +189,79 @@ try {
     !!pkg && pkg.ok && Number(pkg.headers.get('content-length') || 0) > 1024,
     pkg ? `status=${pkg.status} len=${pkg.headers.get('content-length')}` : 'fetch failed');
 
+  // ---- 7.6) L7 T1 闭环（内核只建议 + 宿主执行；只接受预置动作 id）----
+  const acts = await jget('/v1/actions');
+  let actsJ = null; try { actsJ = JSON.parse(acts.text); } catch { /* ignore */ }
+  check('L7：动作表可用且只开放 T1',
+    acts.ok && !!actsJ && actsJ.t1_only === true && Array.isArray(actsJ.actions) && actsJ.actions.length === 4,
+    `count=${actsJ && actsJ.actions ? actsJ.actions.length : '?'}`);
+  const keys = (actsJ && actsJ.actions ? actsJ.actions : []).map((a) => a.key).join(',');
+  check('L7：四个 T1 动作齐备（clean-temp/restart-watchdog/reload-config/trigger-probe）',
+    keys === 'clean-temp,restart-watchdog,reload-config,trigger-probe', keys);
+  check('L7：全部为 T1（无 T2/T3 被误放行）',
+    (actsJ && actsJ.actions ? actsJ.actions : []).every((a) => a.grade === 1));
+
+  const postJson = async (p, obj) => {
+    try {
+      const r = await fetch(base + p, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj),
+      });
+      return { ok: r.ok, status: r.status, text: await r.text() };
+    } catch { return { ok: false, status: 0, text: '' }; }
+  };
+
+  // ① 未知 id 必须拒绝
+  const badId = await postJson('/v1/grant', { id: 99, remember: false });
+  check('L7：未知动作 id 被拒（白名单之外不可执行）', badId.status === 400, `status=${badId.status}`);
+  // ② 伪令牌必须拒绝
+  const badTok = await postJson('/v1/execute', { id: 1, token: 'deadbeef' });
+  let btJ = null; try { btJ = JSON.parse(badTok.text); } catch { /* ignore */ }
+  check('L7：伪令牌被拒（防重放）', badTok.ok && btJ && btJ.ok === false, btJ ? btJ.outcome : '');
+
+  // ③ 首次授权 → 执行 → 记账（正路）
+  const g1 = await postJson('/v1/grant', { id: 3, remember: true });   // reload-config：只读+写清单，最安全
+  let g1J = null; try { g1J = JSON.parse(g1.text); } catch { /* ignore */ }
+  check('L7：授权签发一次性令牌', g1.ok && !!g1J && !!g1J.token, `status=${g1.status}`);
+  const e1 = await postJson('/v1/execute', { id: 3, token: g1J ? g1J.token : '' });
+  let e1J = null; try { e1J = JSON.parse(e1.text); } catch { /* ignore */ }
+  check('L7：首次授权 → 执行成功', e1.ok && e1J && e1J.ok === true, e1J ? String(e1J.output).slice(0, 60) : '');
+  check('L7：执行已写入审计哈希链且链完整', e1J && e1J.chain_ok === true && e1J.hash > 0);
+  // ④ 令牌一次性：同令牌再执行必须失败
+  const e2 = await postJson('/v1/execute', { id: 3, token: g1J ? g1J.token : '' });
+  let e2J = null; try { e2J = JSON.parse(e2.text); } catch { /* ignore */ }
+  check('L7：令牌一次性（重复使用被拒）', e2J && e2J.ok === false && e2J.outcome === 'bad_token');
+  // ⑤ 已授权 → 免确认（grant remember=false 即免确认路径）
+  const g2 = await postJson('/v1/grant', { id: 3, remember: false });
+  let g2J = null; try { g2J = JSON.parse(g2.text); } catch { /* ignore */ }
+  const e3 = await postJson('/v1/execute', { id: 3, token: g2J ? g2J.token : '' });
+  let e3J = null; try { e3J = JSON.parse(e3.text); } catch { /* ignore */ }
+  check('L7：授权后免确认（再次执行成功）', e3J && e3J.ok === true);
+  // ⑥ 回滚可用
+  const rb = await postJson('/v1/rollback', { id: 3 });
+  let rbJ = null; try { rbJ = JSON.parse(rb.text); } catch { /* ignore */ }
+  check('L7：回滚可用且结论如实', rb.ok && rbJ && rbJ.ok === true, rbJ ? String(rbJ.output).slice(0, 50) : '');
+  // ⑦ 撤销授权 → 需重新确认
+  const rv = await postJson('/v1/revoke', { id: 3 });
+  check('L7：撤销授权成功', rv.ok);
+  const g3 = await postJson('/v1/grant', { id: 3, remember: false });
+  let g3J = null; try { g3J = JSON.parse(g3.text); } catch { /* ignore */ }
+  const e4 = await postJson('/v1/execute', { id: 3, token: g3J ? g3J.token : '' });
+  let e4J = null; try { e4J = JSON.parse(e4.text); } catch { /* ignore */ }
+  check('L7：撤销后必须重新确认（执行被拒）', e4J && e4J.ok === false && e4J.outcome === 'revoked');
+  // ⑧ 审计链可读且带归属前缀
+  const audit = await jget('/v1/audit.txt');
+  const al = audit.text.split('\n').filter((l) => l.trim().length > 0);
+  check('L7：审计链可读且每行带 [元内核] 前缀',
+    audit.ok && al.length > 0 && al.every((l) => l.startsWith('[元内核]')), `lines=${al.length}`);
+
+  // 工作台「系统自我维护」区（Q4：放自监控面板）
+  await page.click('#wt-owner');
+  await page.waitForTimeout(900);
+  const own2 = await page.innerText('#wp-owner');
+  check('UI：自监控面板含「系统自我维护」区并列出 4 个 T1 动作',
+    own2.includes('系统自我维护') && own2.includes('清理本应用临时文件') && own2.includes('触发探针采集'));
+  await page.click('#wt-doc');
+
   // ---- 8) 性能断言 ----
   const perf = await page.evaluate(() => window.__wcPerf || { startupMs: -1, heapMB: -1 });
   check('性能：工作台初始化 < 1 秒', perf.startupMs >= 0 && perf.startupMs < MAX_STARTUP_MS,

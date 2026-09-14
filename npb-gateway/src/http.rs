@@ -120,6 +120,41 @@ fn http_ok_html(body: &str) -> String {
 /// 能力特征（**版本无关的升级判据**：老笔记本据此确认已升到含这些能力的版本）。
 const FEATURES: &str = "report,alerts,tasks,upgrade,compat,workbench";
 
+/// 宽松提取 JSON **数字**字段（如 `{"id":3}`；也兼容 `{"id":"3"}`）。
+fn extract_json_num(body: &str, key: &str) -> Option<u32> {
+    if let Some(s) = extract_json_str(body, key) {
+        if let Ok(v) = s.trim().parse::<u32>() {
+            return Some(v);
+        }
+    }
+    let pat = format!("\"{key}\"");
+    let i = body.find(&pat)?;
+    let rest = body[i + pat.len()..].trim_start();
+    let rest = rest.strip_prefix(':')?.trim_start();
+    let mut num = String::new();
+    for ch in rest.chars() {
+        if ch.is_ascii_digit() {
+            num.push(ch);
+        } else {
+            break;
+        }
+    }
+    num.parse().ok()
+}
+
+/// 宽松提取 JSON 布尔字段（如 `{"remember":true}`）。
+fn extract_json_bool(body: &str, key: &str) -> Option<bool> {
+    let t = format!("\"{key}\":true");
+    let f = format!("\"{key}\":false");
+    if body.contains(&t) {
+        return Some(true);
+    }
+    if body.contains(&f) {
+        return Some(false);
+    }
+    extract_json_str(body, key).map(|s| s.contains("true"))
+}
+
 /// 宽松提取 JSON 字符串字段（仅用于把外部投递的文本读出来记录，不参与判定）。
 /// 支持 `\"` `\\` `\n` `\r` `\t` 与 **`\uXXXX`**（CJK 常以 `\uXXXX` 传输）。
 fn extract_json_str(body: &str, key: &str) -> Option<String> {
@@ -287,6 +322,101 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
             }
             body = String::from_utf8_lossy(&body_bytes).into_owned();
         }
+    }
+
+    // ---- L7 执行层（T1 闭环 · 宿主侧执行器）----
+    // 硬约束：只接受预置动作 id；请求体无命令/路径字段；无 shell 拼接。
+    if method == "GET" && target == "/v1/actions" {
+        let mut items: Vec<String> = Vec::new();
+        for a in crate::l7_exec::ACTIONS.iter() {
+            items.push(format!(
+                "{{\"id\":{},\"key\":\"{}\",\"name\":\"{}\",\"grade\":{},\"rollback\":\"{}\"}}",
+                a.id, a.key, a.name, a.grade, a.rollback_hint
+            ));
+        }
+        let body = format!(
+            "{{\"schema\":1,\"count\":{},\"executor\":\"host\",\"t1_only\":true,\"actions\":[{}]}}",
+            items.len(),
+            items.join(",")
+        );
+        stream.write_all(http_ok(&body).as_bytes())?;
+        return Ok(());
+    }
+    if method == "GET" && target == "/v1/grants" {
+        let (g, r) = gw.exec().grants();
+        let js = |v: &Vec<u32>| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+        let body = format!("{{\"schema\":1,\"granted\":[{}],\"revoked\":[{}]}}", js(&g), js(&r));
+        stream.write_all(http_ok(&body).as_bytes())?;
+        return Ok(());
+    }
+    if method == "GET" && target == "/v1/audit.txt" {
+        stream.write_all(http_ok_plain(&gw.exec().ledger_text()).as_bytes())?;
+        return Ok(());
+    }
+    // 签发一次性令牌（remember=true 时同时写入记忆授权）
+    if method == "POST" && target == "/v1/grant" {
+        let id: u32 = extract_json_num(&body, "id").unwrap_or(0);
+        let remember = extract_json_bool(&body, "remember").unwrap_or(false);
+        match gw.exec().issue_token(id, remember) {
+            Some(tok) => {
+                gw.mon().note(crate::selfmon::Owner::WorkBuddy, "TASK", "T1 动作授权", format!("id={id} remember={remember}"));
+                let body = format!(
+                    "{{\"granted\":true,\"id\":{id},\"remember\":{remember},\"token\":\"{tok}\"}}"
+                );
+                stream.write_all(http_ok(&body).as_bytes())?;
+            }
+            None => {
+                gw.mon().count_error();
+                stream.write_all(http_err(400, "Bad Request", "{\"error\":\"unknown_action_id\"}").as_bytes())?;
+            }
+        }
+        return Ok(());
+    }
+    if method == "POST" && target == "/v1/revoke" {
+        let id: u32 = extract_json_num(&body, "id").unwrap_or(0);
+        if crate::l7_exec::action_by_id(id).is_none() {
+            stream.write_all(http_err(400, "Bad Request", "{\"error\":\"unknown_action_id\"}").as_bytes())?;
+            return Ok(());
+        }
+        gw.exec().revoke(id);
+        gw.mon().note(crate::selfmon::Owner::WorkBuddy, "TASK", "T1 动作授权撤销", format!("id={id}"));
+        stream.write_all(http_ok(&format!("{{\"revoked\":true,\"id\":{id}}}")).as_bytes())?;
+        return Ok(());
+    }
+    // 执行（唯一执行入口）：id + 一次性令牌
+    if method == "POST" && target == "/v1/execute" {
+        let id: u32 = extract_json_num(&body, "id").unwrap_or(0);
+        let tok = extract_json_str(&body, "token").unwrap_or_default();
+        let r = gw.exec().execute(id, &tok);
+        gw.mon().note(
+            crate::selfmon::Owner::Kernel,
+            if r.ok { "INFO" } else { "WARN" },
+            "T1 动作执行",
+            format!("id={} key={} -> {}", r.action_id, r.key, r.note),
+        );
+        let body = format!(
+            "{{\"ok\":{},\"id\":{},\"key\":\"{}\",\"output\":\"{}\",\"backup\":{},\"outcome\":\"{}\",\"hash\":{},\"ledger_head\":{},\"chain_ok\":{}}}",
+            r.ok, r.action_id, r.key,
+            crate::selfmon::json_escape(&r.output),
+            match &r.backup { Some(b) => format!("\"{}\"", crate::selfmon::json_escape(b)), None => "null".to_string() },
+            r.note,
+            r.hash,
+            gw.exec().ledger_head(),
+            gw.exec().ledger_verify()
+        );
+        stream.write_all(http_ok(&body).as_bytes())?;
+        return Ok(());
+    }
+    if method == "POST" && target == "/v1/rollback" {
+        let id: u32 = extract_json_num(&body, "id").unwrap_or(0);
+        let r = gw.exec().rollback(id);
+        gw.mon().note(crate::selfmon::Owner::Kernel, "INFO", "T1 动作回滚", format!("id={} -> {}", id, r.ok));
+        let body = format!(
+            "{{\"ok\":{},\"id\":{},\"output\":\"{}\",\"outcome\":\"{}\",\"hash\":{},\"chain_ok\":{}}}",
+            r.ok, r.action_id, crate::selfmon::json_escape(&r.output), r.note, r.hash, gw.exec().ledger_verify()
+        );
+        stream.write_all(http_ok(&body).as_bytes())?;
+        return Ok(());
     }
 
     // ---- 基因库持久化（v0.107 阶段一接线）：宿主存取原文，内核编解码 ----

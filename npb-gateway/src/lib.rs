@@ -19,7 +19,16 @@
 //! 3. 单写者语义显式声明：`/v1/health` 返回 `"writer":"single"`，且本文档注释固化。
 
 pub mod http;
+pub mod l7_exec;
 pub mod selfmon;
+
+/// 部署目录（可执行文件所在目录；L7 执行器的动作作用域**仅限此处与 %TEMP%\ck-net**）。
+pub fn desk_dir() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+}
 
 use std::ffi::CStr;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -195,6 +204,8 @@ pub struct Gateway {
     /// **基因库快照**（v0.107 持久化：宿主存取原文，内核编解码）。
     /// 只存取不解释——与 probe/usb 同模式；编解码由宿主侧 `meta-kernel-core` 负责。
     genelib: Arc<std::sync::Mutex<Option<String>>>,
+    /// **L7 宿主侧执行器**（T1 闭环的"执行"半；只接受预置动作 id，无 shell 拼接）。
+    exec: Arc<l7_exec::Executor>,
 }
 
 impl Gateway {
@@ -211,7 +222,13 @@ impl Gateway {
             usb: Arc::new(std::sync::Mutex::new(None)),
             mon: Arc::new(selfmon::SelfMon::new()),
             genelib: Arc::new(std::sync::Mutex::new(None)),
+            exec: Arc::new(l7_exec::Executor::new(desk_dir(), std::env::temp_dir().join("ck-net"))),
         }
+    }
+
+    /// **L7 宿主侧执行器**（T1 闭环的"执行"半）。
+    pub fn exec(&self) -> &Arc<l7_exec::Executor> {
+        &self.exec
     }
 
     /// 存储基因库快照（POST /v1/genelib；原文保存，零语义解释——编解码在宿主）。

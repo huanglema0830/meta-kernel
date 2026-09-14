@@ -178,6 +178,19 @@
         <div class="meta" id="own-alerts">（无）</div>
       </div>
       <div class="card">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-weight:600;font-size:14px">系统自我维护</div>
+          <span class="pill" id="mt-grade">首版只开放 T1</span>
+          <button class="ghost" id="mt-refresh" style="margin-left:auto">刷新</button>
+        </div>
+        <div class="meta" style="margin-bottom:6px">
+          L7 执行层：内核只出<b>建议+分级+账本</b>，真正执行由宿主完成。硬约束：<b>只接受预置动作 id</b>、
+          一次性令牌、先备份、可回滚、不碰网络配置。
+        </div>
+        <div id="mt-list">（读取中……）</div>
+        <div class="meta dim" id="mt-chain" style="margin-top:8px">审计链：—</div>
+      </div>
+      <div class="card">
         <div style="font-weight:600;font-size:14px">运行日志（含任务归属）</div>
         <div class="meta" style="margin-bottom:6px">每行前缀：<b>[元内核]</b>（系统自身）或 <b>[WorkBuddy]</b>（执行者投递）</div>
         <div id="own-log" class="dsub" style="font-family:ui-monospace,Consolas,monospace;font-size:12px;max-height:300px;overflow:auto;white-space:pre-wrap">（读取中……）</div>
@@ -507,7 +520,7 @@
       var t = $(tabs[j]);
       if (t) { t.className = (tabs[j] === wantTab) ? 'tab active' : 'tab'; }
     }
-    if (which === 'owner') { loadOwner(); }
+    if (which === 'owner') { loadOwner(); loadMaint(); }
   }
 
   /* ---------- 任务归属（元内核接管：健康报告 / 告警 / 运行日志） ---------- */
@@ -575,6 +588,103 @@
     });
   }
 
+  /* ---------- 系统自我维护（L7 T1 闭环 · 宿主执行器） ---------- */
+  function postJson(url, obj, cb) {
+    var base = gwBase();
+    if (!base) { cb(''); return; }
+    try {
+      var x = new XMLHttpRequest();
+      x.open('POST', base + url, true);
+      x.setRequestHeader('Content-Type', 'application/json');
+      x.onreadystatechange = function () {
+        if (x.readyState === 4) { cb(x.responseText || ''); }
+      };
+      x.send(JSON.stringify(obj));
+    } catch (e) { cb(''); }
+  }
+  function jp(t) { try { return JSON.parse(t); } catch (e) { return null; } }
+
+  var MT_ACTS = [];
+  function loadMaint() {
+    getText('/v1/actions', function (t) {
+      var box = $('mt-list');
+      if (!box) { return; }
+      var j = jp(t);
+      if (!j || !j.actions) { box.textContent = '（无法读取动作表——需经网关打开本页）'; return; }
+      MT_ACTS = j.actions;
+      getText('/v1/grants', function (g) {
+        var gj = jp(g) || { granted: [], revoked: [] };
+        var granted = gj.granted || [];
+        var revoked = gj.revoked || [];
+        while (box.firstChild) { box.removeChild(box.firstChild); }
+        for (var i = 0; i < MT_ACTS.length; i++) {
+          var a = MT_ACTS[i];
+          var on = granted.indexOf(a.id) >= 0 && revoked.indexOf(a.id) < 0;
+          var row = document.createElement('div');
+          row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:5px 0;flex-wrap:wrap';
+          var nm = document.createElement('span');
+          nm.style.cssText = 'min-width:170px;font-size:13px';
+          nm.textContent = a.name + '（T' + a.grade + '）';
+          var st = document.createElement('span');
+          st.className = 'dim';
+          st.style.fontSize = '11px';
+          st.textContent = on ? '已授权（免确认）' : '未授权（首次需确认）';
+          row.appendChild(nm); row.appendChild(st);
+
+          row.appendChild(mkBtn(on ? '撤销授权' : '授权', function () { mtToggle(a, on); }));
+          row.appendChild(mkBtn('执行', function () { mtRun(a); }));
+          row.appendChild(mkBtn('回滚', function () { mtRollback(a); }));
+          box.appendChild(row);
+        }
+        setText('mt-chain', '审计链：—');
+      });
+    });
+  }
+  function mkBtn(label, fn) {
+    var b = document.createElement('button');
+    b.className = 'ghost';
+    b.style.fontSize = '12px';
+    b.textContent = label;
+    b.onclick = fn;
+    return b;
+  }
+  function mtToggle(a, on) {
+    if (on) {
+      postJson('/v1/revoke', { id: a.id }, function () { mtNote(a.name + '：已撤销授权（之后需逐次确认）'); loadMaint(); });
+    } else {
+      if (!window.confirm('授权「' + a.name + '」？\n\n范围：本应用内、可逆、有回滚；不触碰网络配置。\n授权后免确认，可随时撤销。')) { return; }
+      postJson('/v1/grant', { id: a.id, remember: true }, function () { mtNote(a.name + '：已授权并记忆'); loadMaint(); });
+    }
+  }
+  function mtRun(a) {
+    var doIt = function (remember) {
+      postJson('/v1/grant', { id: a.id, remember: remember }, function (g) {
+        var gj = jp(g);
+        if (!gj || !gj.token) { mtNote(a.name + '：授权失败（动作 id 不被接受）'); return; }
+        postJson('/v1/execute', { id: a.id, token: gj.token }, function (r) {
+          var rj = jp(r) || {};
+          mtNote(a.name + '：' + (rj.ok ? '执行成功' : '未执行') + ' — ' + (rj.output || '') +
+                 (rj.chain_ok ? '｜审计链完整' : '｜审计链异常'));
+          loadMaint();
+        });
+      });
+    };
+    getText('/v1/grants', function (g) {
+      var gj = jp(g) || { granted: [], revoked: [] };
+      var on = (gj.granted || []).indexOf(a.id) >= 0 && (gj.revoked || []).indexOf(a.id) < 0;
+      if (on) { doIt(false); return; }
+      if (window.confirm('首次执行「' + a.name + '」需确认。\n\n范围：本应用内、可逆、有回滚；不触碰网络配置。\n确认执行并记住授权？')) { doIt(true); }
+    });
+  }
+  function mtRollback(a) {
+    postJson('/v1/rollback', { id: a.id }, function (r) {
+      var rj = jp(r) || {};
+      mtNote(a.name + '：回滚 ' + (rj.ok ? '成功' : '失败') + ' — ' + (rj.output || ''));
+      loadMaint();
+    });
+  }
+  function mtNote(s) { setText('mt-chain', s); }
+
   /* ---------- 绑定 ---------- */
   function bind(id, fn) { var e = $(id); if (e) { e.addEventListener('click', fn, false); } }
 
@@ -585,6 +695,7 @@
     bind('wt-diag', function () { showPanel('diag'); });
     bind('wt-owner', function () { showPanel('owner'); });
     bind('own-refresh', loadOwner);
+    bind('mt-refresh', loadMaint);
 
     /* 文档 */
     bind('doc-new', newDoc);
