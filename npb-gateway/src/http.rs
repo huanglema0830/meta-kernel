@@ -289,6 +289,19 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
         }
     }
 
+    // ---- 基因库持久化（v0.107 阶段一接线）：宿主存取原文，内核编解码 ----
+    if method == "POST" && target == "/v1/genelib" {
+        gw.store_genelib(body.clone());
+        gw.mon().note(crate::selfmon::Owner::Kernel, "INFO", "基因库快照写入", format!("len={}", body.len()));
+        let ok = http_ok(&format!("{{\"genelib_accepted\":true,\"len\":{}}}", body.len()));
+        stream.write_all(ok.as_bytes())?;
+        return Ok(());
+    }
+    if method == "GET" && target == "/v1/genelib" {
+        stream.write_all(http_ok(&gw.genelib_json()).as_bytes())?;
+        return Ok(());
+    }
+
     // ---- 元内核接管（立即移交）：自我监控 / 健康报告 / 异常告警 / 运行日志（含任务归属）----
     if target.starts_with("/v1/") {
         gw.mon().count_request();
@@ -457,6 +470,30 @@ mod http_tests {
             body.len()
         );
         raw_request(addr, &req)
+    }
+
+    /// v0.107 阶段一：基因库快照经网关存取（宿主侧持久化的端到端等价）。
+    #[test]
+    fn genelib_store_then_read_back() {
+        let mut srv = spawn(0).expect("spawn");
+        let gl = "# genelib v1\nbase\t1\tl4.threshold.high\tconst:1.618\t1,1,1,1,1,1,1\t0\nchain\t1\t0\t123\t1\t1\tconstant\n";
+        let a = post_json(&srv.addr, "/v1/genelib", gl);
+        assert!(a.contains("genelib_accepted"), "{a}");
+        let b = raw_request(&srv.addr, "GET /v1/genelib HTTP/1.1\r\nHost: x\r\n\r\n");
+        srv.stop();
+        assert!(b.starts_with("HTTP/1.1 200 OK"), "{b}");
+        assert!(b.contains("# genelib v1"), "原文返回（不解释）");
+        assert!(b.contains("const:1.618"), "内容完整");
+        assert!(b.contains("chain"), "含验证记录层");
+    }
+
+    #[test]
+    fn genelib_empty_is_null_not_error() {
+        let mut srv = spawn(0).expect("spawn");
+        let b = raw_request(&srv.addr, "GET /v1/genelib HTTP/1.1\r\nHost: x\r\n\r\n");
+        srv.stop();
+        assert!(b.starts_with("HTTP/1.1 200 OK"));
+        assert!(b.contains("null"), "未写入时为 null（非错误）: {b}");
     }
 
     #[test]

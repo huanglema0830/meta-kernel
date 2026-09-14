@@ -54,6 +54,54 @@ impl GeneLayer {
             GeneLayer::Verification => "验证记录（哈希链）",
         }
     }
+    /// 由编码还原（持久化解码用）。
+    pub fn from_code(c: u8) -> Self {
+        match c {
+            2 => GeneLayer::Scene,
+            3 => GeneLayer::Relation,
+            4 => GeneLayer::Verification,
+            _ => GeneLayer::Base,
+        }
+    }
+}
+
+// ===== 编解码辅助（零依赖）=====
+
+/// 七维签名 → `a,b,c,d,e,f,g`。
+fn sig_enc(s: &[f64; 7]) -> String {
+    s.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+}
+
+fn sig_dec(s: &str) -> Option<[f64; 7]> {
+    let mut out = [0.0f64; 7];
+    let mut n = 0;
+    for t in s.split(',') {
+        if n >= 7 { break; }
+        out[n] = t.trim().parse().ok()?;
+        n += 1;
+    }
+    Some(out)
+}
+
+fn params_enc(p: &[f64; 4]) -> String {
+    p.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+}
+
+fn params_dec(s: &str) -> Option<[f64; 4]> {
+    let mut out = [0.0f64; 4];
+    let mut n = 0;
+    for t in s.split(',') {
+        if n >= 4 { break; }
+        out[n] = t.trim().parse().ok()?;
+        n += 1;
+    }
+    Some(out)
+}
+
+/// 把解码出的字符串转成 `&'static str`。
+/// 说明：基因库条目字段为 `&'static str`；**加载一次配置**而故意泄漏，规模可控（条数有限）。
+fn leak(s: &str) -> &'static str {
+    Box::leak(s.to_string().into_boxed_str())
 }
 
 // ===== 公式：记录"怎么变化" =====
@@ -69,6 +117,8 @@ pub enum Formula {
     PassThrough,
     /// 归一加权合成：`y = Σ wᵢ·xᵢ`（多输入；如 `火 = (a+t)/2`）。
     Weighted { dims: u8, w: [f64; 7] },
+    /// **常量公式**：`y = v`（基础公式层承载"判据常量"，如 L4 黄金阈值）。
+    Constant { v: f64 },
 }
 
 impl Formula {
@@ -87,6 +137,7 @@ impl Formula {
                 }
                 acc
             }
+            Formula::Constant { v } => v,
         }
     }
 
@@ -100,6 +151,7 @@ impl Formula {
                 }
                 acc
             }
+            Formula::Constant { v } => v,
             other => other.eval(xs[0]),
         }
     }
@@ -120,6 +172,46 @@ impl Formula {
             Formula::Threshold { .. } => "threshold",
             Formula::PassThrough => "passthrough",
             Formula::Weighted { .. } => "weighted",
+            Formula::Constant { .. } => "constant",
+        }
+    }
+
+    /// 编码（持久化用；零依赖、单行、冒号分隔）。
+    pub fn encode(&self) -> String {
+        match *self {
+            Formula::Linear { a, b } => format!("lin:{a}:{b}"),
+            Formula::Threshold { lo, hi, action } => format!("thr:{lo}:{hi}:{action}"),
+            Formula::PassThrough => "pass".to_string(),
+            Formula::Constant { v } => format!("const:{v}"),
+            Formula::Weighted { dims, w } => {
+                let ws = w.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+                format!("w:{}:{}", dims, ws)
+            }
+        }
+    }
+
+    /// 解码（与 [`Formula::encode`] 对偶）。
+    pub fn decode(s: &str) -> Option<Self> {
+        let p: Vec<&str> = s.split(':').collect();
+        match p.first().copied()? {
+            "lin" => Some(Formula::Linear { a: p.get(1)?.parse().ok()?, b: p.get(2)?.parse().ok()? }),
+            "thr" => Some(Formula::Threshold {
+                lo: p.get(1)?.parse().ok()?,
+                hi: p.get(2)?.parse().ok()?,
+                action: p.get(3)?.parse().ok()?,
+            }),
+            "pass" => Some(Formula::PassThrough),
+            "const" => Some(Formula::Constant { v: p.get(1)?.parse().ok()? }),
+            "w" => {
+                let dims: u8 = p.get(1)?.parse().ok()?;
+                let mut w = [0.0; 7];
+                for (i, t) in p.get(2)?.split(',').enumerate() {
+                    if i >= 7 { break; }
+                    w[i] = t.parse().ok()?;
+                }
+                Some(Formula::Weighted { dims, w })
+            }
+            _ => None,
         }
     }
 }
@@ -318,6 +410,163 @@ impl GeneLibrary {
         id
     }
 
+    /// **基础公式层 · upsert 常量公式**（供 L4 等读取"判据常量"）。
+    /// 同名已存在则更新其值（**改基因库即改判据**）；否则新增。
+    pub fn set_base_constant(&mut self, name: &'static str, v: f64, sig: [f64; 7]) -> u32 {
+        if let Some(g) = self.base.iter_mut().find(|g| g.name == name && g.layer == GeneLayer::Base) {
+            g.formula = Formula::Constant { v };
+            return g.id;
+        }
+        let id = self.base.iter().map(|g| g.id).max().unwrap_or(0) + 1;
+        self.base.push(FormulaGene {
+            id,
+            layer: GeneLayer::Base,
+            formula: Formula::Constant { v },
+            signature: sig,
+            hits: 0,
+            name,
+        });
+        id
+    }
+
+    /// **基础公式层 · 读取常量公式的值**（未命中返回 `None` → 调用方回退内置缺省）。
+    pub fn base_constant(&self, name: &str) -> Option<f64> {
+        self.base
+            .iter()
+            .find(|g| g.name == name && g.layer == GeneLayer::Base)
+            .and_then(|g| match g.formula {
+                Formula::Constant { v } => Some(v),
+                other => Some(other.eval(1.0)),
+            })
+    }
+
+    // ===== 持久化（纯文本编解码；零依赖；宿主负责落盘/读回）=====
+
+    fn field(s: &str) -> String {
+        s.replace(['\t', '\n', '\r'], " ")
+    }
+
+    /// 编码为**单行制文本**（4 层全含；供宿主写文件）。
+    pub fn to_text(&self) -> String {
+        let mut o = String::new();
+        o.push_str("# genelib v1\n");
+        for g in &self.base {
+            o.push_str(&format!(
+                "base\t{}\t{}\t{}\t{}\t{}\n",
+                g.id,
+                Self::field(g.name),
+                g.formula.encode(),
+                sig_enc(&g.signature),
+                g.hits
+            ));
+        }
+        for s in &self.scene {
+            o.push_str(&format!(
+                "scene\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                s.id,
+                s.scene_id,
+                Self::field(s.object),
+                params_enc(&s.params),
+                s.base.earth,
+                s.base.water,
+                s.base.fire,
+                s.base.wind,
+                Self::field(s.base.established),
+                s.hits
+            ));
+        }
+        for g in &self.relation {
+            o.push_str(&format!(
+                "relation\t{}\t{}\t{}\t{}\t{}\n",
+                g.id,
+                Self::field(g.name),
+                g.formula.encode(),
+                sig_enc(&g.signature),
+                g.hits
+            ));
+        }
+        for l in &self.chain {
+            o.push_str(&format!(
+                "chain\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                l.seq,
+                l.prev_hash,
+                l.hash,
+                l.gene_id,
+                l.layer.code(),
+                Self::field(l.note)
+            ));
+        }
+        o
+    }
+
+    /// 解码（宽松：忽略空行/未知行；头部不匹配返回 `None`）。
+    pub fn from_text(t: &str) -> Option<Self> {
+        let mut lib = GeneLibrary::new();
+        let mut lines = t.lines();
+        let head = lines.next()?.trim_end_matches(['\r', '\n']);
+        if !head.starts_with("# genelib v1") {
+            return None;
+        }
+        for raw in lines {
+            let line = raw.trim_end_matches(['\r', '\n']);
+            if line.trim().is_empty() {
+                continue;
+            }
+            let f: Vec<&str> = line.split('\t').collect();
+            match f.first().copied() {
+                Some("base") if f.len() >= 6 => {
+                    lib.base.push(FormulaGene {
+                        id: f[1].parse().ok()?,
+                        layer: GeneLayer::Base,
+                        formula: Formula::decode(f[3])?,
+                        signature: sig_dec(f[4])?,
+                        hits: f[5].parse().ok()?,
+                        name: leak(f[2]),
+                    });
+                }
+                Some("relation") if f.len() >= 6 => {
+                    lib.relation.push(FormulaGene {
+                        id: f[1].parse().ok()?,
+                        layer: GeneLayer::Relation,
+                        formula: Formula::decode(f[3])?,
+                        signature: sig_dec(f[4])?,
+                        hits: f[5].parse().ok()?,
+                        name: leak(f[2]),
+                    });
+                }
+                Some("scene") if f.len() >= 11 => {
+                    lib.scene.push(SceneGene {
+                        id: f[1].parse().ok()?,
+                        scene_id: f[2].parse().ok()?,
+                        object: leak(f[3]),
+                        params: params_dec(f[4])?,
+                        base: BaselineField {
+                            earth: f[5].parse().ok()?,
+                            water: f[6].parse().ok()?,
+                            fire: f[7].parse().ok()?,
+                            wind: f[8].parse().ok()?,
+                            object: leak(f[3]),
+                            established: leak(f[9]),
+                        },
+                        hits: f[10].parse().ok()?,
+                    });
+                }
+                Some("chain") if f.len() >= 7 => {
+                    lib.chain.push(ChainLink {
+                        seq: f[1].parse().ok()?,
+                        prev_hash: f[2].parse().ok()?,
+                        hash: f[3].parse().ok()?,
+                        gene_id: f[4].parse().ok()?,
+                        layer: GeneLayer::from_code(f[5].parse().ok()?),
+                        note: leak(f[6]),
+                    });
+                }
+                _ => {}
+            }
+        }
+        Some(lib)
+    }
+
     /// 追加一条验证记录（哈希链）。
     pub fn append_verification(&mut self, gene_id: u32, layer: GeneLayer, note: &'static str) -> u64 {
         let seq = self.chain.len() as u32 + 1;
@@ -480,5 +729,99 @@ mod tests {
         assert_eq!(lib.base.len(), 1);
         assert_eq!(lib.relation.len(), 1, "不同层各自成池，不互相匹配");
         assert_eq!(lib.chain.len(), 2);
+    }
+
+    // ===== v0.107：基础公式层常量（供 L4 读判据）=====
+
+    #[test]
+    fn base_constant_upsert_and_read() {
+        let mut lib = GeneLibrary::new();
+        assert_eq!(lib.base_constant("l4.threshold.high"), None, "未登记 → None（调用方回退）");
+        let id1 = lib.set_base_constant("l4.threshold.high", 1.618, [1.0; 7]);
+        assert_eq!(lib.base_constant("l4.threshold.high"), Some(1.618));
+        let id2 = lib.set_base_constant("l4.threshold.high", 2.5, [1.0; 7]);
+        assert_eq!(id1, id2, "同名 upsert（不新增）");
+        assert_eq!(lib.base.len(), 1);
+        assert_eq!(lib.base_constant("l4.threshold.high"), Some(2.5), "改值生效");
+    }
+
+    #[test]
+    fn constant_formula_encodes_and_evals() {
+        let f = Formula::Constant { v: 0.618 };
+        assert!((f.eval(999.0) - 0.618).abs() < 1e-12, "常量与输入无关");
+        assert!((f.eval_vec(&[1.0; 7]) - 0.618).abs() < 1e-12);
+        assert_eq!(f.name(), "constant");
+        assert_eq!(Formula::decode(&f.encode()), Some(f), "编解码对偶");
+    }
+
+    // ===== v0.107：持久化（编解码 + 重启恢复）=====
+
+    fn rich_library() -> GeneLibrary {
+        let mut lib = GeneLibrary::new();
+        let tests = [ProbeResult { stimulus: 4.0, response: 9.0 }];
+        let _ = lib.learn(&[1.0; 7], &w(), 0.2, &lin_samples(), &tests, GeneLayer::Base);
+        let _ = lib.learn(&[5.0; 7], &w(), 0.2, &lin_samples(), &tests, GeneLayer::Relation);
+        lib.set_base_constant("l4.threshold.high", 1.618, [1.0; 7]);
+        lib.add_relation("火=(a+t)/2", Formula::Weighted { dims: 7, w: [0.5, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0] }, [2.0; 7]);
+        let base = BaselineField {
+            earth: 1.1, water: 0.9, fire: 2.0, wind: 1.0, object: "nb", established: "learned",
+        };
+        lib.learn_scene(42, "nb", base, [1.0, 2.0, 1.0, 2.0]);
+        lib
+    }
+
+    #[test]
+    fn persist_roundtrip_restores_all_four_layers() {
+        let lib = rich_library();
+        let before = lib.sizes();
+        let text = lib.to_text();
+        assert!(text.starts_with("# genelib v1"), "头部标记");
+        let back = GeneLibrary::from_text(&text).expect("可解码");
+        assert_eq!(back.sizes(), before, "四层条目数一致");
+        assert_eq!(back.chain_head(), lib.chain_head(), "哈希链锚点一致");
+        assert!(back.verify_chain(), "重启后哈希链仍可校验");
+        // 关键字段还原
+        assert_eq!(back.base_constant("l4.threshold.high"), Some(1.618));
+        assert_eq!(back.scene_of(42).map(|s| s.object), Some("nb"));
+        assert!((back.scene_of(42).unwrap().base.fire - 2.0).abs() < 1e-9);
+        assert_eq!(back.relation.iter().filter(|g| g.name == "火=(a+t)/2").count(), 1);
+    }
+
+    /// **验收项：基因库重启后能恢复**（含哈希链完整性与新写入能力）。
+    #[test]
+    fn restored_library_is_usable_and_chain_continues() {
+        let lib = rich_library();
+        let text = lib.to_text();
+        let mut back = GeneLibrary::from_text(&text).unwrap();
+        let head = back.chain_head();
+        // 恢复后继续写入 → 链在既有锚点上延续
+        let h2 = back.append_verification(9, GeneLayer::Relation, "after-restore");
+        assert_ne!(h2, head);
+        assert_eq!(back.chain.last().unwrap().prev_hash, head, "链节接续（不重置）");
+        assert!(back.verify_chain(), "接续后仍完整");
+        // 恢复后仍可学习（命中既有条目）
+        let tests = [ProbeResult { stimulus: 4.0, response: 9.0 }];
+        let o = back.learn(&[1.0; 7], &w(), 0.2, &lin_samples(), &tests, GeneLayer::Base);
+        assert!(matches!(o, LearnOutcome::Reused { .. }), "恢复后命中既有公式：{o:?}");
+    }
+
+    #[test]
+    fn decode_rejects_foreign_or_empty_text() {
+        assert!(GeneLibrary::from_text("").is_none(), "空文本不是基因库");
+        assert!(GeneLibrary::from_text("hello\nworld").is_none(), "无头部");
+        // 头部正确但含未知行 → 宽松忽略，不崩
+        let ok = GeneLibrary::from_text("# genelib v1\nunknown\tx\ty\n");
+        assert!(ok.is_some());
+        assert_eq!(ok.unwrap().sizes(), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn persist_escapes_tabs_and_newlines_in_fields() {
+        let mut lib = GeneLibrary::new();
+        lib.set_base_constant("name\twith\ttab", 1.0, [1.0; 7]);
+        let t = lib.to_text();
+        let back = GeneLibrary::from_text(&t).unwrap();
+        assert_eq!(back.base.len(), 1, "含制表符的名字不会撑破字段数");
+        assert_eq!(back.base[0].name, "name with tab", "制表符被替换为空格");
     }
 }

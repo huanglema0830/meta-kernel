@@ -246,6 +246,38 @@ impl Context {
     }
 }
 
+// ===== v0.107 接线：L5 本底场 ← 基因库「场景公式层」=====
+
+use crate::gene_library::GeneLibrary;
+use crate::l5_baseline::BaselineField;
+
+/// **按语境取本底场**（L5 接线入口）。
+///
+/// 流程：语境 → `scene_id` → 查基因库**场景公式层** →
+/// - **命中**：直接返回该场景已存的本底场（不同场景 → 不同本底场）；
+/// - **未命中**：用本次采样 `learn` 建立本底场，并**登记进场景公式层**（下次命中即复用）。
+///
+/// 返回 `(本底场, 是否命中已有场景)`。
+pub fn scene_baseline(
+    lib: &mut GeneLibrary,
+    ctx: &Context,
+    samples: &[[f64; 4]],
+    object: &'static str,
+) -> (BaselineField, bool) {
+    let sid = ctx.scene_id();
+    if let Some(sg) = lib.scene_of(sid) {
+        return (sg.base, true);
+    }
+    let b = BaselineField::learn(samples, object);
+    lib.learn_scene(sid, object, b, ctx.params());
+    (b, false)
+}
+
+/// 只读查询：该语境是否已有场景公式（不写入）。
+pub fn scene_baseline_of(lib: &GeneLibrary, ctx: &Context) -> Option<BaselineField> {
+    lib.scene_of(ctx.scene_id()).map(|s| s.base)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,5 +347,58 @@ mod tests {
         assert_eq!(u.scene_id(), Context::capture(&[f64::NAN; 7], None).scene_id());
         assert!(u.scene_id() != 0);
         assert_eq!(u.label(), "unknown/unknown/unknown/unknown");
+    }
+
+    // ===== v0.107 接线测试：L5 本底场 ← 场景公式层 =====
+
+    fn ctx_a() -> Context {
+        // 安静态：t 低 → Idle；a 低 → Cool
+        let mut s = [0.1f64; 7];
+        s[5] = 0.2; s[2] = 0.3;
+        Context::capture(&s, Some("2015-notebook"))
+    }
+    fn ctx_b() -> Context {
+        // 忙态：t 高 → Burst；a 高 → Hot
+        let mut s = [0.9f64; 7];
+        s[5] = 1.6; s[2] = 1.4;
+        Context::capture(&s, Some("2015-notebook"))
+    }
+
+    #[test]
+    fn scene_baseline_registers_then_reuses() {
+        let mut lib = GeneLibrary::new();
+        let a = ctx_a();
+        let samples = [[1.0, 1.0, 1.0, 1.0], [1.2, 0.9, 1.1, 1.0]];
+        let (b1, hit1) = scene_baseline(&mut lib, &a, &samples, "2015-notebook");
+        assert!(!hit1, "首次：未命中 → 建立并登记");
+        assert!((b1.earth - 1.1).abs() < 1e-9, "learn 均值");
+        assert_eq!(lib.scene.len(), 1);
+        let (b2, hit2) = scene_baseline(&mut lib, &a, &samples, "2015-notebook");
+        assert!(hit2, "二次：命中场景公式");
+        assert_eq!(b2.to_array(), b1.to_array());
+        assert_eq!(lib.scene.len(), 1, "命中不新增条目");
+    }
+
+    /// **验收项：L5 不同场景有不同本底场**。
+    #[test]
+    fn different_scenes_have_different_baselines() {
+        let mut lib = GeneLibrary::new();
+        let sa = [[1.0, 1.0, 1.0, 1.0]];
+        let sb = [[2.0, 3.0, 4.0, 5.0]];
+        let (ba, _) = scene_baseline(&mut lib, &ctx_a(), &sa, "obj");
+        let (bb, _) = scene_baseline(&mut lib, &ctx_b(), &sb, "obj");
+        assert_ne!(ba.to_array(), bb.to_array(), "不同场景 → 不同本底场（验收项）");
+        assert_eq!(lib.scene.len(), 2, "两个场景各一条");
+        assert_ne!(ctx_a().scene_id(), ctx_b().scene_id());
+        // 只读查询与写入结果一致
+        assert_eq!(scene_baseline_of(&lib, &ctx_a()).unwrap().to_array(), ba.to_array());
+        assert_eq!(scene_baseline_of(&lib, &ctx_b()).unwrap().to_array(), bb.to_array());
+    }
+
+    #[test]
+    fn scene_baseline_isolated_by_context() {
+        let mut lib = GeneLibrary::new();
+        let (_, _) = scene_baseline(&mut lib, &ctx_a(), &[[1.0; 4]], "obj");
+        assert!(scene_baseline_of(&lib, &ctx_b()).is_none(), "未登记的语境查不到");
     }
 }

@@ -36,6 +36,16 @@ impl Band {
 
 /// 逐分量对比 → 亢枯平（顺序 earth/water/fire/wind）。
 pub fn compare(cur: &[f64; 4], base: &BaselineField) -> [Band; 4] {
+    compare_with(cur, base, &crate::l4::threshold::Thresholds::defaults())
+}
+
+/// **判据可注入版**（v0.107 接线）：判据由基因库基础公式层提供
+/// （经 [`crate::l4::threshold::from_library`]）。
+pub fn compare_with(
+    cur: &[f64; 4],
+    base: &BaselineField,
+    th: &crate::l4::threshold::Thresholds,
+) -> [Band; 4] {
     let mut out = [Band::Ping; 4];
     for i in 0..4 {
         let bl = base.to_array()[i];
@@ -44,9 +54,9 @@ pub fn compare(cur: &[f64; 4], base: &BaselineField) -> [Band; 4] {
         } else {
             (cur[i] / bl).abs()
         };
-        out[i] = if dev > GOLDEN_HIGH {
+        out[i] = if dev > th.high {
             Band::Kang
-        } else if dev < GOLDEN_LOW {
+        } else if dev < th.low {
             Band::Ku
         } else {
             Band::Ping

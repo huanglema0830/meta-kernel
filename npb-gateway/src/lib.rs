@@ -192,6 +192,9 @@ pub struct Gateway {
     usb: Arc<std::sync::Mutex<Option<String>>>,
     /// 自我监控 / 健康报告 / 异常告警 / 运行日志（含任务归属；只观测不干预）。
     mon: Arc<selfmon::SelfMon>,
+    /// **基因库快照**（v0.107 持久化：宿主存取原文，内核编解码）。
+    /// 只存取不解释——与 probe/usb 同模式；编解码由宿主侧 `meta-kernel-core` 负责。
+    genelib: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl Gateway {
@@ -207,7 +210,29 @@ impl Gateway {
             probe: Arc::new(std::sync::Mutex::new(None)),
             usb: Arc::new(std::sync::Mutex::new(None)),
             mon: Arc::new(selfmon::SelfMon::new()),
+            genelib: Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+
+    /// 存储基因库快照（POST /v1/genelib；原文保存，零语义解释——编解码在宿主）。
+    pub fn store_genelib(&self, body: String) {
+        if let Ok(mut g) = self.genelib.lock() {
+            *g = Some(body);
+        }
+    }
+
+    /// 读取基因库快照（GET /v1/genelib）。
+    pub fn genelib_json(&self) -> String {
+        self.genelib
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .unwrap_or_else(|| "{\"genelib\":null}".to_string())
+    }
+
+    /// 基因库是否已有快照（自监控/健康报告用）。
+    pub fn has_genelib(&self) -> bool {
+        self.genelib.lock().map(|g| g.is_some()).unwrap_or(false)
     }
 
     /// 自我监控器（自我监控 / 健康报告 / 异常告警 / 运行日志）。只观测，不干预内核。

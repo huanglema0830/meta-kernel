@@ -86,12 +86,22 @@ impl FieldState {
 
     /// 偏离 > 1.618 的维度数。
     pub fn count_high(&self, base: &FieldState) -> usize {
-        self.deviations(base).iter().filter(|&&d| d > GOLDEN_HIGH).count()
+        self.count_high_with(base, GOLDEN_HIGH)
     }
 
     /// 偏离 < 0.618 的维度数。
     pub fn count_low(&self, base: &FieldState) -> usize {
         let low = crate::l4::threshold::GOLDEN_LOW;
+        self.count_low_with(base, low)
+    }
+
+    /// **判据可注入版**：偏离 > `high` 的维度数（`high` 由基因库基础公式层提供）。
+    pub fn count_high_with(&self, base: &FieldState, high: f64) -> usize {
+        self.deviations(base).iter().filter(|&&d| d > high).count()
+    }
+
+    /// **判据可注入版**：偏离 < `low` 的维度数。
+    pub fn count_low_with(&self, base: &FieldState, low: f64) -> usize {
         self.deviations(base).iter().filter(|&&d| d < low).count()
     }
 }

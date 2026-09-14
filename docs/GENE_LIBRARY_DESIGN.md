@@ -1,4 +1,4 @@
-# 基因库设计（GENE_LIBRARY_DESIGN）v1.0 · 四层结构
+# 基因库设计（GENE_LIBRARY_DESIGN）v1.2 · 四层结构
 
 > 状态：**v1.0（2026-09-14，首次成档）** ｜ 依据：发起人指令「基因内核推进 · L0-L6 迭代修正 + 基因库 + L7 执行层」
 > 对应：`docs/LAYER_ARCHITECTURE.md`（L0–L10）、`docs/SILA_IMPLEMENTATION.md`（戒律机制）、
@@ -237,33 +237,39 @@ L0 0 锚点（待激发的纯粹存在，能量源）
 
 ## 8. 边界与现状（诚实说明）
 
-> **v1.1 更新**：四层结构**已实现为模块**（`meta-kernel-core/src/gene_library.rs`），
-> 但**与 L4/L5 的"接线"尚未完成**——L4 阈值仍为常量、L5 本底场仍为数值地图，**尚未真正从基因库读取**。
+> **v1.2 更新（v0.107 阶段一完成）**：**与 L4/L5 的接线已完成**；**持久化已实现**（编解码 + 网关端点）。
 
 | 层级 | 状态 | 说明 |
 |---|---|---|
-| 第 1 层 基础公式（元素层） | ✅ **模块已实现** | `GeneLibrary::base` + `learn(GeneLayer::Base)`（命中复用 / 未命中生长入库） |
-| 第 2 层 场景公式（场景层） | ✅ **模块已实现** | `GeneLibrary::scene` + `learn_scene(scene_id, …)`（同场景复用，只切参数不新增条目） |
-| 第 3 层 计算关系（公式层） | ✅ **模块已实现** | `GeneLibrary::relation` + `add_relation(name, Formula::…, sig)` |
-| 第 4 层 验证记录（哈希链） | ✅ **模块已实现** | `GeneLibrary::chain` + `append_verification` + `verify_chain()`（篡改可检出） |
-| 公式存储引擎 | ✅ 已实现 | `Formula`：Linear / Threshold / PassThrough / Weighted（记录"怎么变化"） |
-| 学习机制闭环 | ✅ 已实现 | 复用 `dna_trace`（匹配）+ `dna_generate`（归纳/验证） |
-| 语境模块 | ✅ **模块已实现** | `meta-kernel-core/src/l5_context.rs`（类型/时间/历史/环境 + 场景识别） |
-| **与 L4/L5 的接线** | ❌ **未实现** | L4 阈值仍硬编码常量；L5 本底场仍是数值地图——**尚未改为从基因库读取** |
-| **持久化** | ❌ 未实现 | 基因库目前为内存结构；编解码/持久化由宿主负责（未提供） |
+| 第 1 层 基础公式（元素层） | ✅ **已实现 + 已接线** | 新增 `Formula::Constant`；L4 判据（1.618 / 0.618）登记于此层，L4 经 `threshold::from_library` 读取 |
+| 第 2 层 场景公式（场景层） | ✅ **已实现 + 已接线** | L5 经 `l5_context::scene_baseline` 按语境取本底场（未命中则建立并登记） |
+| 第 3 层 计算关系（公式层） | ✅ **已实现** | `GeneLibrary::relation` + `add_relation`（尚未被上层读取，属"备而可用"） |
+| 第 4 层 验证记录（哈希链） | ✅ **已实现** | 篡改可检出；**持久化后仍可校验**（`verify_chain` 通过） |
+| 公式存储引擎 | ✅ 已实现 | Linear / Threshold / PassThrough / Weighted / **Constant** |
+| 学习机制闭环 | ✅ 已实现 | 复用 `dna_trace` + `dna_generate` |
+| 语境模块 | ✅ 已实现 | `l5_context.rs` |
+| **与 L4/L5 的接线** | ✅ **已完成（v0.107）** | L4：判据可注入（`check_state_with` / `check_state_from_library`）；L5：本底场走场景公式层 |
+| **持久化** | ✅ **已实现（v0.107）** | `to_text` / `from_text`（单行制、零依赖）+ 网关 `POST/GET /v1/genelib`（宿主存取原文） |
 
-**不做伪能力宣称**：四层结构的**数据模型与算法已落地并有单测**（内核 215 测试全绿），
-但"L4/L5 真正消费基因库"这一步**尚未完成**——这是下一步的工作，不是已完成的事实。
+**不做伪能力宣称**：
+- 第 3 层（计算关系）**已入库但尚未被上层读取**——这是"备而可用"，不是"已在使用"。
+- L5 的**判据**（亢/枯/平）已提供可注入版本（`compare_with`），但**默认路径仍用内置常量**；
+  如需完全由基因库驱动，还需在宿主启动时 `seed_into` 并走 `compare_with`（下一步）。
+- 基因库**文件落盘仍由宿主负责**（内核只做编解码；网关提供存取端点）。
 
 ---
 
 ## 9. 版本记录
 
-- **v1.1（2026-09-14）：四层结构实现落地**
-  - `meta-kernel-core/src/gene_library.rs`：四层（base/scene/relation/chain）+ 公式存储 +
-    学习机制（`learn` / `learn_scene`）+ 哈希链（`append_verification` / `verify_chain` / `chain_head`）。
-  - `meta-kernel-core/src/l5_context.rs`：语境模块（类型/时间/历史/环境 → `Context::capture` → `scene_id`）。
-  - 内核测试 201 → 215（+14）。**边界**：与 L4/L5 的接线与持久化尚未实现（见 §8）。
-- **v1.0（2026-09-14）**：首次成档。四层结构（基础公式/场景公式/计算关系/验证记录）定义；
-  过程存储、学习机制、跨层契约（L4 判据 / L5 场景 / L6 词汇表）、人类基因库对比、
-  与现有实现的逐条对应与边界说明。
+- **v1.2（2026-09-14 · v0.107 阶段一完成）：接线 + 持久化落地**
+  - `Formula::Constant`（基础公式层承载判据常量）+ `encode`/`decode`。
+  - `GeneLibrary::set_base_constant` / `base_constant`（upsert 读值）。
+  - `to_text` / `from_text`：四层 + 哈希链**完整往返**；恢复后 `verify_chain()` 通过、可继续学习与追加链节。
+  - **L4 接线**：`l4::threshold::{Thresholds, seed_into, from_library}`；`check_state_with` / `check_state_from_library`；
+    `dimension::{count_high_with, count_low_with}`；`l5_compare::compare_with`。
+  - **L5 接线**：`l5_context::{scene_baseline, scene_baseline_of}`。
+  - 网关：`POST/GET /v1/genelib`（原文存取，零语义解释）。
+  - 测试：内核 215 → **232**（+17）；网关 23 → **25**。
+  - **验收**：① 改基因库即改 L4 判据 ✅ ② 不同场景不同本底场 ✅ ③ 基因库重启后能恢复 ✅
+- **v1.2（2026-09-14）：四层结构实现落地**（模块 + 学习 + 哈希链；接线与持久化当时未做）
+- **v1.0（2026-09-14）**：首次成档（四层结构定义 + 跨层契约 + 与现有实现对应与边界）
