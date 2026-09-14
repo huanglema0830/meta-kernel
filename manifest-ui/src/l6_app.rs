@@ -134,10 +134,18 @@ pub fn auth_clear() {
 
 /// 设备台提示（本机网关 + 一键探针 URL）。
 pub fn device_hint() {
-    let host = web_sys::window()
-        .and_then(|w| w.location().host().ok())
-        .unwrap_or_else(|| "127.0.0.1:3000".into());
-    let base = format!("http://{host}");
+    // 同源优先：origin 含协议，最准确（https 访问时不会错写成 http）；
+    // 回退 host；再回退默认 127.0.0.1:3000（file:// 直开场景）。
+    let base = web_sys::window()
+        .and_then(|w| w.location().origin().ok())
+        .filter(|o| !o.is_empty() && o != "null")
+        .or_else(|| {
+            web_sys::window()
+                .and_then(|w| w.location().host().ok())
+                .filter(|h| !h.is_empty())
+                .map(|h| format!("http://{h}"))
+        })
+        .unwrap_or_else(|| "http://127.0.0.1:3000".into());
     set_text("dev-gw", &base);
     set_text("dev-url", &format!("{base}/run-probe.bat"));
     set_text("hint-url", &format!("{base}/run-probe.bat"));

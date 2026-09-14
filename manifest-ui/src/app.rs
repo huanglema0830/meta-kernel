@@ -93,7 +93,17 @@ fn status(txt: &str, ok: bool) {
 
 impl App {
     fn new() -> Self {
+        // 网关地址解析顺序（v0.099 修复：原为硬编码 3000，换端口/局域网访问会连错）：
+        //   ① localStorage（用户手动指定，最高优先）
+        //   ② **同源 origin**（页面由网关托管时的正确地址；端口与 IP 变化自动跟随）
+        //   ③ 回退 127.0.0.1:3000（file:// 直开等无 origin 的场景）
         let gw = storage().and_then(|s| s.get_item(LS_GW).ok().flatten())
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| {
+                web_sys::window()
+                    .and_then(|w| w.location().origin().ok())
+                    .filter(|o| !o.is_empty() && o != "null")
+            })
             .unwrap_or_else(|| "http://127.0.0.1:3000".into());
         let entries = storage().and_then(|s| s.get_item(LS_ENTRIES).ok().flatten())
             .map(|raw| raw.split('\n').filter_map(Entry::from_line).collect::<Vec<_>>())
