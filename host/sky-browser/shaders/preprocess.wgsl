@@ -36,17 +36,19 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>) {
     let clip = camera.view_proj * vec4<f32>(elem.position, 1.0);
     if (clip.w <= 0.0) { return; }
     let ndc = clip.xyz / clip.w;
-    let screen = vec2<f32>((ndc.x * 0.5 + 0.5) * camera.viewport.x,
-                           (1.0 - (ndc.y * 0.5 + 0.5)) * camera.viewport.y);
+    // ⚠️ v0.116 实测修正：render.wgsl 的 `@builtin(position)` 要的是**裁剪空间**（|x|,|y| ≤ w），
+    // 不是像素坐标。原骨架把像素坐标直接写进 position → 全部落在屏幕外（画面全平，方差 0）。
+    // 故此处统一用 **NDC**：位置写 ndc.xy，协方差也用归一化焦距（省去 W/H 缩放）。
+    let screen = ndc.xy;
 
     // 各向异性尺度由 Gabor 的 σ 与 γ 给出（γ 越小越"条状"）
     let sx = gabor.sigma * (1.0 - gabor.gamma * 0.5);
     let sy = gabor.sigma * (1.0 + gabor.gamma * 0.5);
     let sigma3d = mat3x3<f32>(sx * sx, 0.0, 0.0, 0.0, sy * sy, 0.0, 0.0, 0.0, 0.01);
 
-    let f = camera.focal;
-    let j = mat3x3<f32>(f.x / clip.w, 0.0, -f.x * ndc.x / clip.w,
-                        0.0, f.y / clip.w, -f.y * ndc.y / clip.w,
+    // 归一化 Jacobian（focal = 1，单位由「像素」改为「NDC」）——与上面的坐标口径一致
+    let j = mat3x3<f32>(1.0 / clip.w, 0.0, -ndc.x / clip.w,
+                        0.0, 1.0 / clip.w, -ndc.y / clip.w,
                         0.0, 0.0, 0.0);
     let cov2d = mat2x2<f32>(dot(j[0].xy, sigma3d[0].xy), dot(j[0].xy, sigma3d[1].xy),
                             dot(j[1].xy, sigma3d[0].xy), dot(j[1].xy, sigma3d[1].xy));

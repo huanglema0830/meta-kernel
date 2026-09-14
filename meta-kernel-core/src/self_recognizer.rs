@@ -8,7 +8,7 @@
 //! - `self_intensity`（0-1）表示自我感强度（= 当前最强习气强度）。
 
 use crate::habit::{Habit, HabitPool, habit_strength};
-use crate::trace::{self, Trace, TraceType};
+use crate::trace::{self, Trace};
 
 /// 自我识别阈值。
 pub const SELF_THRESHOLD: f32 = 0.7;

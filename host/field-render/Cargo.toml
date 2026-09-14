@@ -1,0 +1,21 @@
+# 场域呈现器（wgpu 独立管线）· **刻意不并入根 workspace**（wgpu/winit 会让 CI 的 Linux 构建失败）
+# 与 wry 版 sky-browser 完全独立：那条是降级路径，这条是不依赖 WebView2 的场域渲染。
+[package]
+name = "field-render"
+version = "0.1.0"
+edition = "2021"
+description = "场域呈现器：场域状态 → 高斯泼溅 → wgpu 渲染（不依赖 WebView2）"
+
+[workspace]
+
+[dependencies]
+wgpu = "23"
+winit = "0.30"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+
+# 接入内核（路径依赖）：内核自身仍是**零依赖**，依赖方向是 host → kernel
+meta-kernel-core = { path = "../../meta-kernel-core" }
+
+[profile.release]
+opt-level = 3

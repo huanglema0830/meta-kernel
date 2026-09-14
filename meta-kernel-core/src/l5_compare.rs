@@ -3,7 +3,7 @@
 //! 逐分量偏离 = |当前 / 本底|：> GOLDEN_HIGH(1.618…) → 亢；< GOLDEN_LOW(0.618…) → 枯；
 //! 否则 → 平。只读对比，不缓存（纯函数）。
 
-use crate::l4::threshold::{GOLDEN_HIGH, GOLDEN_LOW};
+
 use crate::l5_baseline::BaselineField;
 
 /// 分量状态带。

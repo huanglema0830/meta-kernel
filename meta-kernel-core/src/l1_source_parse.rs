@@ -115,7 +115,6 @@ pub fn scan_html(html: &str) -> SourceStats {
     let mut st = SourceStats::default();
     let mut tags: Vec<String> = Vec::new();
     let mut unique: Vec<String> = Vec::new();
-    let mut depth: u32 = 0;
     let mut max_depth: u32 = 0;
     // 每层的子元素计数栈（真正的层级统计）
     let mut child_stack: Vec<u32> = Vec::new();
@@ -210,9 +209,9 @@ pub fn scan_html(html: &str) -> SourceStats {
                     }
                     child_stack.push(0);
                     tags.push(name.clone());
-                    depth = child_stack.len() as u32;
-                    if depth > max_depth {
-                        max_depth = depth;
+                    let d = child_stack.len() as u32;
+                    if d > max_depth {
+                        max_depth = d;
                     }
                 } else if let Some(top) = child_stack.last_mut() {
                     *top += 1;
@@ -227,7 +226,6 @@ pub fn scan_html(html: &str) -> SourceStats {
                             child_counts.push(c);
                         }
                     }
-                    depth = child_stack.len() as u32;
                 } else {
                     // 无匹配闭合（畸形 HTML）→ 忽略，不 panic
                 }
