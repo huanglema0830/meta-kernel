@@ -136,6 +136,7 @@
           <button class="ghost" id="fc-refresh" style="margin-left:auto">重新解析</button>
         </div>
         <div class="meta" id="fc-read" style="margin-top:6px">（未解析）</div>
+        <div class="meta dim" id="host-channel" style="font-size:11px"></div>
         <div class="meta dim" id="fc-params" style="font-size:11px"></div>
         <div class="meta dim" style="font-size:11px;margin-top:4px">
           说明：**网页内容始终可见**——场域模式只是叠加一层场域呈现（强度随置信度，上限 35%），
@@ -1070,6 +1071,25 @@
     }
   }
 
+  /* ---------- 宿主频道（WebView 宿主 vs 浏览器）：Q1 降级契约的可观测点 ---------- */
+  function hostChannel() {
+    try {
+      var q = String(window.location.search || '');
+      if (/host=webview/.test(q)) { return 'WebView 宿主（只读+叠层）'; }
+      if (/host=webview2/.test(q)) { return 'WebView2 宿主'; }
+    } catch (e) { }
+    return '系统浏览器（降级 B）';
+  }
+  function hostShow() {
+    var el = $('host-channel');
+    if (!el) { return; }
+    var c = hostChannel();
+    el.textContent = '频道：' + c;
+    el.title = c.indexOf('WebView') >= 0
+      ? '当前由原生 WebView 宿主承载（可读取页面内容 → 场域解析完整）'
+      : '当前为浏览器承载（降级 B）：第三方站点受同源策略限制，场域解析仅对本页内容可用';
+  }
+
   /* ---------- 绑定 ---------- */
   function bind(id, fn) { var e = $(id); if (e) { e.addEventListener('click', fn, false); } }
 
@@ -1118,6 +1138,7 @@
     bind('fc-blend', function () { faceSet('blend'); });
     bind('fc-refresh', fpRun);
     faceInit();
+    hostShow();
     (function () {
       /* wasm 就绪后自动跑一次解析（不阻塞首屏） */
       var tries = 0;

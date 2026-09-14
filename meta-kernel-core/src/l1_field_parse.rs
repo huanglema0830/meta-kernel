@@ -191,12 +191,65 @@ pub fn classify(s: &PageSignal) -> ContentClass {
     ContentClass::Unknown
 }
 
+// ===== v0.112 接线：场域指纹 → 痕迹池 =====
+//
+// 复用**已有**的痕迹设施（不自造第二套）：
+// - `trace::fingerprint_of`（能量流模式指纹）→ 同模式聚合成**习气**
+// - `trace::decide_type`（风水火地类型）→ 痕迹分类
+// - `trace::Trace` 可直接交给 `TraceStore::record` 或 `HabitPool::observe`
+
+/// 四场读数的波幅（离散度），供痕迹类型判定用。
+pub fn volatility_of(r: &FieldReading) -> f32 {
+    let a = r.to_array();
+    let mean = (a[0] + a[1] + a[2] + a[3]) / 4.0;
+    let mut v = 0.0;
+    for x in a {
+        v += (x - mean) * (x - mean);
+    }
+    ((v / 4.0).sqrt() as f32).clamp(0.0, 1.0)
+}
+
+/// 四场均值（作为"能量流"口径）。
+pub fn flow_of(r: &FieldReading) -> f32 {
+    let a = r.to_array();
+    (((a[0] + a[1] + a[2] + a[3]) / 4.0).clamp(0.0, 1.0)) as f32
+}
+
+/// **场域指纹**（接入痕迹池）：同场域模式 → 同指纹 → 习气累积。
+pub fn field_fingerprint(r: &FieldReading) -> u64 {
+    let s = [r.earth as f32, r.water as f32, r.fire as f32, r.wind as f32];
+    crate::trace::fingerprint_of(&s, flow_of(r))
+}
+
+/// 痕迹类型（复用 `trace::decide_type`；不自创分类）。
+pub fn field_trace_type(r: &FieldReading) -> crate::trace::TraceType {
+    let a = r.to_array();
+    let volatility = volatility_of(r);
+    let compound = (a[0] + a[2]) as f32 / 2.0; // 地+火 视为"复合活动"
+    crate::trace::decide_type(volatility, compound, flow_of(r))
+}
+
+/// **生成一条痕迹**（可直接 `TraceStore::record` / `HabitPool::observe`）。
+pub fn field_trace(r: &FieldReading, step: u64) -> crate::trace::Trace {
+    crate::trace::Trace {
+        step,
+        intensity: r.confidence.clamp(0.0, 1.0) as f32,
+        trace_type: field_trace_type(r),
+        fingerprint: field_fingerprint(r),
+        energy_flow: flow_of(r),
+    }
+}
+
+/// 七维签名（接入 `dna_trace` 七维痕迹池：`match_trace` / `store`）。
+pub fn field_signature7(r: &FieldReading) -> [f64; 7] {
+    [r.earth, r.water, r.fire, r.wind, r.confidence, flow_of(r) as f64, volatility_of(r) as f64]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn article() -> PageSignal {
-        PageSignal {
+    fn article() -> PageSignal {        PageSignal {
             text_len: 6000, paragraph_count: 20, heading_count: 6, link_count: 5,
             image_count: 1, media_count: 0, interactive_count: 0, script_count: 3,
         }
@@ -313,5 +366,55 @@ mod tests {
         let high = confidence_of(&article());
         assert!(high > low, "{high} 应大于 {low}");
         assert!(high <= 1.0);
+    }
+
+    // ===== v0.112 接线测试：场域指纹 → 痕迹池 =====
+
+    #[test]
+    fn fingerprint_is_stable_and_pattern_sensitive() {
+        let a = parse(&article());
+        let same = parse(&article());
+        assert_eq!(field_fingerprint(&a), field_fingerprint(&same), "同模式 → 同指纹（幂等）");
+        let m = parse(&media());
+        assert_ne!(field_fingerprint(&a), field_fingerprint(&m), "不同模式 → 不同指纹");
+    }
+
+    #[test]
+    fn trace_can_be_recorded_and_aggregated_into_habit() {
+        use crate::habit::HabitPool;
+        use crate::trace::TraceStore;
+        let r = parse(&article());
+        let mut store = TraceStore::with_cap(16);
+        let mut pool = HabitPool::new();
+        for step in 1..=5u64 {
+            let t = field_trace(&r, step);
+            assert!(t.intensity > 0.0 && t.energy_flow >= 0.0);
+            pool.observe(&t);
+            store.record(t);
+        }
+        assert_eq!(store.len(), 5, "痕迹入池");
+        assert_eq!(pool.len(), 1, "同指纹聚合成 1 条习气");
+    }
+
+    #[test]
+    fn signature7_feeds_dna_trace_pool() {
+        use crate::dna_trace::{match_trace, store, AdaptKind};
+        let r = parse(&article());
+        let sig = field_signature7(&r);
+        let mut lib = Vec::new();
+        let id = store(&mut lib, sig, AdaptKind::FieldSense);
+        assert!(id >= 1 && lib.len() == 1);
+        assert_eq!(match_trace(&lib, &sig, 1e-9), Some(0), "同签名可命中");
+        let other = field_signature7(&parse(&media()));
+        assert!(match_trace(&lib, &other, 1e-9).is_none(), "异签名不误命中");
+    }
+
+    #[test]
+    fn volatility_and_flow_are_bounded() {
+        for r in [parse(&article()), parse(&media()), parse(&PageSignal::default())] {
+            assert!((0.0..=1.0).contains(&volatility_of(&r)), "{}", volatility_of(&r));
+            assert!((0.0..=1.0).contains(&flow_of(&r)));
+            assert!(field_signature7(&r).iter().all(|x| (0.0..=1.0).contains(x)));
+        }
     }
 }

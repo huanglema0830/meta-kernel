@@ -157,6 +157,104 @@ pub fn to_css(v: &VisualParams) -> String {
     )
 }
 
+// ===== v0.112 接线：摩尼宝珠 → 场域呈现 =====
+//
+// 复用**已有**的摩尼宝珠常数与语义（不自造第二套）：
+// - **镜面**：呈现层取"补相"，使叠层与内容互补而不重复（避免"内容与叠层同色 → 看不清"）
+// - **闸门**：按黄金比例拆解（`gate::DECOMPOSE_RATIO` = 0.618…）——只取一部分，不一次吃满
+// - **回归**：按 e^-0.1 向基线回落——扰动过后自动回稳
+
+/// 闸门比例（黄金分割拆解；与 `gate` 模块同一常数）。
+pub const GATE_RATIO: f64 = crate::gate::DECOMPOSE_RATIO;
+/// 自然回归系数 e^-0.1（与能量回归同口径）。
+pub const NATURAL_RETURN: f64 = 0.904_837_418_035_959_5;
+
+/// **镜面（补相）**：`x → 1 - x`（对色相/密度/节奏取补，饱和度与明度保持正向）。
+pub fn mirror_complement(v: &VisualParams) -> VisualParams {
+    VisualParams {
+        hue: (1.0 - v.hue).clamp(0.0, 1.0),
+        sat: v.sat,
+        light: (1.0 - v.light).clamp(0.0, 1.0),
+        contrast: (1.0 - v.contrast).clamp(0.0, 1.0),
+        tempo: v.tempo,
+        density: (1.0 - v.density).clamp(0.0, 1.0),
+        radius: v.radius,
+    }
+}
+
+/// **闸门（×0.618 拆解）**：把强度按黄金比例收一档，避免"一次吃满"。
+pub fn gate_once(v: &VisualParams) -> VisualParams {
+    let g = |x: f64| (x * GATE_RATIO).clamp(0.0, 1.0);
+    VisualParams {
+        hue: g(v.hue), sat: g(v.sat), light: g(v.light), contrast: g(v.contrast),
+        tempo: g(v.tempo), density: g(v.density), radius: g(v.radius),
+    }
+}
+
+/// **回归（×e^-0.1 向基线）**。
+pub fn regress_to(v: &VisualParams, base: &VisualParams) -> VisualParams {
+    let r = |x: f64, b: f64| (b + (x - b) * NATURAL_RETURN).clamp(0.0, 1.0);
+    VisualParams {
+        hue: r(v.hue, base.hue), sat: r(v.sat, base.sat), light: r(v.light, base.light),
+        contrast: r(v.contrast, base.contrast), tempo: r(v.tempo, base.tempo),
+        density: r(v.density, base.density), radius: r(v.radius, base.radius),
+    }
+}
+
+/// 摩尼宝珠链路留痕（**镜面 → 闸门 → 回归**三步的结果与中间量）。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PearlTrace {
+    pub mirrored: VisualParams,
+    pub gated: VisualParams,
+    pub regressed: VisualParams,
+}
+
+/// **摩尼宝珠 → 场域呈现**：镜面 → 闸门 → 回归，返回三步结果（最终用 `regressed`）。
+pub fn through_pearl(v: &VisualParams, base: &VisualParams) -> PearlTrace {
+    let mirrored = mirror_complement(v);
+    let gated = gate_once(&mirrored);
+    let regressed = regress_to(&gated, base);
+    PearlTrace { mirrored, gated, regressed }
+}
+
+// ===== v0.112 接线：场域状态 → 基因库「场景公式层」=====
+
+/// 由页面信号定出**场景标识**（同一"内容类别 + 四场量化桶" → 同一场景）。
+///
+/// 量化到 8 档后再哈希，使"相似内容"共享场景条目（避免场景爆炸）。
+pub fn field_scene_id(sig: &crate::l1_field_parse::PageSignal, r: &FieldReading) -> u32 {
+    let q = |x: f64| (x.clamp(0.0, 1.0) * 7.0).round() as u32; // 0..7
+    let class = crate::l1_field_parse::classify(sig).code() as u32;
+    let key = format!("fsc:{}:{}:{}:{}:{}", class, q(r.earth), q(r.water), q(r.fire), q(r.wind));
+    (crate::gene_library::fnv1a64(0xcbf2_9ce4_8422_2325, key.as_bytes()) % 1_000_000) as u32
+}
+
+/// **把场域状态写入基因库场景公式层**（同场景复用；未命中则建立并登记）。
+/// 返回 `(场景 id, 是否命中已有本底)`。
+pub fn learn_field_scene(
+    lib: &mut GeneLibrary,
+    sig: &crate::l1_field_parse::PageSignal,
+    r: &FieldReading,
+) -> (u32, bool) {
+    use crate::l5_baseline::BaselineField;
+    let sid = field_scene_id(sig, r);
+    if lib.scene_of(sid).is_some() {
+        return (sid, true);
+    }
+    let b = BaselineField {
+        earth: r.earth,
+        water: r.water,
+        fire: r.fire,
+        wind: r.wind,
+        object: "page",
+        established: "learned",
+    };
+    let params = [r.confidence, crate::l1_field_parse::flow_of(r) as f64,
+        crate::l1_field_parse::volatility_of(r) as f64, 0.0];
+    lib.learn_scene(sid, "page", b, params);
+    (sid, false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,5 +362,85 @@ mod tests {
         assert_eq!(PARAM_NAMES.len(), 7);
         assert_eq!(GENE_NAMES.len(), 7);
         assert!(GENE_NAMES.iter().all(|n| n.starts_with("fieldmap.")));
+    }
+
+    // ===== v0.112 接线测试：摩尼宝珠 → 场域呈现 =====
+
+    #[test]
+    fn pearl_three_steps_are_math_correct() {
+        let base = VisualParams::default();
+        let v = VisualParams { hue: 0.9, sat: 0.8, light: 0.7, contrast: 0.6, tempo: 0.5, density: 0.4, radius: 0.3 };
+        let t = through_pearl(&v, &base);
+        assert!((t.mirrored.hue - 0.1).abs() < 1e-12, "镜面取补相");
+        assert!((t.mirrored.sat - v.sat).abs() < 1e-12, "饱和度不补");
+        assert!((t.gated.hue - 0.1 * GATE_RATIO).abs() < 1e-12, "闸门 ×0.618");
+        // 回归：向基线（0.5）靠近
+        assert!((t.regressed.hue - (0.5 + (t.gated.hue - 0.5) * NATURAL_RETURN)).abs() < 1e-12);
+        assert!((t.regressed.hue - 0.5).abs() < (t.gated.hue - 0.5).abs(), "回归靠近基线");
+    }
+
+    #[test]
+    fn pearl_chain_stays_bounded_and_gate_never_inflates() {
+        let base = VisualParams::default();
+        for v in [
+            VisualParams::default(),
+            VisualParams { hue: 1.0, sat: 1.0, light: 1.0, contrast: 1.0, tempo: 1.0, density: 1.0, radius: 1.0 },
+            VisualParams { hue: 0.0, sat: 0.0, light: 0.0, contrast: 0.0, tempo: 0.0, density: 0.0, radius: 0.0 },
+        ] {
+            let t = through_pearl(&v, &base);
+            for x in [t.mirrored, t.gated, t.regressed] {
+                for y in [x.hue, x.sat, x.light, x.contrast, x.tempo, x.density, x.radius] {
+                    assert!((0.0..=1.0).contains(&y), "越界 {y}");
+                }
+            }
+            // 闸门只会收缩（≤ 原值），不会放大
+            assert!(t.gated.hue <= t.mirrored.hue + 1e-12 || t.mirrored.hue == 0.0);
+        }
+        assert!(GATE_RATIO > 0.6 && GATE_RATIO < 0.62, "闸门比例即黄金分割: {GATE_RATIO}");
+    }
+
+    #[test]
+    fn regress_long_run_returns_to_baseline() {
+        let base = VisualParams::default();
+        let mut v = VisualParams { hue: 1.0, sat: 1.0, light: 1.0, contrast: 1.0, tempo: 1.0, density: 1.0, radius: 1.0 };
+        for _ in 0..300 {
+            v = regress_to(&v, &base);
+        }
+        assert!((v.hue - base.hue).abs() < 1e-6 && (v.tempo - base.tempo).abs() < 1e-6, "长期回归基线");
+    }
+
+    // ===== v0.112 接线测试：场域状态 → 场景公式层 =====
+
+    #[test]
+    fn field_scene_is_stable_and_reuses() {
+        let mut l = GeneLibrary::new();
+        let sig = PageSignal { text_len: 4000, paragraph_count: 15, heading_count: 4, link_count: 4, ..Default::default() };
+        let r = parse(&sig);
+        let id1 = field_scene_id(&sig, &r);
+        assert_eq!(id1, field_scene_id(&sig, &r), "同信号 → 同场景 id");
+        let (sid, hit1) = learn_field_scene(&mut l, &sig, &r);
+        assert!(!hit1, "首次建立");
+        assert_eq!(sid, id1);
+        assert_eq!(l.scene.len(), 1);
+        let (sid2, hit2) = learn_field_scene(&mut l, &sig, &r);
+        assert!(hit2 && sid2 == sid, "二次命中复用");
+        assert_eq!(l.scene.len(), 1, "命中不新增条目");
+        // 本底即该页四场
+        let b = l.scene_of(sid).unwrap().base;
+        assert!((b.earth - r.earth).abs() < 1e-12 && (b.fire - r.fire).abs() < 1e-12);
+    }
+
+    #[test]
+    fn different_field_patterns_map_to_different_scenes() {
+        let mut l = GeneLibrary::new();
+        let a = PageSignal { text_len: 6000, paragraph_count: 20, heading_count: 6, ..Default::default() };
+        let m = PageSignal { text_len: 300, paragraph_count: 2, heading_count: 1, image_count: 40, media_count: 5, ..Default::default() };
+        let ra = parse(&a);
+        let rm = parse(&m);
+        let (s1, _) = learn_field_scene(&mut l, &a, &ra);
+        let (s2, _) = learn_field_scene(&mut l, &m, &rm);
+        assert_ne!(s1, s2, "不同场域模式 → 不同场景");
+        assert_eq!(l.scene.len(), 2);
+        assert!(l.verify_chain() || l.chain.is_empty());
     }
 }

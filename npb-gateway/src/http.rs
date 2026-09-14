@@ -826,7 +826,8 @@ Host: x
 /// v0.105：新增兼容性测试页（compat-test.html）——在老笔记本上打开即出报告（先验证再开发）。
 /// v0.106：新增升级包（upgrade-package.zip）——老笔记本经局域网一键升级（只换本应用文件）。
 /// v0.110：新增性能自检页（perf-test.html）——老笔记本实测启动/内存/渲染基准（只读+本地基准）。
-const UI_ALLOW: [(&str, &str); 15] = [
+/// v0.112：新增 WebView2 离线 Runtime 安装包——老笔记本无外网时离线装（发起人 Q3 裁决）。
+const UI_ALLOW: [(&str, &str); 17] = [
     ("/index.html", "text/html; charset=utf-8"),
     ("/manifest_ui.js", "text/javascript"),
     ("/manifest_ui_bg.wasm", "application/wasm"),
@@ -841,7 +842,9 @@ const UI_ALLOW: [(&str, &str); 15] = [
     ("/net-repair-one.bat", "text/plain; charset=utf-8"),
     ("/compat-test.html", "text/html; charset=utf-8"),
     ("/perf-test.html", "text/html; charset=utf-8"),
+    ("/webview-launch.bat", "text/plain; charset=utf-8"),
     ("/upgrade-package.zip", "application/zip"),
+    ("/MicrosoftEdgeWebView2RuntimeInstaller.exe", "application/octet-stream"),
 ];
 
 /// 由请求头取**访问来源 origin**（host[:port]），用于按访问者实际地址动态生成脚本。
@@ -1027,7 +1030,7 @@ Content-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\
     let allow = ["index.html", "manifest_ui.js", "manifest_ui_bg.wasm", "cloud-probe.exe", "cloud-discover.exe", "run-probe.bat",
         "net-check.bat", "net-repair.bat", "net-diagnose.ps1", "net-repair.ps1",
         "net-check-one.bat", "net-repair-one.bat", "compat-test.html", "perf-test.html",
-        "upgrade-package.zip"].contains(&fname);
+        "upgrade-package.zip", "webview-launch.bat", "MicrosoftEdgeWebView2RuntimeInstaller.exe"].contains(&fname);
     if !allow {
         eprintln!("serve_ui: 白名单外拒绝 {name}");
         return None;

@@ -437,6 +437,29 @@ impl GeneLibrary {
             .map(|g| g.formula)
     }
 
+    /// **关系层（公式层）· upsert 命名公式**（v0.112：四元组 `P→ΔQ` 等"公式间关系"存此层）。
+    pub fn set_relation_formula(&mut self, name: &'static str, f: Formula, sig: [f64; 7]) -> u32 {
+        if let Some(g) = self.relation.iter_mut().find(|g| g.name == name) {
+            g.formula = f;
+            return g.id;
+        }
+        let id = self.relation.iter().map(|g| g.id).max().unwrap_or(0) + 1;
+        self.relation.push(FormulaGene {
+            id,
+            layer: GeneLayer::Relation,
+            formula: f,
+            signature: sig,
+            hits: 0,
+            name,
+        });
+        id
+    }
+
+    /// **关系层 · 读取命名公式**（未命中 → `None`）。
+    pub fn relation_formula(&self, name: &str) -> Option<Formula> {
+        self.relation.iter().find(|g| g.name == name).map(|g| g.formula)
+    }
+
     /// **基础公式层 · upsert 常量公式**（供 L4 等读取"判据常量"）。
     /// 同名已存在则更新其值（**改基因库即改判据**）；否则新增。
     pub fn set_base_constant(&mut self, name: &'static str, v: f64, sig: [f64; 7]) -> u32 {
