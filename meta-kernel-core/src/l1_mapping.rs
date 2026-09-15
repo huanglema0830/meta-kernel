@@ -327,6 +327,54 @@ pub fn seed_gabor_into(lib: &mut GeneLibrary) -> usize {
     GABOR_NAMES.len() + DOG_NAMES.len()
 }
 
+/// **「喜欢」= 预测误差的降低（自由能原理）→ 相位一致性（coherence）**。
+///
+/// 旧实现把"喜欢"只做成 Gabor 的 ψ 相位偏移，实测视觉影响仅 **0.5% 像素**（太弱，且语义也牵强）。
+/// v0.122 按发起人思路重设计：自由能原理下，"喜欢"＝**预测误差降低**，
+/// 在视觉上表现为**相位一致性上升** → 画面更清晰、更连贯（详见宿主侧的三处落点）。
+///
+/// 系数存基因库（`coherence.*`）——**改库即改映射**。
+pub const COHERENCE_NAMES: [&str; 4] = [
+    "coherence.floor",
+    "coherence.like_gain",
+    "coherence.safety_gain",
+    "coherence.calm_gain",
+];
+pub const COHERENCE_DEFAULTS: [f64; 4] = [0.15, 0.70, 0.15, 0.10];
+
+/// 把一致性系数写入基因库（基础公式层）。
+pub fn seed_coherence_into(lib: &mut GeneLibrary) -> usize {
+    for i in 0..COHERENCE_NAMES.len() {
+        lib.set_base_constant(COHERENCE_NAMES[i], COHERENCE_DEFAULTS[i], [1.0; 7]);
+    }
+    COHERENCE_NAMES.len()
+}
+
+/// 读取一致性系数（基因库优先，缺项回退默认）。
+pub fn coherence_coeffs(lib: &GeneLibrary) -> [f64; 4] {
+    let mut out = COHERENCE_DEFAULTS;
+    for i in 0..4 {
+        if let Some(v) = lib.base_constant(COHERENCE_NAMES[i]) {
+            out[i] = v;
+        }
+    }
+    out
+}
+
+/// **四元组 → 相位一致性** `coherence ∈ [0,1]`。
+///
+/// `coherence = clamp(floor + like_gain·喜欢 + safety_gain·安全 + calm_gain·平静, 0, 1)`
+///
+/// 语义：喜欢（需求被满足）＋安全（可预测）＋平静（无威胁）都**降低预测误差**，
+/// 故它们共同提高相位一致性；紧张不参与（紧张是误差的**来源**，不是降低者）。
+pub fn coherence_of(q: &crate::l5_quad::Quad, lib: &GeneLibrary) -> f64 {
+    let c = coherence_coeffs(lib);
+    let liking = q.liking.clamp(0.0, 1.0);
+    let safety = q.safety.clamp(0.0, 1.0);
+    let calm = q.calm.clamp(0.0, 1.0);
+    (c[0] + c[1] * liking + c[2] * safety + c[3] * calm).clamp(0.0, 1.0)
+}
+
 /// 读取系数（基因库优先，缺项回退默认）。
 pub fn gabor_coeffs(lib: &GeneLibrary) -> [f64; 7] {
     let mut out = GABOR_DEFAULTS;
@@ -650,6 +698,39 @@ mod tests {
         }
         assert!(!css.contains('<') && !css.contains('>'), "只出键值，不含标签");
         assert!(css.contains('%') && css.contains("ms"), "单位齐备");
+    }
+
+    #[test]
+    fn coherence_is_bounded_and_monotonic_in_liking() {
+        let mut lib = GeneLibrary::new();
+        seed_coherence_into(&mut lib);
+        let mut prev = -1.0;
+        for i in 0..=10 {
+            let l = i as f64 / 10.0;
+            let q = crate::l5_quad::Quad { tension: 0.3, calm: 0.5, liking: l, safety: 0.5 };
+            let c = coherence_of(&q, &lib);
+            assert!((0.0..=1.0).contains(&c), "越界 {c}");
+            assert!(c >= prev, "喜欢上升 → 一致性不应下降（{prev} → {c}）");
+            prev = c;
+        }
+        // 极端输入仍界定
+        let lo = coherence_of(&crate::l5_quad::Quad { tension: 0.0, calm: 0.0, liking: 0.0, safety: 0.0 }, &lib);
+        let hi = coherence_of(&crate::l5_quad::Quad { tension: 1.0, calm: 1.0, liking: 1.0, safety: 1.0 }, &lib);
+        assert!(lo >= 0.0 && hi <= 1.0);
+        assert!(hi > lo, "全高应比全低更一致");
+    }
+
+    #[test]
+    fn coherence_reads_gene_library_so_changing_lib_changes_mapping() {
+        let q = crate::l5_quad::Quad { tension: 0.2, calm: 0.6, liking: 0.5, safety: 0.6 };
+        let mut a = GeneLibrary::new();
+        seed_coherence_into(&mut a);
+        let base = coherence_of(&q, &a);
+        let mut b = GeneLibrary::new();
+        seed_coherence_into(&mut b);
+        b.set_base_constant("coherence.like_gain", 0.0, [1.0; 7]); // 关掉"喜欢"的贡献
+        let after = coherence_of(&q, &b);
+        assert!(after < base, "改库即改映射：{base} → {after}");
     }
 
     #[test]

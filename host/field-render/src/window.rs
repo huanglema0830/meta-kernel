@@ -27,13 +27,16 @@ use winit::window::{Window, WindowId};
 
 use meta_kernel_core::gene_library::GeneLibrary;
 use meta_kernel_core::l1_field_parse::FieldReading;
-use meta_kernel_core::l1_mapping::{field_to_gabor_with, modulate_gabor, seed_gabor_into};
+use meta_kernel_core::l1_mapping::{
+    coherence_of, field_to_gabor_with, modulate_gabor, seed_coherence_into, seed_gabor_into,
+};
 use meta_kernel_core::l1_source_parse::parse_source;
+use meta_kernel_core::l3_world::WorldModel;
 use meta_kernel_core::l5_quad::{decide_probe, diagnose, regress, ProbeMode, ProbeReason, Quad};
 
 use crate::{
-    build_pipeline, clear_color_of, elements_of, record_field_passes, sample_pages, upload, Pipeline,
-    N_ELEMENTS,
+    blend_with_world, build_pipeline, clear_color_of, elements_of_co, field_buffer_bytes,
+    lod_n_for, record_field_passes, sample_pages, upload_co, Pipeline,
 };
 
 /// 启动选项。
@@ -266,6 +269,12 @@ struct State {
     addr: String,
     status: String,
     baseline: Quad,
+    /// **世界模型**：承载场域的累积状态；画面呈现的是它的状态（与现实场合成）。
+    world: WorldModel,
+    /// 当前相位一致性（由「喜欢＝预测误差降低」得出）。
+    coherence: f64,
+    /// 当前渲染精度档位（动态 LOD 的活跃 splat 数）。
+    n_elements: u32,
     natural_return: bool,
     probe_mode: ProbeMode,
     probe_reason: Option<ProbeReason>,
@@ -370,9 +379,10 @@ impl State {
         );
         println!("[window] 适配器: {} / {:?} / {:?}", info.name, info.backend, info.device_type);
 
-        let pipeline = build_pipeline(&device, N_ELEMENTS, format);
+        let pipeline = build_pipeline(&device, crate::N_ELEMENTS, format);
         let mut lib = GeneLibrary::new();
         seed_gabor_into(&mut lib);
+        seed_coherence_into(&mut lib); // 「喜欢＝预测误差降低」的系数（改库即改映射）
 
         // egui 三件套
         let egui_ctx = egui::Context::default();
@@ -421,6 +431,9 @@ impl State {
             addr: opt.url.clone().unwrap_or_else(|| "sample:text".to_string()),
             status: "就绪。地址栏输入 http/https 网址后回车即可取源码 → 场域呈现。".to_string(),
             baseline,
+            world: WorldModel::new(),
+            coherence: 0.0,
+            n_elements: crate::N_ELEMENTS,
             natural_return: false,
             probe_mode: ProbeMode::Passive,
             probe_reason: None,
@@ -450,16 +463,62 @@ impl State {
 
     // ---------- 场域上传 ----------
 
-    /// 把当前标签的场域（经四元组调制）算好并上传 GPU。
+    /// 把当前标签的场域算好并上传 GPU。
+    ///
+    /// 链路：标签场域 → **与世界模型状态合成** → Gabor → **一致性调制** → 元素 → GPU。
+    /// 「喜欢」经 `coherence_of` 得到相位一致性，落到三处：位置规则度 / 相位稳定 / 包络展宽。
     fn apply_active(&mut self) {
         let (field, quad) = {
             let t = &self.tabs[self.active];
             (t.field, t.quad)
         };
-        let g = modulate_gabor(field_to_gabor_with(&field, &self.lib), &quad);
-        let elems = elements_of(&field, &g, &quad, N_ELEMENTS);
-        upload(&self.queue, &self.pipeline, &elems, &g);
-        self.clear = clear_color_of(&field, &quad);
+        let s = self.world.summary();
+        // 画面呈现的是**当前世界模型的状态**（与当前页面的场域合成，世界权重 0.35）
+        let fm = blend_with_world(&field, s.mean, 0.35, s.entries);
+        self.coherence = coherence_of(&quad, &self.lib);
+        let g = modulate_gabor(field_to_gabor_with(&fm, &self.lib), &quad);
+        let elems = elements_of_co(&fm, &g, &quad, self.coherence, self.n_elements);
+        upload_co(&self.queue, &self.pipeline, &elems, &g, self.coherence);
+        self.clear = clear_color_of(&fm, &quad);
+    }
+
+    /// **动态 LOD**：按四元组决定精度档位（紧张高 → 更多细节；平静高 → 更省）。
+    /// 带滞回（0.08）避免在阈值附近来回重建。
+    fn update_lod(&mut self) {
+        let q = self.tabs[self.active].quad;
+        let target = lod_n_for(q.tension, q.calm);
+        let cur_idx = self.n_elements.trailing_zeros() as i32;
+        let tgt_idx = target.trailing_zeros() as i32;
+        if (tgt_idx - cur_idx).abs() < 2 && target != self.n_elements {
+            return; // 滞回：只有跨两档才切换，避免抖动
+        }
+        if target == self.n_elements {
+            return;
+        }
+        let t0 = Instant::now();
+        let old_bytes = field_buffer_bytes(self.n_elements);
+        self.pipeline = build_pipeline(&self.device, target, self.config.format);
+        self.n_elements = target;
+        self.apply_active();
+        println!(
+            "[window] LOD 切换 {old_bytes} → {} 字节（n={target}，趟数={}），耗时 {:.2}ms",
+            field_buffer_bytes(target),
+            self.pipeline.sort_passes,
+            t0.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+
+    /// **世界模型更新**：切标签 / 取源码 / 调四元组都是一次交互。
+    fn observe_world(&mut self, label: &str) {
+        let t = &self.tabs[self.active];
+        let (host, url, field, chars) = (short_host(&t.url), t.url.clone(), t.field, t.source.chars().count());
+        let quad = t.quad;
+        if url.starts_with("sample:") {
+            self.world.observe_source(&host, &field, chars);
+        } else {
+            self.world.observe_page(&host, &url, &field, chars);
+        }
+        self.world.observe_interaction(label, &quad);
     }
 
     fn select_tab(&mut self, i: usize) {
@@ -468,6 +527,7 @@ impl State {
         }
         self.active = i;
         self.addr = self.tabs[i].url.clone();
+        self.observe_world("切标签");
         self.apply_active();
         self.window.request_redraw();
     }
@@ -565,6 +625,7 @@ impl State {
                 }
                 self.addr = url.clone();
                 self.last_source_at = Some(Instant::now());
+                self.observe_world("取源码");
                 self.apply_active();
                 self.status = format!(
                     "已取源码并解析：{} ｜ 四场 地{:.2} 水{:.2} 火{:.2} 风{:.2} ｜ 置信度 {:.2}",
@@ -612,6 +673,9 @@ impl State {
         );
         std::fs::write(dir.join("field.json"), json.as_bytes())
             .map_err(|e| format!("写 field.json 失败：{e}"))?;
+        // ②b 世界模型快照（可查询、可恢复）
+        std::fs::write(dir.join("world.txt"), self.world.to_text().as_bytes())
+            .map_err(|e| format!("写 world.txt 失败：{e}"))?;
         // ③ 当前画面（PPM P6，零依赖可打开）
         if let Some((rgb, w, h)) = self.capture_rgb() {
             let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
@@ -803,6 +867,35 @@ impl State {
                 ui.checkbox(&mut self.natural_return, "无扰动时自然回归本底场（×e^-0.1）");
                 ui.add_space(6.0);
 
+                ui.heading("世界模型（L3）");
+                let ws = self.world.summary();
+                ui.label(format!(
+                    "条目 {}　tick {}　主导 {}",
+                    ws.entries,
+                    ws.tick,
+                    clip(&ws.dominant, 24)
+                ));
+                ui.label(format!(
+                    "世界均值 地{:.2} 水{:.2} 火{:.2} 风{:.2}　一致性 {:.2}",
+                    ws.mean[0], ws.mean[1], ws.mean[2], ws.mean[3], ws.coherence
+                ));
+                ui.label(
+                    egui::RichText::new("画面 = 当前页面场域 ⊕ 世界模型状态（权重 0.35）").weak(),
+                );
+                ui.add_space(6.0);
+                ui.heading("相位一致性（喜欢＝预测误差降低）");
+                ui.label(format!("一致性 {:.3} → 位置规则度 ↑｜相位稳定 ↑｜包络展宽 ↑", self.coherence));
+                ui.add_space(6.0);
+                ui.heading("动态 LOD");
+                ui.label(format!(
+                    "活跃 splat {}　排序 {} 趟　场域缓冲 {} 字节",
+                    self.n_elements,
+                    self.pipeline.sort_passes,
+                    field_buffer_bytes(self.n_elements)
+                ));
+                ui.label(egui::RichText::new("紧张↑ → 更多细节；平静↑ → 更省资源（128 ↔ 1024）").weak());
+                ui.add_space(6.0);
+
                 ui.heading("探测策略");
                 ui.label(format!("模式：{}", probe_label(self.probe_mode, self.probe_reason)));
                 ui.label(format!("偏离 {:.3}　主导 {}", self.deviation, self.dominant));
@@ -852,6 +945,8 @@ impl State {
             },
             Action::SetQuad(q) => {
                 self.tabs[self.active].quad = q;
+                self.observe_world("调四元组");
+                self.update_lod();
                 self.apply_active();
             }
         }
@@ -865,6 +960,7 @@ impl State {
             self.t_first = Some(Instant::now());
         }
         self.pump_fetch();
+        self.update_lod();
         self.update_probe();
         if self.natural_return {
             let q = self.tabs[self.active].quad;
