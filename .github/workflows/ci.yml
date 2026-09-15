@@ -273,7 +273,13 @@ jobs:
           test -f "$BIN_M/dlltool.exe" || { echo "::error::llvm-mingw 解压后找不到 dlltool.exe：$BIN_M"; exit 1; }
           echo "LLVM_MINGW_BIN=$BIN_M" >> "$GITHUB_ENV"
           echo "$BIN_M" >> "$GITHUB_PATH"
-          "$BIN_M/dlltool.exe" --version | head -1
+          export PATH="$BIN_M:$PATH"
+          command -v dlltool >/dev/null 2>&1 || { echo "::error::前置 PATH 后仍找不到 dlltool"; exit 1; }
+          echo "dlltool => $(command -v dlltool)"
+          # 注意：这里不要写 `dlltool --version | head -1`——head 提前关闭管道会让 dlltool 收 SIGPIPE，
+          # 在 `set -o pipefail` 下整步失败（第一次跑就踩了）。落盘后取值，避免管道提前关闭。
+          "$BIN_M/dlltool.exe" --version > "$TMPU/dlltool-version.txt" 2>&1 || true
+          sed -n '1p' "$TMPU/dlltool-version.txt"
           echo "llvm-mingw bin 已前置 PATH：$BIN_M"
 
       - name: 构建宿主 field-render（GNU + llvm-mingw；短 target-dir 规避 MAX_PATH）
@@ -297,17 +303,16 @@ jobs:
         run: |
           set -uo pipefail
           export PATH="$LLVM_MINGW_BIN:$PATH"
-          set +e
+          test -n "${EXE:-}" || { echo "::error::EXE 未设置"; exit 1; }
           "$EXE" --selftest > selftest.log 2>&1
           CODE=$?
-          set -e
           cat selftest.log
           echo "---- exit=$CODE ----"
           test "$CODE" = "0" || { echo "::error::--selftest 退出码 $CODE（应为 0）"; exit 1; }
           grep -q "结论：PASS" selftest.log || { echo "::error::--selftest 结论非 PASS"; exit 1; }
 
           # 方差 > 1（真实语义断言：纯黑/纯白空图会一直"绿"，必须挡住）
-          VARS="$(grep -oE '方差=[0-9]+(\.[0-9]+)?' selftest.log | cut -d= -f2)"
+          VARS="$(grep -oE '方差=[0-9]+(\.[0-9]+)?' selftest.log | cut -d= -f2 || true)"
           test -n "$VARS" || { echo "::error::自检输出里没有方差读数"; exit 1; }
           echo "方差读数：$(echo "$VARS" | tr '\n' ' ')"
           for v in $VARS; do
@@ -316,9 +321,10 @@ jobs:
           echo "VARIANCE_ALL_GT_1_OK"
 
           # 帧率口径：硬件适配器 → ≥30；软件适配器 → >0 且如实标注
-          ADAPTER="$(grep -m1 '适配器:' selftest.log)"
+          ADAPTER="$(grep -m1 '适配器:' selftest.log || true)"
+          test -n "$ADAPTER" || { echo "::error::自检输出里没有适配器行"; exit 1; }
           echo "适配器行：$ADAPTER"
-          FPS="$(grep -oE '帧率：[0-9]+(\.[0-9]+)?' selftest.log | head -1 | sed 's/帧率：//')"
+          FPS="$(grep -m1 -oE '帧率：[0-9]+(\.[0-9]+)?' selftest.log | sed 's/帧率：//' || true)"
           test -n "$FPS" || { echo "::error::自检输出里没有帧率读数"; exit 1; }
           if echo "$ADAPTER" | grep -qE 'IntegratedGpu|DiscreteGpu|VirtualGpu'; then
             awk -v f="$FPS" 'BEGIN{exit !(f>=30)}' || { echo "::error::硬件适配器上帧率 $FPS < 30"; exit 1; }
@@ -333,10 +339,8 @@ jobs:
         run: |
           set -uo pipefail
           export PATH="$LLVM_MINGW_BIN:$PATH"
-          set +e
           "$EXE" --sortcheck > sortcheck.log 2>&1
           CODE=$?
-          set -e
           cat sortcheck.log
           echo "---- exit=$CODE ----"
           test "$CODE" = "0" || { echo "::error::--sortcheck 退出码 $CODE（应为 0）"; exit 1; }
@@ -346,10 +350,8 @@ jobs:
         run: |
           set -uo pipefail
           export PATH="$LLVM_MINGW_BIN:$PATH"
-          set +e
           "$EXE" --diag-check > diagcheck.log 2>&1
           CODE=$?
-          set -e
           cat diagcheck.log
           echo "---- exit=$CODE ----"
           test "$CODE" = "0" || { echo "::error::--diag-check 退出码 $CODE（应为 0，R7 已修）"; exit 1; }
