@@ -26,7 +26,7 @@
 
 use crate::math::clamp01;
 use crate::sanitizer::soft_clamp;
-use crate::trace::{decide_type, Trace};
+use crate::trace::{decide_type, Trace, TraceType};
 use std::collections::VecDeque;
 
 /// 线性模式权重：存量。
