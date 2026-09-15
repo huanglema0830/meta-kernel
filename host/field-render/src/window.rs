@@ -26,13 +26,15 @@ use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
 use meta_kernel_core::gene_library::GeneLibrary;
-use meta_kernel_core::l1_field_parse::FieldReading;
+use meta_kernel_core::habit::HabitPool;
+use meta_kernel_core::l1_field_parse::{field_signature7, FieldReading};
 use meta_kernel_core::l1_mapping::{
     coherence_of, field_to_gabor_with, modulate_gabor, seed_coherence_into, seed_gabor_into,
 };
 use meta_kernel_core::l1_source_parse::parse_source;
 use meta_kernel_core::l3_world::WorldModel;
 use meta_kernel_core::l5_quad::{decide_probe, diagnose, regress, ProbeMode, ProbeReason, Quad};
+use meta_kernel_core::trace::{decide_type, fingerprint_of, stats_of, Trace, TraceStore};
 
 use crate::{
     blend_with_world, build_pipeline, clear_color_of, elements_of_co, field_buffer_bytes,
@@ -201,16 +203,25 @@ impl ApplicationHandler for App {
             return;
         }
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                state.persist_all();
+                event_loop.exit();
+            }
             WindowEvent::Resized(size) => state.resize(size.width, size.height),
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state != ElementState::Pressed {
                     return;
                 }
                 match event.logical_key {
-                    Key::Named(NamedKey::Escape) => event_loop.exit(),
+                    Key::Named(NamedKey::Escape) => {
+                        state.persist_all();
+                        event_loop.exit();
+                    }
                     Key::Character(c) => match c.as_str() {
-                        "q" | "Q" => event_loop.exit(),
+                        "q" | "Q" => {
+                            state.persist_all();
+                            event_loop.exit();
+                        }
                         "1" => state.select_sample(0),
                         "2" => state.select_sample(1),
                         "3" => state.select_sample(2),
@@ -282,6 +293,16 @@ struct State {
     dominant: String,
     last_source_at: Option<Instant>,
     last_active_probe: Option<Instant>,
+
+    // 痕迹 / 习气（v0.125：运行期累积 → 节流+退出落盘 → 重启恢复）
+    trace_store: TraceStore,
+    habit_pool: HabitPool,
+    /// 痕迹时间锚点（启动接续上次持久化的最后 step，保证 step 单调）。
+    trace_step: u64,
+    /// 上次痕迹采样时刻（节流：每秒最多一条——update_probe 每帧调用，不节流会把痕迹池冲爆）。
+    last_trace_at: Option<Instant>,
+    /// 上次落盘时刻（节流：每 10 秒一次；退出时强制落盘）。
+    last_persist: Option<Instant>,
 
     // 后台抓取
     fetch_rx: Option<std::sync::mpsc::Receiver<Result<(String, String), String>>>,
@@ -400,7 +421,7 @@ impl State {
 
         let (readback, bytes_per_row, offscreen, offscreen_view) = make_targets(&device, format, w, h);
 
-        let baseline = Quad { tension: 0.2, calm: 0.6, liking: 0.5, safety: 0.6 };
+        let mut baseline = Quad { tension: 0.2, calm: 0.6, liking: 0.5, safety: 0.6 };
         let (text_html, image_html) = sample_pages();
         let hot = Quad { tension: 1.0, calm: 0.1, liking: 0.4, safety: 0.3 };
         let mut tabs = vec![
@@ -408,6 +429,16 @@ impl State {
             make_tab("纯图片页", "sample:image", &image_html, baseline, &lib),
             make_tab("纯图片页·紧张高", "sample:image-hot", &image_html, hot, &lib),
         ];
+        // **启动恢复四元组**（K6）：用上次落盘值覆盖初始默认值。
+        // 位置在 `--quad` **之前** → 本次显式指定的 `--quad` 优先级高于持久化值。
+        if let Ok(qs) = crate::gene_store::load_quad() {
+            baseline = Quad::from_array(qs.baseline);
+            for (i, arr) in qs.tabs.iter().enumerate() {
+                if i < tabs.len() {
+                    tabs[i].quad = Quad::from_array(*arr);
+                }
+            }
+        }
         if let Some(q) = opt.quad {
             let q = Quad { tension: q[0], calm: q[1], liking: q[2], safety: q[3] };
             for t in tabs.iter_mut() {
@@ -415,6 +446,13 @@ impl State {
             }
         }
         let initial = opt.sample.min(tabs.len() - 1);
+
+        // **启动恢复痕迹/习气**（K6）：重启后习气不归零。
+        // 不重放痕迹流——直接恢复**沉淀后的状态**（习气是痕迹群的聚合，重放无必要）。
+        let trace_store = crate::gene_store::load_traces().unwrap_or_default();
+        let habit_pool = crate::gene_store::load_habits().unwrap_or_default();
+        // 时间锚点接续上次最后一条痕迹 → step 保持单调（习气 last_seen 依赖它）。
+        let trace_step = trace_store.recent(1).next().map(|t| t.step).unwrap_or(0);
 
         let mut st = State {
             window,
@@ -443,6 +481,11 @@ impl State {
             dominant: "—".to_string(),
             last_source_at: Some(Instant::now()),
             last_active_probe: None,
+            trace_store,
+            habit_pool,
+            trace_step,
+            last_trace_at: None,
+            last_persist: Some(Instant::now()),
             fetch_rx: None,
             readback,
             bytes_per_row,
@@ -754,6 +797,15 @@ impl State {
         let diag = diagnose(quad, self.baseline, &self.lib, conf);
         self.deviation = diag.deviation;
         self.dominant = diag.dominant.to_string();
+
+        // **运行期痕迹生成**（K4）：本帧场域读数 → 7 维签名 → 痕迹 → 习气。
+        // 节流：每秒最多一条（update_probe 每帧调用，60fps 不节流会把 2048 容量的痕迹池冲爆）。
+        let trace_due = self.last_trace_at.map(|t| t.elapsed().as_secs() >= 1).unwrap_or(true);
+        if trace_due {
+            let sig = field_signature7(&self.tabs[self.active].field);
+            self.record_trace(&sig);
+            self.last_trace_at = Some(Instant::now());
+        }
         let stale = self.last_source_at.map(|t| t.elapsed().as_secs() > 90).unwrap_or(true);
         let d = decide_probe(conf, diag.deviation, stale);
 
@@ -773,6 +825,48 @@ impl State {
         }
         self.probe_mode = d.mode;
         self.probe_reason = d.reason;
+    }
+
+    // ---------- 痕迹 / 习气 / 四元组持久化（v0.125）----------
+
+    /// 由场域 7 维签名生成一条痕迹 → 存入痕迹池 → 累积习气。
+    ///
+    /// 与 `SelfRecognizer::run_from_samples_with_flow` 同口径（能量流以样本均值为代理）；
+    /// 此处直接持有 `TraceStore`/`HabitPool`（而非 `SelfRecognizer`），便于单独落盘与恢复。
+    fn record_trace(&mut self, sig: &[f64; 7]) {
+        let samples: Vec<f32> = sig.iter().map(|v| *v as f32).collect();
+        let (mean, volatility) = stats_of(&samples);
+        let compound_activity = mean.clamp(0.0, 1.0);
+        let flow = (1.0 - volatility).clamp(0.0, 1.0);
+        let trace_type = decide_type(volatility, compound_activity, flow);
+        let energy_flow = mean.clamp(0.0, 1.0);
+        let fingerprint = fingerprint_of(&samples, energy_flow);
+        let stability = 1.0 - volatility;
+        let intensity = (compound_activity * (0.5 + 0.5 * stability)).clamp(0.05, 1.0);
+        self.trace_step += 1;
+        let t = Trace { step: self.trace_step, intensity, trace_type, fingerprint, energy_flow };
+        self.trace_store.record(t);
+        self.habit_pool.observe(&t);
+    }
+
+    /// 立即落盘：痕迹 / 习气 / 四元组（存储位置由宿主 `gene_store` 决定）。
+    fn persist_all(&mut self) {
+        let _ = crate::gene_store::save_traces(&self.trace_store);
+        let _ = crate::gene_store::save_habits(&self.habit_pool);
+        let qs = crate::gene_store::QuadState {
+            baseline: self.baseline.to_array(),
+            tabs: self.tabs.iter().map(|t| t.quad.to_array()).collect(),
+        };
+        let _ = crate::gene_store::save_quad(&qs);
+        self.last_persist = Some(Instant::now());
+    }
+
+    /// 节流落盘：默认每 10 秒一次（退出时另有**强制**落盘，保证不丢状态）。
+    fn maybe_persist(&mut self) {
+        let due = self.last_persist.map(|t| t.elapsed().as_secs() >= 10).unwrap_or(true);
+        if due {
+            self.persist_all();
+        }
     }
 
     // ---------- UI ----------
@@ -964,6 +1058,7 @@ impl State {
         self.pump_fetch();
         self.update_lod();
         self.update_probe();
+        self.maybe_persist();
         if self.natural_return {
             let q = self.tabs[self.active].quad;
             let r = regress(q, self.baseline);

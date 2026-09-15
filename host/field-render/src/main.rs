@@ -1382,10 +1382,10 @@ pub fn diag_check_main() -> i32 {
             return 2;
         }
     };
-    let mut lib = GeneLibrary::new();
-    seed_gabor_into(&mut lib);
-    seed_coherence_into(&mut lib);
-    l5_evidence::seed_into(&mut lib);
+    // **L5 诊断使用宿主加载的持久化基因库**（单一事实源）：
+    // 与 `kernel_banner` / `State::new` 同口径——判据皆取自持久化库，改库即改诊断。
+    let mut lib = crate::gene_store::load_or_seed();
+    crate::gene_store::seed_all(&mut lib);
     let gains = l5_evidence::gains_of(&lib);
     let (text_html, image_html) = sample_pages();
     let f_text = parse_source(&text_html, "");
@@ -1753,6 +1753,167 @@ pub fn l4_check_main() -> i32 {
     0
 }
 
+/// 验收：**痕迹 / 习气 / 四元组持久化**（v0.125）——写入 → 重加载 → 状态一致。
+///
+/// 走**隔离临时文件**（与 `--l4-check` 同套路），不污染用户真实状态文件。
+/// 三条链路逐一验证：`TraceStore` / `HabitPool` / `QuadState`（基线 + 各标签四维值）。
+fn persist_check_main() -> i32 {
+    use meta_kernel_core::habit::HabitPool;
+    use meta_kernel_core::trace::{Trace, TraceStore, TraceType};
+
+    /// 删除主文件及其 `.bak`（隔离清理）。
+    fn rm_pair(p: &std::path::Path) {
+        let _ = std::fs::remove_file(p);
+        let mut bak = p.to_path_buf().into_os_string();
+        bak.push(".bak");
+        let _ = std::fs::remove_file(std::path::PathBuf::from(bak));
+    }
+
+    let dir = std::env::temp_dir();
+    let tp = dir.join("meta-kernel-persistcheck-traces.txt");
+    let hp = dir.join("meta-kernel-persistcheck-habits.txt");
+    let qp = dir.join("meta-kernel-persistcheck-quad.txt");
+    let mp = dir.join("meta-kernel-persistcheck-missing.txt");
+    for f in [&tp, &hp, &qp, &mp] {
+        rm_pair(f);
+    }
+    let mut ok = true;
+
+    // ---------- ① 痕迹：写入 → 重加载 → 条数/指纹/类型分布一致 ----------
+    println!("[persistcheck] ① 痕迹（TraceStore）写入 → 重加载 → 一致");
+    let mut store = TraceStore::new();
+    for i in 1..=6u64 {
+        let tt = if i % 2 == 0 { TraceType::Fire } else { TraceType::Wind };
+        store.record(Trace {
+            step: i,
+            intensity: 0.3 + i as f32 * 0.05,
+            trace_type: tt,
+            fingerprint: 900 + i,
+            energy_flow: 0.5,
+        });
+    }
+    if let Err(e) = crate::gene_store::save_traces_to(&store, &tp) {
+        println!("[persistcheck] ✗ 痕迹落盘失败: {e}");
+        return 1;
+    }
+    let back_t = match crate::gene_store::load_traces_from(&tp) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("[persistcheck] ✗ 痕迹重加载失败: {e}");
+            return 1;
+        }
+    };
+    let fps: Vec<u64> = back_t.all().iter().map(|t| t.fingerprint).collect();
+    let want: Vec<u64> = store.all().iter().map(|t| t.fingerprint).collect();
+    println!("[persistcheck]   条数 {} → {}｜指纹 {:?}", store.len(), back_t.len(), fps);
+    if back_t.len() != store.len() || fps != want || back_t.counts_by_type() != store.counts_by_type() {
+        println!("[persistcheck] ✗ 痕迹重加载后状态不一致");
+        ok = false;
+    }
+
+    // ---------- ② 习气：写入 → 重加载 → 强度/次数/最强习气一致 ----------
+    println!("[persistcheck] ② 习气（HabitPool）写入 → 重加载 → 一致");
+    let mut pool = HabitPool::new();
+    for i in 1..=3u64 {
+        pool.observe(&Trace { step: i, intensity: 0.4, trace_type: TraceType::Wind, fingerprint: 1, energy_flow: 0.4 });
+    }
+    for i in 1..=12u64 {
+        pool.observe(&Trace { step: 100 + i, intensity: 0.9, trace_type: TraceType::Earth, fingerprint: 2, energy_flow: 0.9 });
+    }
+    if let Err(e) = crate::gene_store::save_habits_to(&pool, &hp) {
+        println!("[persistcheck] ✗ 习气落盘失败: {e}");
+        return 1;
+    }
+    let back_h = match crate::gene_store::load_habits_from(&hp) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("[persistcheck] ✗ 习气重加载失败: {e}");
+            return 1;
+        }
+    };
+    let s0 = pool.get(2).expect("原池含指纹 2");
+    let s1 = back_h.get(2).expect("恢复池应含指纹 2");
+    println!(
+        "[persistcheck]   习气数 {} → {}｜指纹2 强度 {:.4} → {:.4}（次数 {} → {}）｜最强 {:?} → {:?}",
+        pool.len(),
+        back_h.len(),
+        s0.strength,
+        s1.strength,
+        s0.count,
+        s1.count,
+        pool.strongest().map(|h| h.fingerprint),
+        back_h.strongest().map(|h| h.fingerprint)
+    );
+    if back_h.len() != pool.len()
+        || (s0.strength - s1.strength).abs() >= 1e-6
+        || s0.count != s1.count
+        || back_h.strongest().map(|h| h.fingerprint) != Some(2)
+    {
+        println!("[persistcheck] ✗ 习气重加载后状态不一致（重启未恢复）");
+        ok = false;
+    }
+
+    // ---------- ③ 四元组：写入 → 重加载 → 基线与各标签四维值一致 ----------
+    println!("[persistcheck] ③ 四元组（QuadState）写入 → 重加载 → 一致");
+    let qs = crate::gene_store::QuadState {
+        baseline: [0.2, 0.6, 0.5, 0.6],
+        tabs: vec![[0.11, 0.72, 0.43, 0.84], [0.91, 0.22, 0.33, 0.44]],
+    };
+    if let Err(e) = crate::gene_store::save_quad_to(&qs, &qp) {
+        println!("[persistcheck] ✗ 四元组落盘失败: {e}");
+        return 1;
+    }
+    let back_q = match crate::gene_store::load_quad_from(&qp) {
+        Ok(q) => q,
+        Err(e) => {
+            println!("[persistcheck] ✗ 四元组重加载失败: {e}");
+            return 1;
+        }
+    };
+    println!(
+        "[persistcheck]   基线 {:?} → {:?}｜标签数 {} → {}",
+        qs.baseline,
+        back_q.baseline,
+        qs.tabs.len(),
+        back_q.tabs.len()
+    );
+    if back_q != qs {
+        println!("[persistcheck] ✗ 四元组重加载后状态不一致（紧张/平静/喜欢/安全 未恢复）");
+        ok = false;
+    }
+
+    // ---------- ④ 文件缺失 → 报错（不臆造状态）----------
+    let missing_err = crate::gene_store::load_traces_from(&mp).is_err()
+        && crate::gene_store::load_habits_from(&mp).is_err()
+        && crate::gene_store::load_quad_from(&mp).is_err();
+    println!(
+        "[persistcheck] ④ 文件缺失 → 报错（不从零捏造）: {}",
+        if missing_err { "OK" } else { "FAIL" }
+    );
+    if !missing_err {
+        ok = false;
+    }
+
+    // 清理隔离临时文件（主文件 + .bak）
+    for f in [&tp, &hp, &qp, &mp] {
+        rm_pair(f);
+    }
+
+    println!(
+        "[persistcheck] 结论：{}",
+        if ok {
+            "PASS（痕迹/习气/四元组 写入→重加载→状态一致，重启可恢复）"
+        } else {
+            "FAIL"
+        }
+    );
+    if ok {
+        0
+    } else {
+        1
+    }
+}
+
 fn probe_str(m: ProbeMode) -> &'static str {
     match m {
         ProbeMode::Active => "主动",
@@ -1781,6 +1942,8 @@ fn mode_name(args: &[String]) -> &'static str {
         "link-check"
     } else if has("--l4-check") {
         "l4-check"
+    } else if has("--persist-check") {
+        "persist-check"
     } else if has("--ui-selftest") {
         "ui-selftest"
     } else {
@@ -1834,6 +1997,9 @@ fn main() {
     }
     if has("--l4-check") {
         std::process::exit(l4_check_main());
+    }
+    if has("--persist-check") {
+        std::process::exit(persist_check_main());
     }
 
     // 默认：**窗口宿主**（winit 开窗 + wgpu surface + 同一套场域渲染管线；不依赖 WebView2）

@@ -50,6 +50,29 @@ impl Quad {
     pub fn from_array(a: [f64; 4]) -> Self {
         Self { tension: a[0].clamp(0.0, 1.0), calm: a[1].clamp(0.0, 1.0), liking: a[2].clamp(0.0, 1.0), safety: a[3].clamp(0.0, 1.0) }
     }
+    /// 序列化为文本：`tension,calm,liking,safety`（6 位小数）。
+    ///
+    /// 零依赖纯文本编解码——**序列化在内核，文件 IO 在宿主**（内核无 IO 红线）。
+    pub fn to_text(&self) -> String {
+        let a = self.to_array();
+        format!("{:.6},{:.6},{:.6},{:.6}", a[0], a[1], a[2], a[3])
+    }
+    /// 反序列化（字段数不符 / 数值非法 → `None`）；值钳制到 0..1（与 `from_array` 同口径）。
+    pub fn from_text(s: &str) -> Option<Self> {
+        let p: Vec<&str> = s.split(',').collect();
+        if p.len() != 4 {
+            return None;
+        }
+        let mut a = [0f64; 4];
+        for (i, v) in p.iter().enumerate() {
+            let x: f64 = v.trim().parse().ok()?;
+            if !x.is_finite() {
+                return None;
+            }
+            a[i] = x;
+        }
+        Some(Self::from_array(a))
+    }
     /// 主导变量（值最高者）。
     pub fn dominant(&self) -> (usize, f64) {
         let a = self.to_array();
@@ -509,6 +532,44 @@ mod tests {
         let q = update(Quad::default(), &p, &lib());
         for v in q.to_array() {
             assert!((0.0..=1.0).contains(&v));
+        }
+    }
+
+    #[test]
+    fn quad_text_roundtrip_preserves_four_values() {
+        let q = Quad { tension: 0.31, calm: 0.62, liking: 0.48, safety: 0.75 };
+        let text = q.to_text();
+        let back = Quad::from_text(&text).expect("自编码必须可解码");
+        for i in 0..4 {
+            assert!(
+                (back.to_array()[i] - q.to_array()[i]).abs() < 1e-6,
+                "第 {i} 维 {} vs {}",
+                back.to_array()[i],
+                q.to_array()[i]
+            );
+        }
+        assert_eq!(back.dominant_label(), q.dominant_label(), "主导变量也一致");
+    }
+
+    #[test]
+    fn quad_from_text_rejects_malformed_and_clamps() {
+        assert!(Quad::from_text("").is_none());
+        assert!(Quad::from_text("0.1,0.2,0.3").is_none(), "维度数不符");
+        assert!(Quad::from_text("a,0.2,0.3,0.4").is_none(), "数值非法");
+        assert!(Quad::from_text("0.1,0.2,0.3,NaN").is_none(), "NaN 拒绝");
+        // 越界值钳制到 0..1（与 from_array 同口径）
+        let c = Quad::from_text("1.7,-0.2,0.5,0.6").expect("可解码");
+        assert_eq!(c.to_array(), [1.0, 0.0, 0.5, 0.6], "越界钳制");
+    }
+
+    #[test]
+    fn quad_text_survives_baseline_and_excited_states() {
+        // 持久化的两个真实端点：默认基线 与 全激状态
+        for q in [Quad::default(), Quad::from_array([1.0, 0.0, 1.0, 0.0])] {
+            let back = Quad::from_text(&q.to_text()).expect("可解码");
+            for i in 0..4 {
+                assert!((back.to_array()[i] - q.to_array()[i]).abs() < 1e-6);
+            }
         }
     }
 }

@@ -424,4 +424,45 @@ mod tests {
         let d = diagnose(&s, &b, "obj");
         assert_eq!(d.pattern[2], Band::Kang, "相对自身地图的亢");
     }
+
+    #[test]
+    fn library_gains_drive_evidence_modulation() {
+        // 运行时真相：gains 取自**基因库**（宿主加载的持久化库），不是 `Gains::default()`。
+        // 本测试覆盖"证据模块调制诊断确信度"在**库增益**下的方向性（此前仅测过 default 增益）。
+        let mut lib = crate::gene_library::GeneLibrary::new();
+        l5_evidence::seed_into(&mut lib);
+        let g = l5_evidence::gains_of(&lib);
+        let none = diagnose_with_evidence(&s_soft(), &base(), "obj", &Evidence::NONE, &g);
+        let hit = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(Some(1.0), None), &g);
+        let miss = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(Some(0.0), None), &g);
+        let pe_low = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(None, Some(0.002)), &g);
+        let pe_high = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(None, Some(0.40)), &g);
+        assert!(
+            hit.conclusion.confidence > none.conclusion.confidence,
+            "库增益下 匹配高 → 确信度提高：{} vs {}",
+            hit.conclusion.confidence,
+            none.conclusion.confidence
+        );
+        assert!(
+            miss.conclusion.confidence < none.conclusion.confidence,
+            "库增益下 匹配低 → 确信度降低：{} vs {}",
+            miss.conclusion.confidence,
+            none.conclusion.confidence
+        );
+        assert!(
+            pe_low.conclusion.confidence > none.conclusion.confidence,
+            "库增益下 误差低 → 确信度提高：{} vs {}",
+            pe_low.conclusion.confidence,
+            none.conclusion.confidence
+        );
+        assert!(
+            pe_low.conclusion.confidence > pe_high.conclusion.confidence,
+            "库增益下 误差高 → 确信度降低：{} vs {}",
+            pe_low.conclusion.confidence,
+            pe_high.conclusion.confidence
+        );
+        // 证据仍**只动确信度、不改结论**（一因一果 / 不饮酒）
+        assert_eq!(hit.conclusion.title, miss.conclusion.title);
+        assert_eq!(hit.pattern, miss.pattern);
+    }
 }

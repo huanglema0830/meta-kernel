@@ -149,6 +149,80 @@ impl TraceStore {
     pub fn count_type(&self, tt: TraceType) -> u64 {
         self.counts_by_type()[tt.code() as usize]
     }
+    /// 容量上限（序列化往返时保持不变）。
+    pub fn cap(&self) -> usize {
+        self.cap
+    }
+    /// 全部痕迹（时间正序），供落盘前检查与往返比对。
+    pub fn all(&self) -> &[Trace] {
+        &self.traces
+    }
+    /// 序列化：每行一条痕迹（**无表头**；空存储 → 空串）。
+    ///
+    /// 零依赖纯文本编解码——**序列化在内核，文件 IO 在宿主**（内核无 IO 红线）。
+    pub fn to_text(&self) -> String {
+        let mut s = String::with_capacity(self.traces.len() * 40);
+        for t in &self.traces {
+            s.push_str(&t.to_text());
+            s.push('\n');
+        }
+        s
+    }
+    /// 反序列化：忽略空行与非法行；超出 `cap` 只保留**最近** `cap` 条（与 `record` 同口径）。
+    pub fn from_text(text: &str, cap: usize) -> Self {
+        let mut v: Vec<Trace> = Vec::new();
+        for line in text.lines() {
+            let l = line.trim();
+            if l.is_empty() {
+                continue;
+            }
+            if let Some(t) = Trace::from_text(l) {
+                v.push(t);
+            }
+        }
+        if v.len() > cap {
+            let drop_n = v.len() - cap;
+            v.drain(..drop_n);
+        }
+        Self { traces: v, cap }
+    }
+}
+
+impl Trace {
+    /// 单行文本：`step|intensity|typecode|fingerprint|energy_flow`。
+    pub fn to_text(&self) -> String {
+        format!(
+            "{}|{:.6}|{}|{}|{:.6}",
+            self.step,
+            self.intensity,
+            self.trace_type.code(),
+            self.fingerprint,
+            self.energy_flow
+        )
+    }
+    /// 反序列化（字段数不符 / 数值非法 / 类型码越界 → `None`）。
+    pub fn from_text(line: &str) -> Option<Self> {
+        let p: Vec<&str> = line.split('|').collect();
+        if p.len() != 5 {
+            return None;
+        }
+        let step: u64 = p[0].trim().parse().ok()?;
+        let intensity: f32 = p[1].trim().parse().ok()?;
+        let code: u32 = p[2].trim().parse().ok()?;
+        let fingerprint: u64 = p[3].trim().parse().ok()?;
+        let energy_flow: f32 = p[4].trim().parse().ok()?;
+        if !intensity.is_finite() || !energy_flow.is_finite() {
+            return None;
+        }
+        let trace_type = match code {
+            0 => TraceType::Wind,
+            1 => TraceType::Fire,
+            2 => TraceType::Water,
+            3 => TraceType::Earth,
+            _ => return None,
+        };
+        Some(Trace { step, intensity, trace_type, fingerprint, energy_flow })
+    }
 }
 
 #[cfg(test)]
@@ -194,5 +268,77 @@ mod tests {
         assert_eq!(c, [1, 1, 1, 1]);
         assert_eq!(s.count_type(TraceType::Fire), 1);
         assert_eq!(s.recent(2).count(), 2);
+    }
+
+    fn sample_trace(step: u64, tt: TraceType, fp: u64) -> Trace {
+        Trace { step, intensity: 0.42, trace_type: tt, fingerprint: fp, energy_flow: 0.55 }
+    }
+
+    /// 文本编解码保留 6 位小数 → 浮点字段按 **1e-6 容差**比对（整数字段逐位比）。
+    /// 度量铁律：比对打在**真实语义**（每条痕迹的字段）上，不比"非空"了事。
+    fn assert_trace_eq(a: &Trace, b: &Trace) {
+        assert_eq!(a.step, b.step, "step 逐位一致");
+        assert_eq!(a.trace_type, b.trace_type, "类型逐位一致");
+        assert_eq!(a.fingerprint, b.fingerprint, "指纹逐位一致");
+        assert!((a.intensity - b.intensity).abs() < 1e-6, "intensity {} vs {}", a.intensity, b.intensity);
+        assert!((a.energy_flow - b.energy_flow).abs() < 1e-6, "energy_flow {} vs {}", a.energy_flow, b.energy_flow);
+    }
+
+    fn assert_store_eq(a: &TraceStore, b: &TraceStore) {
+        assert_eq!(a.len(), b.len(), "条数一致");
+        for (x, y) in a.all().iter().zip(b.all().iter()) {
+            assert_trace_eq(x, y);
+        }
+    }
+
+    #[test]
+    fn trace_text_roundtrip_preserves_fields() {
+        let t = sample_trace(7, TraceType::Fire, 12345);
+        let back = Trace::from_text(&t.to_text()).expect("自编码必须可解码");
+        assert_trace_eq(&back, &t);
+    }
+
+    #[test]
+    fn trace_from_text_rejects_malformed() {
+        assert!(Trace::from_text("").is_none());
+        assert!(Trace::from_text("1|0.5|0").is_none(), "字段数不符");
+        assert!(Trace::from_text("x|0.5|0|1|0.5").is_none(), "step 非法");
+        assert!(Trace::from_text("1|0.5|9|1|0.5").is_none(), "类型码越界");
+        assert!(Trace::from_text("1|NaN|0|1|0.5").is_none(), "NaN 拒绝");
+    }
+
+    #[test]
+    fn store_text_roundtrip_preserves_all_traces() {
+        let mut s = TraceStore::new();
+        for i in 1..=5u64 {
+            s.record(sample_trace(i, TraceType::Wind, 100 + i));
+        }
+        let back = TraceStore::from_text(&s.to_text(), s.cap());
+        assert_store_eq(&back, &s);
+        assert_eq!(back.cap(), s.cap(), "容量往返保持");
+        assert_eq!(back.counts_by_type(), s.counts_by_type(), "类型分布一致");
+    }
+
+    #[test]
+    fn store_from_text_ignores_bad_lines_and_empty() {
+        let mut s = TraceStore::new();
+        s.record(sample_trace(1, TraceType::Earth, 9));
+        let dirty = format!("garbage line\n\n{}\n1|0.5|0\n", s.to_text());
+        let back = TraceStore::from_text(&dirty, s.cap());
+        assert_eq!(back.len(), 1, "非法行被忽略，只留 1 条");
+        assert_eq!(back.all()[0].fingerprint, 9);
+        assert!(TraceStore::from_text("", 16).is_empty(), "空文本 → 空存储");
+    }
+
+    #[test]
+    fn store_from_text_truncates_to_cap_keeping_latest() {
+        let mut s = TraceStore::new();
+        for i in 1..=10u64 {
+            s.record(sample_trace(i, TraceType::Wind, i));
+        }
+        let back = TraceStore::from_text(&s.to_text(), 3);
+        assert_eq!(back.len(), 3, "超容量截断到 cap");
+        let fps: Vec<u64> = back.all().iter().map(|t| t.fingerprint).collect();
+        assert_eq!(fps, vec![8, 9, 10], "保留最近 3 条（与 record 同口径）");
     }
 }
