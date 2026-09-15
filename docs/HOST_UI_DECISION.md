@@ -1,4 +1,4 @@
-# WebGPU 宿主 · UI 方案抉择与实施计划（HOST_UI_DECISION）v1.0
+# WebGPU 宿主 · UI 方案抉择与实施计划（HOST_UI_DECISION）v1.1
 
 > 状态：**v1.0（2026-09-15）** ｜ 依据：发起人「第三阶段：WebGPU 宿主」§三（UI 渲染方式需我方判断）
 > 结论：**选 `egui + wgpu`**；但本轮**未交付可运行的窗口宿主**，原因与下一步见 §3/§4（诚实说明）。
@@ -79,6 +79,41 @@
 
 ## 5. 版本记录
 
+- **v1.1（2026-09-15 · 第一步完成）**：窗口宿主落地（winit+surface+场域管线，零 unsafe），
+  四项验收全过（见 §6）；修掉 2048 纹理上限 panic。
 - **v1.0（2026-09-15）**：UI 方案抉择（egui + wgpu，含三方案对比与理由）；
   记录 egui 0.36 ↔ wgpu 23 的**版本冲突实证**与两条解决路线；
   说明本轮未交付窗口宿主的原因（拒绝提交 unsafe 取巧代码）与**可直接执行的六步实施计划**。
+
+---
+
+## 6. 第三步**第一步已完成**：窗口宿主（不含 UI）
+
+发起人改分步推进：**第一步只做「winit 开窗 + wgpu surface + 场域渲染管线接入」**，UI 裁决后置。已完成：
+
+### 6.1 做法（无 unsafe）
+- 把 `build_pipeline` / `upload` / `encode_frame` 由 `&Gpu` 改为 **`&Device` / `&Queue`（+ `target_format`）**，
+  使**离屏自检与窗口宿主共用同一套管线**（纯签名调整，不复制管线、不取巧）。
+- `host/field-render/src/window.rs`：winit 0.30 `ApplicationHandler`（`resumed` / `window_event`）+
+  wgpu surface（`create_surface` 在 wgpu 23 是**安全函数**，已核 `api/instance.rs:276`）+ 持续渲染循环。
+- **`wgpu::Texture` 在 23 里不是 `Clone`** → 回读时**借用**目标纹理（surface 交换链图像 / 状态持有的离屏纹理），
+  不使用 `clone()`、不使用 `transmute`。**全 crate `unsafe` 真实出现次数 = 0**（仅注释里提到）。
+
+### 6.2 客观验收（`--frames N` 自动取证，无需人眼）
+| 验收项 | 标准 | 实测 |
+|---|---|---|
+| 窗口能打开 | — | ✅ **1536×1536**（HiDPI，768 逻辑 × 2）；surface `Bgra8UnormSrgb`；呈现 `Fifo`；`COPY_SRC=true` |
+| 能看到场域画面 | 方差 > 1 且非纯黑/非纯白 | ✅ 三样本方差 **43.9 / 1182.8 / 1370.7**，均 `非纯黑非纯白=true` |
+| 帧率 | > 30 FPS | ✅ **呈现口径 60–62 FPS**（垂直同步上限）；**管线裸口径 115–554 FPS**（1024 splat） |
+| 无 WebView2 依赖 | 无 `WebView2Loader.dll` | ✅ `llvm-objdump -p` 检 **WebView2 = 0 处** |
+
+**回读来源＝`surface`（真实上屏的那张纹理）**——不是离屏近似，故方差证据可信。
+pHash 汉明距离（真实上屏纹理间）：文本↔图片 **30**｜文本↔图片·紧张 **32**｜图片↔图片·紧张 **6**（阈值 >10 ✅）。
+
+### 6.3 本轮修掉一个真实缺陷
+`wgpu::Limits::downlevel_defaults()` 把 `max_texture_dimension_2d` 限在 **2048**，而 HiDPI 下窗口可达 **2134** →
+`Surface::configure` 直接 Validation Error **panic**。修法：设备用
+`downlevel_defaults().using_resolution(adapter.limits())`，并在建窗与 `resize` 两处把尺寸**钳制**到设备上限。
+
+### 6.4 仍未做（如实）
+地址栏 / 多标签 / 下载 / egui —— **属第三步后续步骤**，等 UI 路线裁决（§1 三方案）。

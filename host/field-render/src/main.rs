@@ -13,10 +13,13 @@
 //! ## 两种模式
 //! - `field-render --selftest`：**离屏渲染 + 回读 + 客观度量**（无窗口，可在 CI/无显示环境跑）
 //!   · 非纯黑/非纯白｜pHash(dHash 8×8) 汉明距离｜像素统计｜帧率
-//! - `field-render`（默认）：提示窗口模式留待下一轮
+//! - `field-render`（默认）：**窗口宿主**（winit 开窗 + wgpu surface + 同一套场域管线）
+//!   · `--frames N`：渲染 N 帧后自动测帧率并**回读上屏像素**，然后退出（无人值守验收）
 //!
 //! ## 与 wry 版的关系
 //! `host/sky-browser`（WebView2 版）**保留为降级路径与对照**；本 crate 完全独立。
+
+mod window;
 
 use bytemuck::{Pod, Zeroable};
 use std::time::Instant;
@@ -196,8 +199,13 @@ struct Pipeline {
     sort_passes: u32,
 }
 
-fn build_pipeline(gpu: &Gpu, n: u32) -> Pipeline {
-    let d = &gpu.device;
+/// 建管线（**不含 device/queue 的所有权**：由调用方持有，离屏自检与窗口宿主共用同一函数）。
+///
+/// `target_format` 必须与真实渲染目标一致——离屏自检传 `Rgba8UnormSrgb`，
+/// 窗口宿主传 surface 的实际格式（多为 `Bgra8UnormSrgb`），否则 wgpu 会因为
+/// 管线格式与 attachment 格式不匹配而报错。
+fn build_pipeline(device: &wgpu::Device, n: u32, target_format: wgpu::TextureFormat) -> Pipeline {
+    let d = device;
 
     let elements = d.create_buffer(&wgpu::BufferDescriptor {
         label: Some("elements"),
@@ -368,7 +376,7 @@ fn build_pipeline(gpu: &Gpu, n: u32) -> Pipeline {
             module: &render_mod,
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                format: target_format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
@@ -399,9 +407,9 @@ pub fn bitonic_pass_count(n: u32) -> u32 {
     logn * (logn + 1) / 2
 }
 
-fn upload(gpu: &Gpu, p: &Pipeline, elems: &[FieldElement], g: &GaborParams) {
+fn upload(queue: &wgpu::Queue, p: &Pipeline, elems: &[FieldElement], g: &GaborParams) {
     let n = p.n.min(elems.len() as u32);
-    gpu.queue.write_buffer(&p.elements, 0, bytemuck::cast_slice(&elems[..n as usize]));
+    queue.write_buffer(&p.elements, 0, bytemuck::cast_slice(&elems[..n as usize]));
     let camera = Camera {
         view_proj: [
             1.0, 0.0, 0.0, 0.0, //
@@ -412,8 +420,8 @@ fn upload(gpu: &Gpu, p: &Pipeline, elems: &[FieldElement], g: &GaborParams) {
         focal: [W as f32 * 0.5, H as f32 * 0.5],
         viewport: [W as f32, H as f32],
     };
-    gpu.queue.write_buffer(&p.camera_buf, 0, bytemuck::bytes_of(&camera));
-    gpu.queue.write_buffer(
+    queue.write_buffer(&p.camera_buf, 0, bytemuck::bytes_of(&camera));
+    queue.write_buffer(
         &p.gabor_buf,
         0,
         bytemuck::bytes_of(&GaborUniform {
@@ -427,8 +435,14 @@ fn upload(gpu: &Gpu, p: &Pipeline, elems: &[FieldElement], g: &GaborParams) {
     );
 }
 
-fn encode_frame(gpu: &Gpu, p: &Pipeline, target: &wgpu::TextureView, clear: wgpu::Color) -> wgpu::CommandBuffer {
-    let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
+fn encode_frame(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    p: &Pipeline,
+    target: &wgpu::TextureView,
+    clear: wgpu::Color,
+) -> wgpu::CommandBuffer {
+    let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
     {
         let mut cp = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("preprocess"), timestamp_writes: None });
         cp.set_pipeline(&p.pre_pipeline);
@@ -443,7 +457,7 @@ fn encode_frame(gpu: &Gpu, p: &Pipeline, target: &wgpu::TextureView, clear: wgpu
         while k <= p.n {
             let mut j = k >> 1;
             while j > 0 {
-                gpu.queue.write_buffer(&p.sort_params, 0, bytemuck::bytes_of(&SortParams { k, j, n: p.n, _pad: 0 }));
+                queue.write_buffer(&p.sort_params, 0, bytemuck::bytes_of(&SortParams { k, j, n: p.n, _pad: 0 }));
                 let mut cp = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("sort"), timestamp_writes: None });
                 cp.set_pipeline(&p.sort_pipeline);
                 cp.set_bind_group(0, if ping { &p.bg_sort_a } else { &p.bg_sort_b }, &[]);
@@ -476,21 +490,55 @@ fn encode_frame(gpu: &Gpu, p: &Pipeline, target: &wgpu::TextureView, clear: wgpu
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let gpu = match init_gpu() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("[field-render] {e}");
-            eprintln!("[field-render] 本渲染器**不依赖 WebView2**（无任何系统组件依赖）。");
-            std::process::exit(2);
-        }
+    let has = |k: &str| args.iter().any(|a| a == k);
+    let val = |k: &str| -> Option<String> {
+        args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned()
     };
-    if args.iter().any(|a| a == "--selftest") {
+
+    // `--selftest`：离屏渲染 + 回读 + 客观度量（无窗口，可在无显示环境/CI 跑）
+    if has("--selftest") {
+        let gpu = match init_gpu() {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("[field-render] {e}");
+                eprintln!("[field-render] 本渲染器**不依赖 WebView2**（无任何系统组件依赖）。");
+                std::process::exit(2);
+            }
+        };
         std::process::exit(selftest_main(&gpu));
     }
-    // 窗口宿主（第三阶段）实现中：见 docs/HOST_UI_DECISION.md
-    eprintln!("[field-render] 窗口宿主尚未接入（实现方案见 docs/HOST_UI_DECISION.md）；");
-    eprintln!("[field-render] 当前可用：--selftest（离屏渲染 + pHash/帧率客观度量）。");
-    std::process::exit(3);
+
+    // 默认：**窗口宿主**（winit 开窗 + wgpu surface + 同一套场域渲染管线；不依赖 WebView2）
+    //   `--frames N`：渲染 N 帧后自动测帧率 + 回读上屏像素判定，然后退出（无人值守验收）
+    let frames: Option<u32> = val("--frames").and_then(|v| v.parse().ok());
+    let sample: usize = val("--sample").and_then(|v| v.parse().ok()).unwrap_or(0);
+    if let Err(e) = window::run(window::RunOptions { frames, sample }) {
+        eprintln!("[field-render] 窗口宿主启动失败：{e}");
+        std::process::exit(2);
+    }
+}
+
+// ===== 共用样本（离屏自检与窗口宿主共用，保证两处"场域"定义一致）=====
+
+/// 两个样本页面的**源码文本**：纯文本页 与 纯图片页。
+pub fn sample_pages() -> (String, String) {
+    let text = {
+        let mut s = String::from("<html><body><article>");
+        for i in 0..20 {
+            s.push_str(&format!("<p>这是第{i}段正文，用来提供足够的文本量，让水质充分上升。</p>"));
+        }
+        s.push_str("</article></body></html>");
+        s
+    };
+    let image = {
+        let mut s = String::from("<html><body><div class=\"g\">");
+        for i in 0..30 {
+            s.push_str(&format!("<img src=\"{i}.jpg\">"));
+        }
+        s.push_str("</div></body></html>");
+        s
+    };
+    (text, image)
 }
 
 // ===== 离屏自检（客观度量）=====
@@ -499,22 +547,7 @@ fn selftest_main(gpu: &Gpu) -> i32 {
     let mut lib = GeneLibrary::new();
     seed_gabor_into(&mut lib);
 
-    let text_html = {
-        let mut s = String::from("<html><body><article>");
-        for i in 0..20 {
-            s.push_str(&format!("<p>这是第{i}段正文，用来提供足够的文本量，让水质充分上升。</p>"));
-        }
-        s.push_str("</article></body></html>");
-        s
-    };
-    let image_html = {
-        let mut s = String::from("<html><body><div class=\"g\">");
-        for i in 0..30 {
-            s.push_str(&format!("<img src=\"{i}.jpg\">"));
-        }
-        s.push_str("</div></body></html>");
-        s
-    };
+    let (text_html, image_html) = sample_pages();
 
     let ft = parse_source(&text_html, "");
     let fi = parse_source(&image_html, "");
@@ -557,11 +590,11 @@ fn selftest_main(gpu: &Gpu) -> i32 {
     let mut images: Vec<Vec<u8>> = Vec::new();
     let mut fps_done = false;
     for (name, f, g, q_dummy) in cases.iter() {
-        let pipe = build_pipeline(gpu, N_ELEMENTS);
+        let pipe = build_pipeline(&gpu.device, N_ELEMENTS, wgpu::TextureFormat::Rgba8UnormSrgb);
         let elems = elements_of(f, g, &q_dummy, N_ELEMENTS);
-        upload(gpu, &pipe, &elems, g);
+        upload(&gpu.queue, &pipe, &elems, g);
         let clear = clear_color_of(f, &q_dummy);
-        let cb = encode_frame(gpu, &pipe, &view, clear);
+        let cb = encode_frame(&gpu.device, &gpu.queue, &pipe, &view, clear);
         gpu.queue.submit(Some(cb));
 
         let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("copy") });
@@ -613,7 +646,7 @@ fn selftest_main(gpu: &Gpu) -> i32 {
             const FRAMES: u32 = 30;
             let t0 = Instant::now();
             for _ in 0..FRAMES {
-                let cb = encode_frame(gpu, &pipe, &view, clear);
+                let cb = encode_frame(&gpu.device, &gpu.queue, &pipe, &view, clear);
                 gpu.queue.submit(Some(cb));
             }
             let _ = gpu.device.poll(wgpu::Maintain::Wait);
