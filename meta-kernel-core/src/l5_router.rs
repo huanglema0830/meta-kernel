@@ -15,8 +15,37 @@ fn band_code(b: Band) -> &'static str {
     b.code()
 }
 
+/// 可选数值 → JSON（`None` 输出 `null`，不写成 0——"缺"与"零"必须能区分）。
+fn opt_num(v: Option<f64>) -> String {
+    match v {
+        Some(x) if x.is_finite() => format!("{x}"),
+        _ => "null".to_string(),
+    }
+}
+
+/// 确信度依据 → JSON 对象（无证据 → `null`）。
+fn basis_json(b: &Option<crate::l5_evidence::Adjustment>) -> String {
+    match b {
+        None => "null".to_string(),
+        Some(a) => format!(
+            "{{\"base\":{},\"world_match\":{},\"world_adjust\":{},\"prediction_error\":{},\"error_score\":{},\"pe_adjust\":{},\"final_confidence\":{},\"note\":\"{}\"}}",
+            a.base,
+            opt_num(a.world_match),
+            a.world_adjust,
+            opt_num(a.prediction_error),
+            opt_num(a.error_score),
+            a.pe_adjust,
+            a.final_confidence,
+            esc(&a.note)
+        ),
+    }
+}
+
 /// Diagnosis → JSON 字符串（schema 2；含 summary.{universal,hardware,software,plant,
 /// animal,geology,tcm,user} 多语言字段——L6 按用户语言自动选）。
+///
+/// v0.123：`conclusion.basis` 输出**确信度依据**（世界模型匹配度 / 预测误差各自的修正量）。
+/// **无证据时输出 `null`**——不臆造、不把"没有说话"伪装成"说了话"。
 pub fn to_json(d: &Diagnosis) -> String {
     let names = crate::l5_senses::FIELDS;
     let pattern = (0..4)
@@ -33,7 +62,7 @@ pub fn to_json(d: &Diagnosis) -> String {
         .collect::<Vec<_>>()
         .join(",");
     format!(
-        "{{\"schema\":{},\"fields\":{{{}}},\"pattern\":{{{}}},\"conclusion\":{{\"title\":\"{}\",\"description\":\"{}\",\"cause\":\"{}\",\"confidence\":{},\"suggestion_key\":\"{}\",\"suggestion\":\"{}\"}},\"trace\":{{\"baseline_id\":\"{}\",\"object\":\"{}\",\"at\":\"{}\",\"reproducible\":{}}},\"summary\":{{{}}}}}",
+        "{{\"schema\":{},\"fields\":{{{}}},\"pattern\":{{{}}},\"conclusion\":{{\"title\":\"{}\",\"description\":\"{}\",\"cause\":\"{}\",\"confidence\":{},\"suggestion_key\":\"{}\",\"suggestion\":\"{}\",\"basis\":{}}},\"trace\":{{\"baseline_id\":\"{}\",\"object\":\"{}\",\"at\":\"{}\",\"reproducible\":{}}},\"summary\":{{{}}}}}",
         d.schema,
         fields,
         pattern,
@@ -43,6 +72,8 @@ pub fn to_json(d: &Diagnosis) -> String {
         d.conclusion.confidence,
         esc(&d.conclusion.suggestion_key),
         esc(&d.conclusion.suggestion),
+        // **结论携带的依据**（世界模型匹配度 + 预测误差）——L6 可据此解释"为何这个确信度"
+        basis_json(&d.conclusion.basis),
         esc(&d.trace.baseline_id),
         esc(&d.trace.object),
         esc(&d.trace.at),
@@ -101,5 +132,36 @@ mod tests {
         for _ in 0..3 {
             assert_eq!(to_json(&d), a);
         }
+    }
+
+    #[test]
+    fn basis_is_null_without_evidence_and_present_with_it() {
+        use crate::l5_baseline::BaselineField;
+        use crate::l5_evidence::{Evidence, Gains};
+        use crate::l5_diagnosis::diagnose_with_evidence;
+
+        let b = BaselineField { earth: 1.0, water: 1.0, fire: 1.0, wind: 1.0, object: "o", established: "learned" };
+        let s = [1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 1.0];
+
+        // 无证据 → null（不臆造）
+        let d0 = diagnose(&s, &b, "obj");
+        let j0 = to_json(&d0);
+        assert!(j0.contains("\"basis\":null"), "无证据必须输出 null：{j0}");
+
+        // 有证据 → 携带原值与修正量（发起人要求：结论携带预测误差作为确信度依据）
+        let d1 = diagnose_with_evidence(
+            &s,
+            &b,
+            "obj",
+            &Evidence { world_match: Some(0.9), prediction_error: Some(0.003) },
+            &Gains::default(),
+        );
+        let j1 = to_json(&d1);
+        assert!(j1.contains("\"prediction_error\":0.003"), "须带误差原值：{j1}");
+        assert!(j1.contains("\"world_match\":0.9"), "须带匹配度：{j1}");
+        assert!(j1.contains("\"error_score\":"), "须带归一化分：{j1}");
+        assert!(!j1.contains("basis\":null"), "有证据不得输出 null");
+        // 依据的修正必须与最终确信度自洽（final = base + world + pe，且被 0..1 夹住）
+        assert!(j1.contains("\"final_confidence\":"), "{j1}");
     }
 }

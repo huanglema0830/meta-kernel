@@ -31,7 +31,12 @@ use meta_kernel_core::l1_mapping::{
 };
 use meta_kernel_core::l3_world::WorldModel;
 use meta_kernel_core::l1_source_parse::parse_source;
-use meta_kernel_core::l5_quad::Quad;
+use meta_kernel_core::l5_attention;
+use meta_kernel_core::l5_baseline::BaselineField;
+use meta_kernel_core::l5_diagnosis::{self, diagnose_with_evidence};
+use meta_kernel_core::l5_evidence::{self, Evidence};
+use meta_kernel_core::l5_quad::{ProbeMode, Quad};
+use meta_kernel_core::l5_router;
 
 const W: u32 = 512;
 const H: u32 = 512;
@@ -1284,14 +1289,10 @@ pub fn field_buffer_bytes(n: u32) -> u64 {
 /// `activity = 0.6·紧张 + 0.4·(1-平静)`：紧张高 → 更多细节；平静高 → 更少细节（省资源）。
 /// 返回 128 / 256 / 512 / 1024。
 pub fn lod_n_for(tension: f64, calm: f64) -> u32 {
-    let a = (0.6 * tension.clamp(0.0, 1.0) + 0.4 * (1.0 - calm.clamp(0.0, 1.0))).clamp(0.0, 1.0);
-    let idx = (a * 3.0).floor().min(2.0) as u32; // 0..2 → 三档跃迁，最高档由 >1 的余量覆盖
-    let n = 128u32 << idx;
-    if a > 0.999 {
-        1024
-    } else {
-        n.min(1024)
-    }
+    // **单一事实源**：精度档位策略在**内核**（`l5_attention`），宿主只调用不重算。
+    // 这样"渲染精度（LOD）"与"探测门槛"必然出自同一个 `activity` —— **同源才叫闭环**；
+    // 宿主各存一份阈值必然出现"要高细节却同时很被动"这类自相矛盾。
+    l5_attention::lod_n_for(&Quad { tension, calm, liking: 0.5, safety: 0.5 })
 }
 
 /// 像素级差异：返回（平均绝对差, 差异超过 8 的像素占比）。
@@ -1330,12 +1331,394 @@ pub fn depth_order_report(d: &[f32]) -> (bool, usize) {
 }
 
 
+
+// ===== 元内核参与 =====
+
+/// **元内核参与横幅**：每次运行都必须打印（发起人要求「每次运行请调动元内核参与」）。
+///
+/// 内容全部来自**内核计算**：基因库规模、诊断证据系数、注意力联动结果——
+/// 一旦这些数字出现，就说明本次运行的判据取自内核，而非宿主自己又写了一套。
+pub fn kernel_banner(mode: &str) {
+    let mut lib = GeneLibrary::new();
+    seed_gabor_into(&mut lib);
+    seed_coherence_into(&mut lib);
+    l5_evidence::seed_into(&mut lib);
+    let s = lib.sizes();
+    let gains = l5_evidence::gains_of(&lib);
+    let plan = l5_attention::plan(&q4(0.5, 0.5, 0.5, 0.5), 0.0, 0.5, false);
+    println!(
+        "[元内核] 参与：模式={mode}｜内核 v{}｜基因库 基础{} 场景{} 关系{} 验证{}｜证据系数 world_gain={:.2} pe_gain={:.2} pe_ref={:.3}｜{}",
+        meta_kernel_core::VERSION,
+        s[0],
+        s[1],
+        s[2],
+        s[3],
+        gains.world_gain,
+        gains.pe_gain,
+        gains.pe_ref,
+        plan.detail()
+    );
+}
+
+// ===== 验收：诊断证据（世界模型匹配度 + 预测误差）=====
+
+/// 七维样本：水（熵 H）取 0.5 → **单一水枯** → 基础确信度 0.75（**未饱和**，便于观测修正）。
+///
+/// 为何不用"火亢+水枯"复合样本：火偏离达 2.0 ≥ 1.618 → 基础确信度顶到 1.0，
+/// 正向证据会被上界吃掉，用它测"确信度提高"会得到**假阴性**。
+pub fn diag_sample() -> [f64; 7] {
+    [1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 1.0]
+}
+
+/// 验收①②：**世界模型匹配度**与**预测误差**接入 L5 诊断层。
+pub fn diag_check_main() -> i32 {
+    let gpu = match init_gpu() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("[diagcheck] {e}");
+            return 2;
+        }
+    };
+    let mut lib = GeneLibrary::new();
+    seed_gabor_into(&mut lib);
+    seed_coherence_into(&mut lib);
+    l5_evidence::seed_into(&mut lib);
+    let gains = l5_evidence::gains_of(&lib);
+    let (text_html, image_html) = sample_pages();
+    let f_text = parse_source(&text_html, "");
+    let f_img = parse_source(&image_html, "");
+    let base = BaselineField {
+        earth: 1.0,
+        water: 1.0,
+        fire: 1.0,
+        wind: 1.0,
+        object: "diagcheck",
+        established: "learned",
+    };
+    let s = diag_sample();
+    let key = "samples.local/text";
+    let mut ok = true;
+
+    // ---------- ① 世界模型匹配度 → 确信度 ----------
+    println!("[diagcheck] ① 世界模型匹配度 → 诊断确信度");
+    let mut world = WorldModel::new();
+    for _ in 0..10 {
+        world.observe_page("samples.local", key, &f_text, 2000);
+    }
+    // 第三个样本：**纯链接页**（大量 a、无正文、无媒体）——用于构造"真正不像"的对照
+    let link_html = {
+        let mut s = String::from("<html><body><nav>");
+        for i in 0..300 {
+            s.push_str(&format!("<a href=\"/{i}\">{i}</a>"));
+        }
+        s.push_str("</nav></body></html>");
+        s
+    };
+    let f_link = parse_source(&link_html, "");
+    let fld = |f: &FieldReading| format!("地{:.2} 水{:.2} 火{:.2} 风{:.2}", f.earth, f.water, f.fire, f.wind);
+    println!("[diagcheck]   场域：文本页 {}｜图片页 {}｜链接页 {}", fld(&f_text), fld(&f_img), fld(&f_link));
+
+    let m_hit = l5_evidence::match_to_world(&f_text, &world, Some(key), &gains);
+    let m_miss = l5_evidence::match_to_world(&f_link, &world, Some(key), &gains);
+    let m_img = l5_evidence::match_to_world(&f_img, &world, Some(key), &gains);
+    println!(
+        "[diagcheck]   成熟世界（同形观测 10 次 / 成熟度 {:.2}）：匹配度 {:.3}（局部 {:?}｜全局 {:.3}）",
+        m_hit.maturity, m_hit.score, m_hit.local, m_hit.global
+    );
+    println!("[diagcheck]   异形场对同一 key：纯链接页 {:.3}｜纯图片页 {:.3}", m_miss.score, m_img.score);
+
+    let ev_hit = Evidence { world_match: Some(m_hit.score), prediction_error: None };
+    let ev_miss = Evidence { world_match: Some(m_miss.score), prediction_error: None };
+    let d_none = l5_diagnosis::diagnose(&s, &base, key);
+    let d_hit = diagnose_with_evidence(&s, &base, key, &ev_hit, &gains);
+    let d_miss = diagnose_with_evidence(&s, &base, key, &ev_miss, &gains);
+    println!(
+        "[diagcheck]   确信度：无证据 {:.3}｜匹配高 {:.3}｜匹配低 {:.3}",
+        d_none.conclusion.confidence, d_hit.conclusion.confidence, d_miss.conclusion.confidence
+    );
+    if let Some(b) = &d_hit.conclusion.basis {
+        println!("[diagcheck]   依据：{}", b.note);
+    }
+    if !(d_hit.conclusion.confidence > d_none.conclusion.confidence) {
+        println!("[diagcheck] ✗ 高匹配未提高确信度");
+        ok = false;
+    }
+    if !(d_miss.conclusion.confidence < d_none.conclusion.confidence) {
+        println!("[diagcheck] ✗ 低匹配未降低确信度");
+        ok = false;
+    }
+    // 证据只动确信度，**不改结论**（一因一果 / 不饮酒）
+    if d_hit.conclusion.title != d_miss.conclusion.title
+        || d_hit.conclusion.cause != d_miss.conclusion.cause
+        || d_hit.pattern != d_miss.pattern
+    {
+        println!("[diagcheck] ✗ 证据改动了结论本身（应当只改确信度）");
+        ok = false;
+    }
+
+    // ---------- ② 预测误差 → 确信度（用**真实渲染**的误差）----------
+    println!("[diagcheck] ② 预测误差 → 诊断确信度（误差取自真实渲染帧）");
+    let q = q4(0.4, 0.6, 0.5, 0.6);
+    let coh = coherence_of(&q, &lib);
+    let g = field_to_gabor_with(&f_img, &lib);
+    let pipe = build_pipeline(&gpu.device, N_ELEMENTS, wgpu::TextureFormat::Rgba8UnormSrgb);
+    let off = Offscreen::new(&gpu, W, H);
+    let elems = elements_of_co(&f_img, &g, &q, coh, N_ELEMENTS);
+    upload_co(&gpu.queue, &pipe, &elems, &g, coh);
+    let clear = clear_color_of(&f_img, &q);
+    let px = off.render_gray(&gpu, &pipe, W, H, clear);
+    let (_raw, pe_low) = prediction_error(&px, W, H);
+    // 高误差对照：**同一把尺子上放大**（不臆造绝对量）
+    let pe_high = pe_low * 8.0 + 0.20;
+    println!("[diagcheck]   实测归一化预测误差 {pe_low:.4}（对照 {pe_high:.4}）");
+
+    let e_low = diagnose_with_evidence(
+        &s,
+        &base,
+        key,
+        &Evidence { world_match: None, prediction_error: Some(pe_low) },
+        &gains,
+    );
+    let e_high = diagnose_with_evidence(
+        &s,
+        &base,
+        key,
+        &Evidence { world_match: None, prediction_error: Some(pe_high) },
+        &gains,
+    );
+    println!(
+        "[diagcheck]   确信度：误差低 {:.3}｜误差高 {:.3}（无证据 {:.3}）",
+        e_low.conclusion.confidence, e_high.conclusion.confidence, d_none.conclusion.confidence
+    );
+    if let Some(b) = &e_low.conclusion.basis {
+        println!("[diagcheck]   依据：{}", b.note);
+    }
+    if !(e_low.conclusion.confidence > e_high.conclusion.confidence) {
+        println!("[diagcheck] ✗ 预测误差未按预期影响确信度");
+        ok = false;
+    }
+    if !(e_low.conclusion.confidence > d_none.conclusion.confidence) {
+        println!("[diagcheck] ✗ 低误差未提高确信度");
+        ok = false;
+    }
+    // ③ 结论**携带**预测误差原值（发起人明确要求）
+    let carries = e_low
+        .conclusion
+        .basis
+        .as_ref()
+        .map(|b| b.prediction_error == Some(pe_low) && b.note.contains("预测误差"))
+        .unwrap_or(false);
+    println!(
+        "[diagcheck] ③ 结论携带预测误差作为确信度依据：{}",
+        if carries { "OK（原值 + 归一化分 + 说明）" } else { "FAIL" }
+    );
+    if !carries {
+        ok = false;
+    }
+
+    // ④ 不成熟世界模型 → 修正被削弱（不妄语：没把握就不动结论）
+    let mut young = WorldModel::new();
+    young.observe_page("samples.local", key, &f_text, 2000);
+    let m_young = l5_evidence::match_to_world(&f_text, &young, Some(key), &gains);
+    let d_young = diagnose_with_evidence(
+        &s,
+        &base,
+        key,
+        &Evidence { world_match: Some(m_young.score), prediction_error: None },
+        &gains,
+    );
+    let shift_young = (d_young.conclusion.confidence - d_none.conclusion.confidence).abs();
+    let shift_mature = (d_hit.conclusion.confidence - d_none.conclusion.confidence).abs();
+    println!(
+        "[diagcheck] ④ 不成熟世界（1 次观测 / 成熟度 {:.2}）：匹配度 {:.3} → 修正量 {:.3}（成熟时 {:.3}）",
+        m_young.maturity, m_young.score, shift_young, shift_mature
+    );
+    if !(shift_young < shift_mature) {
+        println!("[diagcheck] ✗ 不成熟世界的证据影响力未被削弱");
+        ok = false;
+    }
+
+    // ⑤ L5 JSON 携带依据（供 L6 呈现"为何是这个确信度"）
+    let json = l5_router::to_json(&e_low);
+    let json_none = l5_router::to_json(&d_none);
+    let json_ok = json.contains("\"prediction_error\":") && !json.contains("\"basis\":null");
+    let json_null_ok = json_none.contains("\"basis\":null");
+    println!(
+        "[diagcheck] ⑤ L5 JSON：有证据带依据={}｜无证据为 null={}",
+        if json_ok { "OK" } else { "FAIL" },
+        if json_null_ok { "OK" } else { "FAIL" }
+    );
+    if !(json_ok && json_null_ok) {
+        ok = false;
+    }
+
+    println!("[diagcheck] 结论：{}", if ok { "PASS（世界模型匹配度与预测误差均已接入 L5 诊断层）" } else { "FAIL" });
+    if ok { 0 } else { 1 }
+}
+
+// ===== 验收：LOD 与探测策略联动 =====
+
+/// 验收③：**LOD 与探测策略联动**（注意力—渲染—探测闭环）。
+///
+/// 比较探测模式时必须**固定确信度与偏离**——否则测的是"感知质量"而不是"注意力"。
+pub fn link_check_main() -> i32 {
+    println!("[linkcheck] 注意力 → 渲染（LOD）＋ 探测（同一 activity 驱动）");
+    let mut ok = true;
+    const CONF: f64 = 0.40; // 中间确信度：既非"必主动"也非"必被动"，才能看出注意力带来的差别
+    let dev = 0.0;
+
+    let calm = l5_attention::plan(&q4(0.0, 1.0, 0.5, 0.5), dev, CONF, false);
+    let mid = l5_attention::plan(&q4(0.5, 0.5, 0.5, 0.5), dev, CONF, false);
+    let tense = l5_attention::plan(&q4(1.0, 0.0, 0.5, 0.5), dev, CONF, false);
+    for (name, p) in [("全平静", calm), ("居中", mid), ("全紧张", tense)] {
+        println!("[linkcheck]   {name}: {}", p.detail());
+    }
+
+    // ① 方向：紧张更细 + 更主动；平静更粗 + 更被动
+    let dir_lod = tense.lod_n > calm.lod_n;
+    let dir_probe = tense.probe.mode == ProbeMode::Active && calm.probe.mode == ProbeMode::Passive;
+    println!(
+        "[linkcheck] ① 方向：紧张 LOD {} > 平静 LOD {} = {}｜紧张{} / 平静{} = {}",
+        tense.lod_n,
+        calm.lod_n,
+        if dir_lod { "OK" } else { "FAIL" },
+        probe_str(tense.probe.mode),
+        probe_str(calm.probe.mode),
+        if dir_probe { "OK" } else { "FAIL" }
+    );
+    if !(dir_lod && dir_probe) {
+        ok = false;
+    }
+    if tense.probe_reason.is_none() || calm.probe_reason.is_some() {
+        println!("[linkcheck] ✗ 主动必须带理由、被动必须不带理由");
+        ok = false;
+    }
+
+    // ② 同源：扫描 activity → 档位不降、模式不回退（不会出现"要高细节却同时被动"）
+    let mut prev_n = 0u32;
+    let mut saw_active = false;
+    let mut monotone = true;
+    for i in 0..=20 {
+        let a = i as f64 / 20.0;
+        let p = l5_attention::plan(&q4(a, 1.0 - a, 0.5, 0.5), dev, CONF, false);
+        if p.lod_n < prev_n {
+            monotone = false;
+            break;
+        }
+        prev_n = p.lod_n;
+        if p.probe.mode == ProbeMode::Active {
+            saw_active = true;
+        } else if saw_active {
+            monotone = false;
+            break;
+        }
+    }
+    println!(
+        "[linkcheck] ② 同源单调：档位不降且模式不回退 = {}｜高活动端出现过主动 = {}",
+        if monotone { "OK" } else { "FAIL" },
+        if saw_active { "OK" } else { "FAIL" }
+    );
+    if !(monotone && saw_active) {
+        ok = false;
+    }
+
+    // ③ 单一事实源：宿主档位函数**逐值**等于内核
+    let mut same = true;
+    let mut mismatch = String::new();
+    for i in 0..=20 {
+        let x = i as f64 / 20.0;
+        let host = lod_n_for(x, 1.0 - x);
+        let kern = l5_attention::lod_n_for(&q4(x, 1.0 - x, 0.5, 0.5));
+        if host != kern {
+            same = false;
+            mismatch = format!("x={x}: 宿主 {host} vs 内核 {kern}");
+            break;
+        }
+    }
+    println!("[linkcheck] ③ 宿主档位委托内核（逐值一致）= {}", if same { "OK" } else { "FAIL" });
+    if !same {
+        println!("[linkcheck]   {mismatch}");
+        ok = false;
+    }
+
+    // ④ 门槛区间必须**包住旧默认门槛**：本联动不废弃旧策略，只把它的位置随注意力移动
+    let lo = l5_attention::probe_floor_for_activity(0.0);
+    let hi = l5_attention::probe_floor_for_activity(1.0);
+    let brackets = lo < meta_kernel_core::l5_quad::PROBE_CONFIDENCE_FLOOR
+        && hi > meta_kernel_core::l5_quad::PROBE_CONFIDENCE_FLOOR;
+    println!(
+        "[linkcheck] ④ 探测门槛区间 [{lo:.2}, {hi:.2}] 包住旧默认 {:.2} = {}",
+        meta_kernel_core::l5_quad::PROBE_CONFIDENCE_FLOOR,
+        if brackets { "OK" } else { "FAIL" }
+    );
+    if !brackets {
+        ok = false;
+    }
+
+    // ⑤ 原有纪律不受影响：感知困难（确信度低/偏离大/信号陈旧）**必须**主动
+    let low = l5_attention::plan(&q4(0.0, 1.0, 0.5, 0.5), 0.0, 0.05, false);
+    let devp = l5_attention::plan(&q4(0.0, 1.0, 0.5, 0.5), 0.90, 0.90, false);
+    let stale = l5_attention::plan(&q4(0.0, 1.0, 0.5, 0.5), 0.0, 0.90, true);
+    let discipline = low.probe.mode == ProbeMode::Active
+        && devp.probe.mode == ProbeMode::Active
+        && stale.probe.mode == ProbeMode::Active;
+    println!(
+        "[linkcheck] ⑤ 原有纪律（即便全平静）：确信度低→主动={}｜偏离过大→主动={}｜信号陈旧→主动={}｜合计 {}",
+        probe_str(low.probe.mode),
+        probe_str(devp.probe.mode),
+        probe_str(stale.probe.mode),
+        if discipline { "OK" } else { "FAIL" }
+    );
+    if !discipline {
+        ok = false;
+    }
+
+    println!("[linkcheck] 结论：{}", if ok { "PASS（LOD 与探测策略联动，同源闭环）" } else { "FAIL" });
+    if ok { 0 } else { 1 }
+}
+
+fn probe_str(m: ProbeMode) -> &'static str {
+    match m {
+        ProbeMode::Active => "主动",
+        ProbeMode::Passive => "被动",
+    }
+}
+
+/// 运行模式名（供元内核参与横幅显示）。
+fn mode_name(args: &[String]) -> &'static str {
+    let has = |k: &str| args.iter().any(|a| a == k);
+    if has("--selftest") {
+        "selftest"
+    } else if has("--sortcheck") {
+        "sortcheck"
+    } else if has("--quad-check") {
+        "quad-check"
+    } else if has("--like-check") {
+        "like-check"
+    } else if has("--lod-check") {
+        "lod-check"
+    } else if has("--world-check") {
+        "world-check"
+    } else if has("--diag-check") {
+        "diag-check"
+    } else if has("--link-check") {
+        "link-check"
+    } else if has("--ui-selftest") {
+        "ui-selftest"
+    } else {
+        "window"
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let has = |k: &str| args.iter().any(|a| a == k);
     let val = |k: &str| -> Option<String> {
         args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned()
     };
+
+    // **元内核参与**：每次运行都打印本次判据取自内核的哪一部分（发起人要求）
+    kernel_banner(mode_name(&args));
 
     // `--selftest`：离屏渲染 + 回读 + 客观度量（无窗口，可在无显示环境/CI 跑）
     if has("--selftest") {
@@ -1364,6 +1747,12 @@ fn main() {
     }
     if has("--world-check") {
         std::process::exit(world_check_main());
+    }
+    if has("--diag-check") {
+        std::process::exit(diag_check_main());
+    }
+    if has("--link-check") {
+        std::process::exit(link_check_main());
     }
 
     // 默认：**窗口宿主**（winit 开窗 + wgpu surface + 同一套场域渲染管线；不依赖 WebView2）
@@ -1649,6 +2038,36 @@ mod tests {
         }
         assert_eq!(lod_n_for(0.0, 1.0), 128, "最平静 → 最低档");
         assert_eq!(lod_n_for(1.0, 0.0), 1024, "最紧张 → 最高档");
+    }
+
+    #[test]
+    fn diag_sample_has_unsaturated_base_confidence() {
+        // 样本设计的前提：基础确信度必须是 0.75（未饱和），否则正向证据会被上界吃掉，
+        // 测试会变成"假阴性"——这条断言把该前提钉死，避免以后换样本时静默退化。
+        let base = meta_kernel_core::l5_baseline::BaselineField {
+            earth: 1.0,
+            water: 1.0,
+            fire: 1.0,
+            wind: 1.0,
+            object: "t",
+            established: "learned",
+        };
+        let d = meta_kernel_core::l5_diagnosis::diagnose(&diag_sample(), &base, "t");
+        assert!((d.conclusion.confidence - 0.75).abs() < 1e-12, "基础确信度 {}", d.conclusion.confidence);
+        assert!(d.conclusion.basis.is_none(), "无证据不得产生依据");
+    }
+
+    #[test]
+    fn host_lod_delegates_to_kernel() {
+        // 单一事实源的守门测试：宿主档位与内核必须逐值一致
+        for i in 0..=20 {
+            let x = i as f64 / 20.0;
+            assert_eq!(
+                lod_n_for(x, 1.0 - x),
+                l5_attention::lod_n_for(&Quad { tension: x, calm: 1.0 - x, liking: 0.5, safety: 0.5 }),
+                "x={x} 宿主与内核档位不一致"
+            );
+        }
     }
 
     #[test]

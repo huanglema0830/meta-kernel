@@ -4,9 +4,18 @@
 //! 补充增量 = 成因（是什么导致偏移）。
 //! 戒律落实：不邪淫（一次号脉单一主结论）；不妄语（trace 可复现）；
 //! 不饮酒（只用自身场数据推导）。纯函数、无状态。
+//!
+//! ## v0.123 · 诊断证据（世界模型匹配度 + 预测误差）
+//! 发起人要求：**诊断不能只看当前场域，还要看世界模型中的历史模式**，且**预测误差**
+//! 要成为确信度的依据之一（须随结论携带）。
+//! 落点（见 [`crate::l5_evidence`]）：
+//! - 结论**本身**仍由场域自身推导（不饮酒 → 因果链不被外部量改写）；
+//! - 证据只修正 **`confidence`**（确信度），并把修正过程写进 `Conclusion::basis`；
+//! - **无证据时逐位等价于 v0.122**（`basis = None`、确信度不变）。
 
 use crate::l5_baseline::BaselineField;
 use crate::l5_compare::{compare, Band};
+use crate::l5_evidence::{self, Adjustment, Evidence, Gains};
 
 pub const FIELDS: [&str; 4] = ["earth", "water", "fire", "wind"];
 
@@ -23,6 +32,9 @@ pub struct Conclusion {
     pub suggestion_key: String,
     /// 建议默认文本（中文，兼容 CLI/日志）。
     pub suggestion: String,
+    /// **确信度依据**（v0.123）：世界模型匹配度 / 预测误差各自的修正量与说明。
+    /// `None` = 无外部证据（确信度仅由场域自身推出，与 v0.122 行为一致）。
+    pub basis: Option<Adjustment>,
 }
 
 /// 溯源（不妄语：可验证、可复现）。
@@ -61,7 +73,13 @@ fn anomaly_phrase(pattern: &[Band; 4]) -> String {
 
 /// 补充增量（成因）——按主导异常（亢优先于枯；同向取偏离更大者）。
 /// 说明：成因只用对象自身场推导（不饮酒）；描述单一因果链（不邪淫）。
-pub fn synthesize(fields: &[f64; 4], base: &BaselineField, pattern: &[Band; 4]) -> Conclusion {
+pub fn synthesize_with_evidence(
+    fields: &[f64; 4],
+    base: &BaselineField,
+    pattern: &[Band; 4],
+    ev: &Evidence,
+    gains: &Gains,
+) -> Conclusion {
     let anomaly = anomaly_phrase(pattern);
     // 偏离倍率（本底 0 防御）
     let dev = |i: usize| -> f64 {
@@ -123,13 +141,31 @@ pub fn synthesize(fields: &[f64; 4], base: &BaselineField, pattern: &[Band; 4]) 
     // 确信度（L6 语气映射输入）：异常维度数与偏离幅度越高 → 越确信
     let anomaly_n = pattern.iter().filter(|b| **b != Band::Ping).count();
     let max_dev = (0..4).map(dev).fold(0.0f64, f64::max);
-    let confidence: f64 = (0.55_f64
-        + if anomaly_n >= 1 { 0.2 } else { 0.0 }
-        + if max_dev >= crate::l4::threshold::GOLDEN_HIGH { 0.25 } else { 0.0 })
-        .min(1.0);
+    let base_conf = base_confidence(anomaly_n, max_dev);
+    // **诊断证据修正**（v0.123）：世界模型匹配度高 / 预测误差低 → 更确信，反之更不确信。
+    // 无证据 → 修正量 0 且 `basis = None` → 与 v0.122 逐位一致。
+    let adj = l5_evidence::adjust(base_conf, ev, gains);
+    let (confidence, basis) = if ev.is_empty() {
+        (base_conf, None)
+    } else {
+        (adj.final_confidence, Some(adj))
+    };
     // 建议（单一、语言无关键 + 默认中文文本）
     let (suggestion_key, suggestion) = advice(&lead);
-    Conclusion { title, description, cause, confidence, suggestion_key, suggestion }
+    Conclusion { title, description, cause, confidence, suggestion_key, suggestion, basis }
+}
+
+/// **基础确信度**：仅由场域自身推导（异常维度数 + 最大偏离幅度）——证据修正的起点。
+fn base_confidence(anomaly_n: usize, max_dev: f64) -> f64 {
+    (0.55_f64
+        + if anomaly_n >= 1 { 0.2 } else { 0.0 }
+        + if max_dev >= crate::l4::threshold::GOLDEN_HIGH { 0.25 } else { 0.0 })
+    .min(1.0)
+}
+
+/// 兼容入口：**不带证据**（等价于 v0.122 行为；确信度仅由场域自身推出）。
+pub fn synthesize(fields: &[f64; 4], base: &BaselineField, pattern: &[Band; 4]) -> Conclusion {
+    synthesize_with_evidence(fields, base, pattern, &Evidence::NONE, &Gains::default())
 }
 
 /// 建议映射：主导分量 × 带 → （语言无关键, 默认中文文本）。单一建议（不邪淫）。
@@ -154,9 +190,20 @@ fn advice(lead: &Option<(usize, Band)>) -> (String, String) {
 
 /// 主入口：compare + synthesize → Diagnosis（trace 由宿主注，默认可复现）。
 pub fn diagnose(s: &[f64; 7], base: &BaselineField, object: &str) -> Diagnosis {
+    diagnose_with_evidence(s, base, object, &Evidence::NONE, &Gains::default())
+}
+
+/// 主入口（带证据）：世界模型匹配度 + 预测误差 参与确信度，并随结论携带依据。
+pub fn diagnose_with_evidence(
+    s: &[f64; 7],
+    base: &BaselineField,
+    object: &str,
+    ev: &Evidence,
+    gains: &Gains,
+) -> Diagnosis {
     let fields = crate::l5_senses::decompose(s);
     let pattern = compare(&fields, base);
-    let conclusion = synthesize(&fields, base, &pattern);
+    let conclusion = synthesize_with_evidence(&fields, base, &pattern, ev, gains);
     Diagnosis {
         schema: 2,
         fields,
@@ -233,6 +280,140 @@ mod tests {
             let c = diagnose(&s, &b, "obj");
             assert_eq!(c, a, "同输入同输出（纯、无缓存残留）");
         }
+    }
+
+    fn ev(w: Option<f64>, pe: Option<f64>) -> Evidence {
+        Evidence { world_match: w, prediction_error: pe }
+    }
+
+    /// **未饱和样本**（单一水枯）：基础确信度 **0.75** —— 证据修正可被清晰观测。
+    /// 为何不用复合样本：火亢偏离已达 2.0 ≥ 1.618 → 基础确信度**顶到 1.0**，
+    /// 正向证据会被上界吃掉，用它测"提高"会得到**假阴性**。
+    fn s_soft() -> [f64; 7] {
+        [1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 1.0]
+    }
+
+    /// **饱和样本**（火亢 + 水枯）：基础确信度 1.0，用于验证上界与"负向证据仍生效"。
+    fn s_mix() -> [f64; 7] {
+        [2.0, 1.0, 2.0, 1.0, 1.0, 0.5, 1.0]
+    }
+
+    #[test]
+    fn no_evidence_is_bitwise_same_as_before() {
+        for s in [s_soft(), s_mix()] {
+            let a = diagnose(&s, &base(), "obj");
+            let b = diagnose_with_evidence(&s, &base(), "obj", &Evidence::NONE, &Gains::default());
+            assert_eq!(a, b, "无证据必须与 v0.122 行为逐位一致");
+            assert!(a.conclusion.basis.is_none(), "无证据不产生依据");
+        }
+    }
+
+    #[test]
+    fn world_match_high_raises_confidence_low_lowers() {
+        let g = Gains::default();
+        let hit = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(Some(1.0), None), &g);
+        let mid = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(Some(0.5), None), &g);
+        let miss = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(Some(0.0), None), &g);
+        assert!(
+            hit.conclusion.confidence > mid.conclusion.confidence,
+            "匹配高 → 确信度高：{} vs {}",
+            hit.conclusion.confidence,
+            mid.conclusion.confidence
+        );
+        assert!(mid.conclusion.confidence > miss.conclusion.confidence, "匹配低 → 确信度低");
+        // 证据只动确信度，**不改结论**（一因一果 / 不饮酒）
+        assert_eq!(hit.conclusion.title, miss.conclusion.title);
+        assert_eq!(hit.conclusion.cause, miss.conclusion.cause);
+        assert_eq!(hit.conclusion.suggestion_key, miss.conclusion.suggestion_key);
+        assert_eq!(hit.pattern, miss.pattern);
+        let b = hit.conclusion.basis.as_ref().expect("依据必须随结论携带");
+        assert_eq!(b.world_match, Some(1.0));
+        assert!(b.world_adjust > 0.0);
+        assert!(b.note.contains("世界模型匹配度"), "{}", b.note);
+    }
+
+    #[test]
+    fn prediction_error_low_raises_confidence_high_lowers() {
+        let g = Gains::default();
+        let low = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(None, Some(0.002)), &g);
+        let high = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(None, Some(0.40)), &g);
+        assert!(
+            low.conclusion.confidence > high.conclusion.confidence,
+            "误差低 → 确信度高：{} vs {}",
+            low.conclusion.confidence,
+            high.conclusion.confidence
+        );
+        // 发起人要求：**结论携带预测误差**作为确信度依据
+        let b = low.conclusion.basis.as_ref().expect("依据必须随结论携带");
+        assert_eq!(b.prediction_error, Some(0.002), "必须携带误差原值");
+        assert!(b.error_score.expect("须有归一化分") > 0.9);
+        assert!(b.pe_adjust > 0.0);
+        assert!(b.note.contains("预测误差 0.0020"), "{}", b.note);
+        let bh = high.conclusion.basis.as_ref().unwrap();
+        assert!(bh.pe_adjust < 0.0, "高误差 → 负修正");
+        assert!(bh.error_score.unwrap() < 0.2);
+    }
+
+    #[test]
+    fn both_evidences_compose_and_stay_bounded() {
+        let g = Gains::default();
+        let both = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(Some(0.8), Some(0.01)), &g);
+        let world_only = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(Some(0.8), None), &g);
+        let base_only = diagnose_with_evidence(&s_soft(), &base(), "obj", &Evidence::NONE, &g);
+        let bad = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(Some(0.2), Some(0.40)), &g);
+        assert!(both.conclusion.confidence > world_only.conclusion.confidence, "两项同向应叠加");
+        assert!(world_only.conclusion.confidence > base_only.conclusion.confidence);
+        assert!(base_only.conclusion.confidence > bad.conclusion.confidence);
+        for d in [&both, &world_only, &base_only, &bad] {
+            let c = d.conclusion.confidence;
+            assert!((0.0..=1.0).contains(&c), "确信度必须界定在 0..1：{c}");
+        }
+    }
+
+    #[test]
+    fn negative_evidence_still_works_when_saturated() {
+        // 基础确信度已顶到 1.0 时：正向证据被上界吃掉，但**负向证据仍必须生效**——
+        // 否则"与世界模型不匹配就该更不确信"会被上界静默吞掉（那才是真正的缺陷）。
+        let g = Gains::default();
+        let nom = diagnose_with_evidence(&s_mix(), &base(), "obj", &Evidence::NONE, &g);
+        assert!((nom.conclusion.confidence - 1.0).abs() < 1e-12, "确认该样本确实饱和");
+        let bad = diagnose_with_evidence(&s_mix(), &base(), "obj", &ev(Some(0.0), Some(0.5)), &g);
+        assert!(bad.conclusion.confidence < nom.conclusion.confidence, "饱和下负向证据必须仍生效");
+        assert!(bad.conclusion.confidence < 1.0);
+    }
+
+    #[test]
+    fn immature_world_evidence_barely_moves_confidence() {
+        use crate::l1_field_parse::FieldReading;
+        use crate::l3_world::WorldModel;
+        let g = Gains::default();
+        let fields = crate::l5_senses::decompose(&s_soft());
+        let f = FieldReading {
+            earth: fields[0],
+            water: fields[1],
+            fire: fields[2],
+            wind: fields[3],
+            confidence: 1.0,
+        };
+        // 同一场域形状：观测 1 次（不成熟）vs 观测 10 次（成熟）
+        let mut young = WorldModel::new();
+        young.observe_page("h", "h/a", &f, 100);
+        let mut mature = WorldModel::new();
+        for _ in 0..10 {
+            mature.observe_page("h", "h/a", &f, 100);
+        }
+        let my = l5_evidence::match_to_world(&f, &young, Some("h/a"), &g);
+        let mm = l5_evidence::match_to_world(&f, &mature, Some("h/a"), &g);
+        assert!((my.maturity - 0.125).abs() < 1e-12, "1 次观测 → 成熟度 1/8");
+        assert!(mm.score > 0.99, "成熟世界里的同形场 → 强匹配 {}", mm.score);
+        assert!(
+            (my.score - 0.5).abs() < (mm.score - 0.5).abs(),
+            "不成熟 → 更靠中性（不妄语：没把握就不动结论）"
+        );
+        let dy = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(Some(my.score), None), &g);
+        let dm = diagnose_with_evidence(&s_soft(), &base(), "obj", &ev(Some(mm.score), None), &g);
+        assert!(dm.conclusion.confidence > dy.conclusion.confidence, "成熟世界的强匹配修正更大");
+        assert!(dy.conclusion.confidence > 0.75, "修正须仍为正（且已被成熟度削弱）");
     }
 
     #[test]

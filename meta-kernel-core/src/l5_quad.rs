@@ -315,18 +315,33 @@ pub struct ProbeDecision {
 pub const PROBE_CONFIDENCE_FLOOR: f64 = 0.35;
 pub const PROBE_DEVIATION_CEIL: f64 = 0.45;
 
-/// **决定是否主动探测**：默认被动；仅当"感知困难"才主动，且必须带理由。
-pub fn decide_probe(confidence: f64, deviation: f64, stale: bool) -> ProbeDecision {
+/// **决定是否主动探测（可指定门槛）**：默认被动；仅当"感知困难"才主动，且必须带理由。
+///
+/// `floor` 为置信度门槛——由 `l5_attention` 按**注意力**（四元组）调节：
+/// 紧张高 → 门槛降低 → 更易转主动；平静高 → 门槛升高 → 更被动。
+/// **注意**：门槛只改变"多容易转主动"，**不取消**"必须带理由"这条纪律。
+pub fn decide_probe_with_floor(
+    confidence: f64,
+    deviation: f64,
+    stale: bool,
+    floor: f64,
+) -> ProbeDecision {
     if stale {
         return ProbeDecision { mode: ProbeMode::Active, reason: Some(ProbeReason::StaleSignal) };
     }
-    if confidence < PROBE_CONFIDENCE_FLOOR {
+    let floor = if floor.is_finite() { floor } else { PROBE_CONFIDENCE_FLOOR };
+    if confidence < floor {
         return ProbeDecision { mode: ProbeMode::Active, reason: Some(ProbeReason::LowConfidence) };
     }
     if deviation > PROBE_DEVIATION_CEIL {
         return ProbeDecision { mode: ProbeMode::Active, reason: Some(ProbeReason::HighDeviation) };
     }
     ProbeDecision { mode: ProbeMode::Passive, reason: None }
+}
+
+/// **决定是否主动探测**（用默认门槛 `PROBE_CONFIDENCE_FLOOR`）。
+pub fn decide_probe(confidence: f64, deviation: f64, stale: bool) -> ProbeDecision {
+    decide_probe_with_floor(confidence, deviation, stale, PROBE_CONFIDENCE_FLOOR)
 }
 
 #[cfg(test)]
