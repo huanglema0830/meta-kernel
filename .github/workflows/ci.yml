@@ -224,3 +224,192 @@ jobs:
             examples/ui-verify/ui_verify.png
             ui_gw.log
           if-no-files-found: warn
+
+  # ===========================================================================================
+  # 宿主 field-render（Windows 真实构建 + 客观验收）
+  #
+  # 为什么需要这个 job（R6）：此前 CI 只有一个 ubuntu-latest job，`field-render` 命中 0 —— 宿主
+  # **从未被 CI 构建**，"CI 为权威宿主验收"不成立，2026-09-16 本机真实跑通的成果无法自动回归。
+  #
+  # 为什么用 GNU + llvm-mingw（R1 教训，已固化为步骤，勿删）：
+  #   windows-sys(raw-dylib) / libloading 需要 dlltool；rustup 自带的 GNU dlltool **依赖汇编器
+  #   `as`，且只在自己目录里找 `as`** → `CreateProcess` 失败（v0.126 本机实测根因）。
+  #   llvm-mingw 的 `dlltool.exe` = **llvm-dlltool（自包含，不需要 `as`）** → 把它的 bin **前置到
+  #   PATH** 即可。本地对应 `~/.cargo/config.toml` 的 GNU linker 指向该工具链；CI 里以
+  #   `CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER` 等价复刻。
+  #
+  # 断言口径（把 2026-09-16 本机真实跑通的验收标准固化）：
+  #   ① 离屏自检：退出码 0 + 结论 PASS + **每幅方差 > 1**（真实语义：非纯黑/纯白的空图不算过）
+  #   ② 排序校验：退出码 0（GPU 双调排序正确性）
+  #   ③ L5 诊断：退出码 0 + 结论 PASS（证据调制与中性点 m=0.5 对齐）
+  #   ④ 帧率：**硬件适配器 → 断言 ≥ 30**；软件适配器（runner 无 GPU）→ 如实标注并断言 > 0
+  #      —— 不拿"改阈值"打绿，也不拿"CI 跑过"冒充硬件口径。
+  #   ⑤ 真实开窗 + URL + 上屏回读：诊断性步骤（见该步骤注释），观察稳定后提升为门禁。
+  # ===========================================================================================
+  host-windows:
+    name: 宿主 field-render（Windows 构建 + 客观验收）
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust (stable) + GNU target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      # ---- R1 修复固化为 CI 步骤（勿删；否则 dlltool 报 program not found）----
+      - name: 修复 R1 —— 安装 llvm-mingw 并把 bin 前置到 PATH
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER=20260908
+          URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${VER}/llvm-mingw-${VER}-ucrt-x86_64.zip"
+          TMPU="$(cygpath -u "$RUNNER_TEMP")"
+          curl -sSL "$URL" -o "$TMPU/llvm-mingw.zip"
+          unzip -q "$TMPU/llvm-mingw.zip" -d "$TMPU/lm"
+          BIN_M="$(cygpath -m "$TMPU/lm/llvm-mingw-${VER}-ucrt-x86_64/bin")"
+          test -f "$BIN_M/dlltool.exe" || { echo "::error::llvm-mingw 解压后找不到 dlltool.exe：$BIN_M"; exit 1; }
+          echo "LLVM_MINGW_BIN=$BIN_M" >> "$GITHUB_ENV"
+          echo "$BIN_M" >> "$GITHUB_PATH"
+          "$BIN_M/dlltool.exe" --version | head -1
+          echo "llvm-mingw bin 已前置 PATH：$BIN_M"
+
+      - name: 构建宿主 field-render（GNU + llvm-mingw；短 target-dir 规避 MAX_PATH）
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$LLVM_MINGW_BIN:$PATH"
+          export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$LLVM_MINGW_BIN/x86_64-w64-mingw32-gcc.exe"
+          echo "dlltool => $(command -v dlltool)"
+          echo "linker  => $CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER"
+          cargo build --manifest-path host/field-render/Cargo.toml \
+            --target x86_64-pc-windows-gnu \
+            --target-dir "$(cygpath -m "$RUNNER_TEMP/frt")"
+          EXE="$(cygpath -m "$RUNNER_TEMP/frt")/x86_64-pc-windows-gnu/debug/field-render.exe"
+          test -f "$EXE" || { echo "::error::构建后找不到 $EXE"; exit 1; }
+          echo "EXE=$EXE" >> "$GITHUB_ENV"
+          ls -la "$EXE"
+
+      - name: 验收 ① 离屏自检（断言 退出码0 + PASS + 方差>1 + 帧率口径）
+        shell: bash
+        run: |
+          set -uo pipefail
+          export PATH="$LLVM_MINGW_BIN:$PATH"
+          set +e
+          "$EXE" --selftest > selftest.log 2>&1
+          CODE=$?
+          set -e
+          cat selftest.log
+          echo "---- exit=$CODE ----"
+          test "$CODE" = "0" || { echo "::error::--selftest 退出码 $CODE（应为 0）"; exit 1; }
+          grep -q "结论：PASS" selftest.log || { echo "::error::--selftest 结论非 PASS"; exit 1; }
+
+          # 方差 > 1（真实语义断言：纯黑/纯白空图会一直"绿"，必须挡住）
+          VARS="$(grep -oE '方差=[0-9]+(\.[0-9]+)?' selftest.log | cut -d= -f2)"
+          test -n "$VARS" || { echo "::error::自检输出里没有方差读数"; exit 1; }
+          echo "方差读数：$(echo "$VARS" | tr '\n' ' ')"
+          for v in $VARS; do
+            awk -v v="$v" 'BEGIN{exit !(v>1.0)}' || { echo "::error::存在方差 $v ≤ 1（疑似纯黑/纯白空图）"; exit 1; }
+          done
+          echo "VARIANCE_ALL_GT_1_OK"
+
+          # 帧率口径：硬件适配器 → ≥30；软件适配器 → >0 且如实标注
+          ADAPTER="$(grep -m1 '适配器:' selftest.log)"
+          echo "适配器行：$ADAPTER"
+          FPS="$(grep -oE '帧率：[0-9]+(\.[0-9]+)?' selftest.log | head -1 | sed 's/帧率：//')"
+          test -n "$FPS" || { echo "::error::自检输出里没有帧率读数"; exit 1; }
+          if echo "$ADAPTER" | grep -qE 'IntegratedGpu|DiscreteGpu|VirtualGpu'; then
+            awk -v f="$FPS" 'BEGIN{exit !(f>=30)}' || { echo "::error::硬件适配器上帧率 $FPS < 30"; exit 1; }
+            echo "FPS_GTE_30_ON_HARDWARE_OK ($FPS)"
+          else
+            awk -v f="$FPS" 'BEGIN{exit !(f>0)}' || { echo "::error::帧率 $FPS 不为正"; exit 1; }
+            echo "::warning::CI runner 为软件适配器（无 GPU）——帧率 $FPS 不适用'硬件 ≥30'口径，已如实记录、未按硬件断言"
+          fi
+
+      - name: 验收 ② GPU 双调排序校验
+        shell: bash
+        run: |
+          set -uo pipefail
+          export PATH="$LLVM_MINGW_BIN:$PATH"
+          set +e
+          "$EXE" --sortcheck > sortcheck.log 2>&1
+          CODE=$?
+          set -e
+          cat sortcheck.log
+          echo "---- exit=$CODE ----"
+          test "$CODE" = "0" || { echo "::error::--sortcheck 退出码 $CODE（应为 0）"; exit 1; }
+
+      - name: 验收 ③ L5 诊断（证据调制 · 中性点对齐）
+        shell: bash
+        run: |
+          set -uo pipefail
+          export PATH="$LLVM_MINGW_BIN:$PATH"
+          set +e
+          "$EXE" --diag-check > diagcheck.log 2>&1
+          CODE=$?
+          set -e
+          cat diagcheck.log
+          echo "---- exit=$CODE ----"
+          test "$CODE" = "0" || { echo "::error::--diag-check 退出码 $CODE（应为 0，R7 已修）"; exit 1; }
+          grep -q "结论：PASS" diagcheck.log || { echo "::error::--diag-check 结论非 PASS"; exit 1; }
+
+      - name: 验收 ④ 真实开窗 + URL 取源码 + 上屏回读（诊断性：先观察 runner 能否开窗）
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          export PATH="$LLVM_MINGW_BIN:$PATH"
+          cat > page.html <<'HTML'
+          <html><body><article>
+          <p>宿主真实运行验收页：用于离屏/开窗两条链路的一致性对照。</p>
+          <p>第二段正文，让水质上升、场域可辨。</p>
+          </article></body></html>
+          HTML
+          python -m http.server 18124 >/dev/null 2>&1 &
+          SRV=$!
+          trap 'kill $SRV 2>/dev/null || true' EXIT
+          sleep 2
+          curl -s -o /dev/null -w "服务 HTTP %{http_code}\n" http://127.0.0.1:18124/page.html
+          set +e
+          "$EXE" --url http://127.0.0.1:18124/page.html --frames 120 > window.log 2>&1
+          WCODE=$?
+          set -e
+          cat window.log
+          echo "---- exit=$WCODE ----"
+          test "$WCODE" = "0" || { echo "::error::开窗运行退出码 $WCODE"; exit 1; }
+          grep -q "回读来源：surface" window.log || { echo "::error::未从真实上屏纹理（surface）回读"; exit 1; }
+          grep -q "结论：PASS" window.log || { echo "::error::开窗运行结论非 PASS"; exit 1; }
+          echo "WINDOW_SURFACE_READBACK_PASS"
+
+      - name: 附：release 构建（供分发的 exe；不计入门禁）
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$LLVM_MINGW_BIN:$PATH"
+          export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$LLVM_MINGW_BIN/x86_64-w64-mingw32-gcc.exe"
+          cargo build --release --manifest-path host/field-render/Cargo.toml \
+            --target x86_64-pc-windows-gnu \
+            --target-dir "$(cygpath -m "$RUNNER_TEMP/frt")"
+
+      - name: Upload 宿主验收日志（always）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-field-render-logs
+          path: |
+            selftest.log
+            sortcheck.log
+            diagcheck.log
+            window.log
+          if-no-files-found: warn
+
+      - name: Upload 宿主 exe（release，可直接下载运行）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: field-render-exe-windows-x86_64
+          path: ${{ runner.temp }}/frt/x86_64-pc-windows-gnu/release/field-render.exe
+          if-no-files-found: warn

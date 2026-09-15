@@ -26,3 +26,14 @@ ui_dom.html
 
 # 宿主 crate 的构建产物（独立 crate，不并入 workspace）
 host/**/target/
+
+# 宿主运行期产物（gene_store 写到 CWD；属"运行状态"非源码，重启可加载/重建，不入库）
+# 路径可用 META_KERNEL_GENE_LIB / _TRACES / _HABITS / _QUAD 覆盖；见 host/field-render/src/gene_store.rs
+gene_library.txt
+gene_library.txt.bak
+trace_store.txt
+trace_store.txt.bak
+habit_pool.txt
+habit_pool.txt.bak
+quad_state.txt
+quad_state.txt.bak

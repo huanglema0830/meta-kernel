@@ -1403,12 +1403,28 @@ pub fn diag_check_main() -> i32 {
     let mut ok = true;
 
     // ---------- ① 世界模型匹配度 → 确信度 ----------
-    println!("[diagcheck] ① 世界模型匹配度 → 诊断确信度");
+    //
+    // ⚠️ **中性点（断言必须与它对齐）**：证据修正式为
+    //        `world_adjust = world_gain × (2m − 1)`
+    //    ⇒ **m > 0.5 → 提高；m = 0.5 → 不变；m < 0.5 → 才降低**。
+    //    （`pe_adjust = pe_gain × (2s − 1)` 同理，中性点 s = 0.5。）
+    //
+    //    历史缺陷（R7 / v0.127 发现）：本项曾把"匹配度 0.585 的链接页"当作**低匹配**，
+    //    而 0.585 **高于**中性点 0.5 → 公式给的是 **+0.0255**（0.750→0.775），
+    //    却被断言要求"降低" → 结论假 FAIL。**是断言缺陷，不是内核缺陷。**
+    //    故现在改为：**按 (2m−1) 的符号预测方向，再与实测比对**，并强制覆盖 m<0.5 分支。
+    const NEUTRAL_MATCH: f64 = 0.5;
+    const DIR_EPS: f64 = 1e-9;
+    println!("[diagcheck] ① 世界模型匹配度 → 诊断确信度（中性点 m={NEUTRAL_MATCH}）");
     let mut world = WorldModel::new();
     for _ in 0..10 {
         world.observe_page("samples.local", key, &f_text, 2000);
     }
-    // 第三个样本：**纯链接页**（大量 a、无正文、无媒体）——用于构造"真正不像"的对照
+    // 对照样本（三种"不像"）：
+    //   纯链接页：大量 a、无正文、无媒体  → 风高
+    //   纯图片页：大量 img、无正文、无链接 → 火高
+    //   混合媒体页：图 + 链、仍无正文     → **火风双高、水趋 0** ⇒ 与文本页偏离最大，
+    //                                       这才可能**真正落到中性点以下**
     let link_html = {
         let mut s = String::from("<html><body><nav>");
         for i in 0..300 {
@@ -1417,43 +1433,110 @@ pub fn diag_check_main() -> i32 {
         s.push_str("</nav></body></html>");
         s
     };
+    let mixed_html = {
+        let mut s = String::from("<html><body><div>");
+        for i in 0..20 {
+            s.push_str(&format!("<img src=\"{i}.jpg\">"));
+        }
+        for i in 0..20 {
+            s.push_str(&format!("<a href=\"/{i}\">{i}</a>"));
+        }
+        s.push_str("</div></body></html>");
+        s
+    };
     let f_link = parse_source(&link_html, "");
+    let f_mixed = parse_source(&mixed_html, "");
     let fld = |f: &FieldReading| format!("地{:.2} 水{:.2} 火{:.2} 风{:.2}", f.earth, f.water, f.fire, f.wind);
-    println!("[diagcheck]   场域：文本页 {}｜图片页 {}｜链接页 {}", fld(&f_text), fld(&f_img), fld(&f_link));
+    println!(
+        "[diagcheck]   场域：文本页 {}｜图片页 {}｜链接页 {}｜混合页 {}",
+        fld(&f_text),
+        fld(&f_img),
+        fld(&f_link),
+        fld(&f_mixed)
+    );
 
     let m_hit = l5_evidence::match_to_world(&f_text, &world, Some(key), &gains);
     let m_miss = l5_evidence::match_to_world(&f_link, &world, Some(key), &gains);
     let m_img = l5_evidence::match_to_world(&f_img, &world, Some(key), &gains);
+    let m_mixed = l5_evidence::match_to_world(&f_mixed, &world, Some(key), &gains);
     println!(
         "[diagcheck]   成熟世界（同形观测 10 次 / 成熟度 {:.2}）：匹配度 {:.3}（局部 {:?}｜全局 {:.3}）",
         m_hit.maturity, m_hit.score, m_hit.local, m_hit.global
     );
-    println!("[diagcheck]   异形场对同一 key：纯链接页 {:.3}｜纯图片页 {:.3}", m_miss.score, m_img.score);
-
-    let ev_hit = Evidence { world_match: Some(m_hit.score), prediction_error: None };
-    let ev_miss = Evidence { world_match: Some(m_miss.score), prediction_error: None };
-    let d_none = l5_diagnosis::diagnose(&s, &base, key);
-    let d_hit = diagnose_with_evidence(&s, &base, key, &ev_hit, &gains);
-    let d_miss = diagnose_with_evidence(&s, &base, key, &ev_miss, &gains);
     println!(
-        "[diagcheck]   确信度：无证据 {:.3}｜匹配高 {:.3}｜匹配低 {:.3}",
-        d_none.conclusion.confidence, d_hit.conclusion.confidence, d_miss.conclusion.confidence
+        "[diagcheck]   异形场对同一 key：纯链接页 {:.3}｜纯图片页 {:.3}｜混合媒体页 {:.3}（中性点 {NEUTRAL_MATCH}）",
+        m_miss.score, m_img.score, m_mixed.score
+    );
+
+    let d_none = l5_diagnosis::diagnose(&s, &base, key);
+    let probe = |m: f64| {
+        diagnose_with_evidence(
+            &s,
+            &base,
+            key,
+            &Evidence { world_match: Some(m), prediction_error: None },
+            &gains,
+        )
+    };
+    let d_hit = probe(m_hit.score);
+    let d_miss = probe(m_miss.score);
+    let d_mixed = probe(m_mixed.score);
+    println!(
+        "[diagcheck]   确信度：无证据 {:.3}｜同形命中 {:.3}｜纯链接 {:.3}｜混合媒体 {:.3}",
+        d_none.conclusion.confidence,
+        d_hit.conclusion.confidence,
+        d_miss.conclusion.confidence,
+        d_mixed.conclusion.confidence
     );
     if let Some(b) = &d_hit.conclusion.basis {
         println!("[diagcheck]   依据：{}", b.note);
     }
-    if !(d_hit.conclusion.confidence > d_none.conclusion.confidence) {
-        println!("[diagcheck] ✗ 高匹配未提高确信度");
-        ok = false;
+
+    // **中性点对齐断言**：按 (2m−1) 预测方向，再与实测修正量比对
+    let dir_ok = |expect: f64, got: f64| -> bool {
+        if expect.abs() < DIR_EPS {
+            got.abs() < DIR_EPS
+        } else {
+            expect * got > 0.0
+        }
+    };
+    let mut below_neutral_seen = false;
+    for (tag, m, d) in [
+        ("同形命中", m_hit.score, &d_hit),
+        ("纯链接", m_miss.score, &d_miss),
+        ("混合媒体", m_mixed.score, &d_mixed),
+    ] {
+        let expect = 2.0 * m - 1.0;
+        let got = d.conclusion.confidence - d_none.conclusion.confidence;
+        if m < NEUTRAL_MATCH {
+            below_neutral_seen = true;
+        }
+        let verdict = if dir_ok(expect, got) { "OK" } else { "✗" };
+        println!(
+            "[diagcheck]   中性点对齐·{tag}：m={m:.3} → 预期 {}修正｜实测 {:+.3} {verdict}",
+            if expect.abs() < DIR_EPS {
+                "零"
+            } else if expect > 0.0 {
+                "正向"
+            } else {
+                "负向"
+            },
+            got
+        );
+        if !dir_ok(expect, got) {
+            ok = false;
+        }
     }
-    if !(d_miss.conclusion.confidence < d_none.conclusion.confidence) {
-        println!("[diagcheck] ✗ 低匹配未降低确信度");
+    if !below_neutral_seen {
+        println!(
+            "[diagcheck] ✗ 无探针落到中性点以下（m<{NEUTRAL_MATCH}）——\"降低确信度\"方向未被覆盖"
+        );
         ok = false;
     }
     // 证据只动确信度，**不改结论**（一因一果 / 不饮酒）
-    if d_hit.conclusion.title != d_miss.conclusion.title
-        || d_hit.conclusion.cause != d_miss.conclusion.cause
-        || d_hit.pattern != d_miss.pattern
+    if d_hit.conclusion.title != d_mixed.conclusion.title
+        || d_hit.conclusion.cause != d_mixed.conclusion.cause
+        || d_hit.pattern != d_mixed.pattern
     {
         println!("[diagcheck] ✗ 证据改动了结论本身（应当只改确信度）");
         ok = false;
