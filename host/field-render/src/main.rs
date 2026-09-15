@@ -475,19 +475,22 @@ fn encode_frame(gpu: &Gpu, p: &Pipeline, target: &wgpu::TextureView, clear: wgpu
 }
 
 fn main() {
-    let selftest = std::env::args().any(|a| a == "--selftest");
+    let args: Vec<String> = std::env::args().collect();
     let gpu = match init_gpu() {
         Ok(g) => g,
         Err(e) => {
             eprintln!("[field-render] {e}");
-            eprintln!("[field-render] 说明：本渲染器**不依赖 WebView2**（无任何系统组件依赖）。");
+            eprintln!("[field-render] 本渲染器**不依赖 WebView2**（无任何系统组件依赖）。");
             std::process::exit(2);
         }
     };
-    if selftest {
+    if args.iter().any(|a| a == "--selftest") {
         std::process::exit(selftest_main(&gpu));
     }
-    println!("[field-render] 窗口模式留待下一轮（winit 接入）；请先用 --selftest 验证管线。");
+    // 窗口宿主（第三阶段）实现中：见 docs/HOST_UI_DECISION.md
+    eprintln!("[field-render] 窗口宿主尚未接入（实现方案见 docs/HOST_UI_DECISION.md）；");
+    eprintln!("[field-render] 当前可用：--selftest（离屏渲染 + pHash/帧率客观度量）。");
+    std::process::exit(3);
 }
 
 // ===== 离屏自检（客观度量）=====
