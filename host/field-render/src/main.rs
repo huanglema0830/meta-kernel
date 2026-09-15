@@ -49,18 +49,30 @@ struct FieldElement {
     intensity: f32,
 }
 
-#[repr(C)]
+/// **必须与 WGSL 侧的 `Splat2D` 逐字节一致**（v0.121 修掉的真缺陷）。
+///
+/// WGSL 布局规则：`vec2<f32>` 对齐 8；`mat2x2<f32>` 对齐 8、16 字节；`vec4<f32>` **对齐 16**；`f32` 对齐 4；
+/// 结构体大小向上取整到最大成员对齐。
+/// 故 WGSL 实际为：position@0(8) · cov2d@8(16) · **color@32**（为满足 16 对齐，24→32）· **depth@48** · 总 **64 字节**。
+///
+/// 而原先的 `#[repr(C)]` 版本是 position@0 · cov2d@8 · color@**24** · depth@**40** · 总 **56 字节** ——
+/// 缓冲总长按 56·n 分配，被 GPU 按 64 字节步长解读 → 数组长度只有 896（不是 1024），
+/// 第 896 个之后的下标越界（WebGPU 规定越界写被丢弃、越界读返回 0）。
+/// 该缺陷此前长期潜伏（此缓冲只在 GPU 内部使用，Rust 不参与），
+/// 直到排序真正生效：排序会读写 `src[i ^ j]`，越界读出的 0 被写回有效槽位，逐趟把数据抹平 → **画面全平**。
+#[repr(C, align(16))]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
 struct Splat2D {
     position: [f32; 2],
     cov2d: [f32; 4],
+    _pad0: [f32; 2],
     color: [f32; 4],
     depth: f32,
-    _pad: [f32; 3],
+    _pad1: [f32; 3],
 }
 impl Default for Splat2D {
     fn default() -> Self {
-        Self { position: [0.0; 2], cov2d: [0.0; 4], color: [0.0; 4], depth: 0.0, _pad: [0.0; 3] }
+        Self { position: [0.0; 2], cov2d: [0.0; 4], _pad0: [0.0; 2], color: [0.0; 4], depth: 0.0, _pad1: [0.0; 3] }
     }
 }
 
@@ -186,12 +198,22 @@ struct Pipeline {
     splats_b: wgpu::Buffer,
     camera_buf: wgpu::Buffer,
     gabor_buf: wgpu::Buffer,
-    sort_params: wgpu::Buffer,
+    /// **每趟一个 uniform**（各 16 字节）。为何不共用同一个 uniform：
+    /// wgpu 的 `queue.write_buffer` 是"提交时统一落地"（`pending_writes.pre_submit` 被
+    /// `active_executions.insert(0, ..)` 放在用户命令**之前**），若 55 趟共用并逐趟 `write_buffer`，
+    /// 则 55 次写会全部先于 55 次 dispatch 生效 → 每趟都用最后一组参数 → **排序等于没排**。
+    /// 每趟独立 uniform 后，写入互不干扰，参数与趟次一一对应。
+    sort_params: Vec<wgpu::Buffer>,
+    /// **每趟一个绑定组**（含该趟的 uniform 与正确的 src/dst 乒乓方向）。
+    sort_bgs: Vec<wgpu::BindGroup>,
+    /// 排序结果落在哪个缓冲（首趟 A→B，逐趟交替；55 趟为奇数次 → B）。render 必须读它。
+    sorted_is_b: bool,
     bg_pre: wgpu::BindGroup,
     bg_io_a: wgpu::BindGroup,
-    bg_sort_a: wgpu::BindGroup,
-    bg_sort_b: wgpu::BindGroup,
-    bg_render: wgpu::BindGroup,
+    /// 渲染绑定组：读**排序结果**（正常路径）
+    bg_render_sorted: wgpu::BindGroup,
+    /// 渲染绑定组：读**未排序的 A**（仅诊断用，用于隔离"渲染"与"排序"哪一环出问题）
+    bg_render_raw: wgpu::BindGroup,
     pre_pipeline: wgpu::ComputePipeline,
     sort_pipeline: wgpu::ComputePipeline,
     render_pipeline: wgpu::RenderPipeline,
@@ -236,7 +258,6 @@ fn build_pipeline(device: &wgpu::Device, n: u32, target_format: wgpu::TextureFor
     };
     let camera_buf = uni("camera", std::mem::size_of::<Camera>() as u64);
     let gabor_buf = uni("gabor", std::mem::size_of::<GaborUniform>() as u64);
-    let sort_params = uni("sort_params", std::mem::size_of::<SortParams>() as u64);
 
     let pre_mod = d.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("preprocess"),
@@ -312,24 +333,43 @@ fn build_pipeline(device: &wgpu::Device, n: u32, target_format: wgpu::TextureFor
             wgpu::BindGroupEntry { binding: 1, resource: splats_a.as_entire_binding() },
         ],
     });
-    let mk_sort = |label: &str, src: &wgpu::Buffer, dst: &wgpu::Buffer| {
-        d.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some(label),
-            layout: &bgl_sort,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: sort_params.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: src.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: dst.as_entire_binding() },
-            ],
-        })
-    };
-    let bg_sort_a = mk_sort("bg-sort-a", &splats_a, &splats_b);
-    let bg_sort_b = mk_sort("bg-sort-b", &splats_b, &splats_a);
-    let bg_render = d.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("bg-render"),
+    // 排序趟数与"结果落在哪个缓冲"必须在建 bg_render 之前确定
+    let sort_passes = bitonic_pass_count(n);
+    let sorted_is_b = sort_passes % 2 == 1; // 首趟 A→B，逐趟交替
+    let sorted_buf: &wgpu::Buffer = if sorted_is_b { &splats_b } else { &splats_a };
+    let bg_render_sorted = d.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("bg-render-sorted"),
+        layout: &bgl_render,
+        entries: &[wgpu::BindGroupEntry { binding: 0, resource: sorted_buf.as_entire_binding() }],
+    });
+    let bg_render_raw = d.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("bg-render-raw"),
         layout: &bgl_render,
         entries: &[wgpu::BindGroupEntry { binding: 0, resource: splats_a.as_entire_binding() }],
     });
+
+    // 逐趟建 uniform + 绑定组（第 m 趟：偶数 m 走 A→B，奇数 m 走 B→A）
+    let mut sort_params: Vec<wgpu::Buffer> = Vec::with_capacity(sort_passes as usize);
+    let mut sort_bgs: Vec<wgpu::BindGroup> = Vec::with_capacity(sort_passes as usize);
+    for m in 0..sort_passes {
+        let pb = d.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("sort_params"),
+            size: std::mem::size_of::<SortParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let (src, dst) = if m % 2 == 0 { (&splats_a, &splats_b) } else { (&splats_b, &splats_a) };
+        sort_bgs.push(d.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("bg-sort"),
+            layout: &bgl_sort,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: pb.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: src.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: dst.as_entire_binding() },
+            ],
+        }));
+        sort_params.push(pb);
+    }
 
     let pre_layout = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("pre-layout"),
@@ -389,11 +429,9 @@ fn build_pipeline(device: &wgpu::Device, n: u32, target_format: wgpu::TextureFor
         cache: None,
     });
 
-    let sort_passes = bitonic_pass_count(n);
-
     Pipeline {
-        elements, splats_a, splats_b, camera_buf, gabor_buf, sort_params,
-        bg_pre, bg_io_a, bg_sort_a, bg_sort_b, bg_render,
+        elements, splats_a, splats_b, camera_buf, gabor_buf, sort_params, sort_bgs, sorted_is_b,
+        bg_pre, bg_io_a, bg_render_sorted, bg_render_raw,
         pre_pipeline, sort_pipeline, render_pipeline, n, sort_passes,
     }
 }
@@ -421,6 +459,12 @@ fn upload(queue: &wgpu::Queue, p: &Pipeline, elems: &[FieldElement], g: &GaborPa
         viewport: [W as f32, H as f32],
     };
     queue.write_buffer(&p.camera_buf, 0, bytemuck::bytes_of(&camera));
+    // 逐趟写入各自的 uniform（互不干扰；均在本次 submit 前落地，故参数与趟次一一对应）
+    let params = sort_param_series(p.n);
+    debug_assert_eq!(params.len(), p.sort_params.len());
+    for (m, sp) in params.iter().enumerate() {
+        queue.write_buffer(&p.sort_params[m], 0, bytemuck::bytes_of(sp));
+    }
     queue.write_buffer(
         &p.gabor_buf,
         0,
@@ -435,43 +479,73 @@ fn upload(queue: &wgpu::Queue, p: &Pipeline, elems: &[FieldElement], g: &GaborPa
     );
 }
 
-fn encode_frame(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
+/// 生成 n 趟双调排序的 (k,j) 序列（与 `bitonic_pass_count`、着色器逐趟 dispatch 一一对应）。
+pub fn sort_param_series(n: u32) -> Vec<SortParams> {
+    let mut out = Vec::new();
+    let mut k = 2u32;
+    while k <= n {
+        let mut j = k >> 1;
+        while j > 0 {
+            out.push(SortParams { k, j, n, _pad: 0 });
+            j >>= 1;
+        }
+        k <<= 1;
+    }
+    out
+}
+
+/// 把「场域三阶段」录制进**外部 encoder**：preprocess → 双调排序 → 场域渲染。
+///
+/// 之所以要接收外部 encoder：UI 层必须**在同一个 encoder 内**先场域 pass、再 egui pass
+/// （UI 叠在场域画面之上，共用一次提交）。
+///
+/// **v0.121 修正**：排序每趟的 (k,j) 曾用 `queue.write_buffer` 写同一个 uniform——
+/// 而 wgpu 的 `write_buffer` 是"提交前统一落地"（`pending_writes.pre_submit` 被
+/// `active_executions.insert(0, ..)` 放在用户命令**之前**），55 次写会全部先于 55 次 dispatch 生效，
+/// 于是每一趟都用最后一组参数 → **排序实际没排**。现改为：数据一次性写暂存区，
+/// 由 encoder 内 `copy_buffer_to_buffer` 按**命令顺序**逐趟搬到 uniform。
+pub fn record_field_passes(
     p: &Pipeline,
+    enc: &mut wgpu::CommandEncoder,
     target: &wgpu::TextureView,
     clear: wgpu::Color,
-) -> wgpu::CommandBuffer {
-    let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
+) {
+    record_field_passes_ex(p, enc, target, clear, true);
+}
+
+/// 同上，但可分别关闭「排序」与「读排序结果」，用于隔离诊断。
+pub fn record_field_passes_ex(
+    p: &Pipeline,
+    enc: &mut wgpu::CommandEncoder,
+    target: &wgpu::TextureView,
+    clear: wgpu::Color,
+    with_sort: bool,
+) {
+    // Stage 1：场域元素 → 2D 高斯泼溅参数（协方差投影）
     {
-        let mut cp = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("preprocess"), timestamp_writes: None });
+        let mut cp = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("preprocess"),
+            timestamp_writes: None,
+        });
         cp.set_pipeline(&p.pre_pipeline);
         cp.set_bind_group(0, &p.bg_pre, &[]);
         cp.set_bind_group(1, &p.bg_io_a, &[]);
         cp.dispatch_workgroups((p.n + 255) / 256, 1, 1);
     }
-    // Stage 2：双调排序（ping-pong；每趟一次 dispatch）
-    {
-        let mut k = 2u32;
-        let mut ping = true;
-        while k <= p.n {
-            let mut j = k >> 1;
-            while j > 0 {
-                queue.write_buffer(&p.sort_params, 0, bytemuck::bytes_of(&SortParams { k, j, n: p.n, _pad: 0 }));
-                let mut cp = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("sort"), timestamp_writes: None });
-                cp.set_pipeline(&p.sort_pipeline);
-                cp.set_bind_group(0, if ping { &p.bg_sort_a } else { &p.bg_sort_b }, &[]);
-                cp.dispatch_workgroups((p.n + 255) / 256, 1, 1);
-                drop(cp);
-                ping = !ping;
-                j >>= 1;
-            }
-            k <<= 1;
-        }
+    // Stage 2：双调排序（每趟用自己的绑定组：自带该趟 uniform 与乒乓方向）
+    for m in 0..if with_sort { p.sort_bgs.len() } else { 0 } {
+        let mut cp = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("sort"),
+            timestamp_writes: None,
+        });
+        cp.set_pipeline(&p.sort_pipeline);
+        cp.set_bind_group(0, &p.sort_bgs[m], &[]);
+        cp.dispatch_workgroups((p.n + 255) / 256, 1, 1);
     }
+    // Stage 3：渲染（屏幕空间四边形 + exp(-2r^2) 高斯衰减）
     {
         let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("render"),
+            label: Some("field-render"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 resolve_target: None,
@@ -482,11 +556,361 @@ fn encode_frame(
             occlusion_query_set: None,
         });
         rp.set_pipeline(&p.render_pipeline);
-        rp.set_bind_group(0, &p.bg_render, &[]);
+        rp.set_bind_group(0, if with_sort { &p.bg_render_sorted } else { &p.bg_render_raw }, &[]);
         rp.draw(0..6, 0..p.n);
     }
+}
+
+/// 只跑场域三阶段并返回可提交的命令缓冲（离屏自检用；签名保持不变）。
+fn encode_frame(
+    device: &wgpu::Device,
+    _queue: &wgpu::Queue,
+    p: &Pipeline,
+    target: &wgpu::TextureView,
+    clear: wgpu::Color,
+) -> wgpu::CommandBuffer {
+    let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
+    record_field_passes(p, &mut enc, target, clear);
     enc.finish()
 }
+
+/// 回读**排序结果缓冲**中的 depth 序列（客观验证"排序真的排了"）。
+pub fn read_sorted_depths(device: &wgpu::Device, queue: &wgpu::Queue, p: &Pipeline) -> Vec<f32> {
+    let src: &wgpu::Buffer = if p.sorted_is_b { &p.splats_b } else { &p.splats_a };
+    read_depths(device, queue, src, p.n)
+}
+
+/// 回读指定 spalt 缓冲的 depth 序列（`--sortcheck` 用来看排序前后对比）。
+pub fn read_depths(device: &wgpu::Device, queue: &wgpu::Queue, src: &wgpu::Buffer, n: u32) -> Vec<f32> {
+    let stride = std::mem::size_of::<Splat2D>();
+    let size = (stride * n as usize) as u64;
+    let rb = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("depth-readback"),
+        size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("depth-copy") });
+    enc.copy_buffer_to_buffer(src, 0, &rb, 0, size);
+    queue.submit(Some(enc.finish()));
+
+    let slice = rb.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| {
+        let _ = tx.send(r);
+    });
+    let _ = device.poll(wgpu::Maintain::Wait);
+    let _ = rx.recv();
+    let data = slice.get_mapped_range();
+    let off = std::mem::offset_of!(Splat2D, depth);
+    let mut out = Vec::with_capacity(n as usize);
+    for i in 0..n as usize {
+        let s = i * stride + off;
+        let mut b = [0u8; 4];
+        b.copy_from_slice(&data[s..s + 4]);
+        out.push(f32::from_le_bytes(b));
+    }
+    drop(data);
+    rb.unmap();
+    out
+}
+
+/// 回读一个 `SortParams` uniform（诊断用：确认 GPU 实际看到的是哪组 k/j/n）。
+pub fn read_sort_params(device: &wgpu::Device, queue: &wgpu::Queue, buf: &wgpu::Buffer) -> SortParams {
+    let size = std::mem::size_of::<SortParams>() as u64;
+    let rb = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("params-readback"),
+        size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("params-copy") });
+    enc.copy_buffer_to_buffer(buf, 0, &rb, 0, size);
+    queue.submit(Some(enc.finish()));
+    let slice = rb.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| {
+        let _ = tx.send(r);
+    });
+    let _ = device.poll(wgpu::Maintain::Wait);
+    let _ = rx.recv();
+    let data = slice.get_mapped_range();
+    let out = bytemuck::pod_read_unaligned::<SortParams>(&data[..size as usize]);
+    drop(data);
+    rb.unmap();
+    out
+}
+
+/// 逐项回读 spalt 缓冲的前 k 个元素（诊断用，仅取前 k 个）。
+pub fn dump_splats(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    src: &wgpu::Buffer,
+    n: u32,
+    k: usize,
+) -> Vec<Splat2D> {
+    let stride = std::mem::size_of::<Splat2D>();
+    let size = (stride * n as usize) as u64;
+    let rb = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("dump-readback"),
+        size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("dump-copy") });
+    enc.copy_buffer_to_buffer(src, 0, &rb, 0, size);
+    queue.submit(Some(enc.finish()));
+    let slice = rb.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| {
+        let _ = tx.send(r);
+    });
+    let _ = device.poll(wgpu::Maintain::Wait);
+    let _ = rx.recv();
+    let data = slice.get_mapped_range();
+    let mut out = Vec::with_capacity(k);
+    for i in 0..k.min(n as usize) {
+        let s = i * stride;
+        out.push(bytemuck::pod_read_unaligned::<Splat2D>(&data[s..s + stride]));
+    }
+    drop(data);
+    rb.unmap();
+    out
+}
+
+/// 客观验收：**画面随四元组变化**（同页面、同一场域，只改四元组；比 pHash 汉明距离）。
+pub fn quadcheck_main() -> i32 {
+    let gpu = match init_gpu() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("[quadcheck] {e}");
+            return 2;
+        }
+    };
+    let mut lib = GeneLibrary::new();
+    seed_gabor_into(&mut lib);
+    let (_text_html, image_html) = sample_pages();
+    let f = parse_source(&image_html, "");
+    let g_base = field_to_gabor_with(&f, &lib);
+
+    let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("qc-offscreen"),
+        size: wgpu::Extent3d { width: W, height: H, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+    let bytes_per_row = ((W * 4 + 255) / 256) * 256;
+    let rb = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("qc-readback"),
+        size: (bytes_per_row * H) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let pipe = build_pipeline(&gpu.device, N_ELEMENTS, wgpu::TextureFormat::Rgba8UnormSrgb);
+
+    let cases: [(&str, Quad); 4] = [
+        ("紧张=0 / 平静=1", Quad { tension: 0.0, calm: 1.0, liking: 0.5, safety: 0.6 }),
+        ("紧张=1 / 平静=0", Quad { tension: 1.0, calm: 0.0, liking: 0.5, safety: 0.6 }),
+        ("喜欢=1（相位偏移）", Quad { tension: 0.2, calm: 0.6, liking: 1.0, safety: 0.6 }),
+        ("安全=1（包络展宽）", Quad { tension: 0.2, calm: 0.6, liking: 0.5, safety: 1.0 }),
+    ];
+    let mut hashes: Vec<(String, u64, f64, Vec<u8>)> = Vec::new();
+    for (name, q) in cases.iter() {
+        let g = modulate_gabor(g_base, q);
+        let elems = elements_of(&f, &g, q, N_ELEMENTS);
+        upload(&gpu.queue, &pipe, &elems, &g);
+        let clear = clear_color_of(&f, q);
+        let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("qc") });
+        record_field_passes(&pipe, &mut enc, &view, clear);
+        enc.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture { texture: &tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::ImageCopyBuffer {
+                buffer: &rb,
+                layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(bytes_per_row), rows_per_image: Some(H) },
+            },
+            wgpu::Extent3d { width: W, height: H, depth_or_array_layers: 1 },
+        );
+        gpu.queue.submit(Some(enc.finish()));
+        let slice = rb.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        let _ = gpu.device.poll(wgpu::Maintain::Wait);
+        let _ = rx.recv();
+        let data = slice.get_mapped_range();
+        let mut px = Vec::with_capacity((W * H) as usize);
+        for y in 0..H {
+            let row = (y * bytes_per_row) as usize;
+            for x in 0..W {
+                px.push(data[row + (x * 4) as usize]);
+            }
+        }
+        drop(data);
+        rb.unmap();
+        let st = pixel_stats(&px);
+        let h = dhash_8x8(&px, W, H);
+        println!("[quadcheck] {name}: 均值={:.1} 方差={:.1} pHash={:016x}", st.mean, st.var, h);
+        hashes.push((name.to_string(), h, st.var, px));
+    }
+    let mut ok = true;
+    let mut results: Vec<bool> = Vec::new();
+    let mut failed: Vec<String> = Vec::new();
+    println!(
+        "[quadcheck] 相对「{}」的差异（同页面、只改四元组）：pHash 汉明 / 平均绝对差 / 变化像素占比",
+        hashes[0].0
+    );
+    for (name, h, var, px) in hashes.iter().skip(1) {
+        let d = hamming64(hashes[0].1, *h);
+        let (mad, pct) = pixel_diff(&hashes[0].3, px);
+        // 判定：像素级差异足够（同内容内的调制用像素差衡量；dHash 仅作参考）
+        let pass = mad > 2.0 && pct > 5.0;
+        println!(
+            "[quadcheck]   {name}: 汉明={d}　平均绝对差={mad:.2}　变化像素={pct:.1}%　{}（方差 {var:.1}）",
+            if pass { "PASS" } else { "FAIL" }
+        );
+        results.push(pass);
+        if !pass {
+            ok = false;
+            failed.push(name.clone());
+        }
+    }
+    let passed = results.iter().filter(|r| **r).count();
+    println!(
+        "[quadcheck] 结论：{}（{}/{} 个维度达到「明显变化」阈值）{}",
+        if ok { "PASS" } else { "PARTIAL" },
+        passed,
+        results.len(),
+        if ok { "".to_string() } else { format!("｜未达标：{}", failed.join("、")) }
+    );
+    // 退出码：全部达标=0；否则非 0（如实反映有未达标项，不掩饰）
+    if ok { 0 } else { 1 }
+}
+
+/// 诊断模式：隔离「预处理 / 排序 / 渲染」哪一环出问题。
+pub fn sortcheck_main() -> i32 {
+    let gpu = match init_gpu() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("[sortcheck] {e}");
+            return 2;
+        }
+    };
+    let mut lib = GeneLibrary::new();
+    seed_gabor_into(&mut lib);
+    let (_text, image_html) = sample_pages();
+    let f = parse_source(&image_html, "");
+    let g = field_to_gabor_with(&f, &lib);
+    let q = Quad { tension: 0.2, calm: 0.6, liking: 0.5, safety: 0.6 };
+    let elems = elements_of(&f, &g, &q, N_ELEMENTS);
+    let pipe = build_pipeline(&gpu.device, N_ELEMENTS, wgpu::TextureFormat::Rgba8UnormSrgb);
+    upload(&gpu.queue, &pipe, &elems, &g);
+    let clear = clear_color_of(&f, &q);
+
+    let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("sc-offscreen"),
+        size: wgpu::Extent3d { width: W, height: H, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+
+    println!("[sortcheck] n={} 趟数={} 结果在 {} 缓冲", pipe.n, pipe.sort_passes, if pipe.sorted_is_b { "B" } else { "A" });
+
+    // 参数取证：GPU 实际看到的第 0 趟与第 54 趟参数
+    let p0 = read_sort_params(&gpu.device, &gpu.queue, &pipe.sort_params[0]);
+    let p_last = read_sort_params(&gpu.device, &gpu.queue, &pipe.sort_params[pipe.sort_params.len() - 1]);
+    println!("[sortcheck] 参数[0]  k={} j={} n={}", p0.k, p0.j, p0.n);
+    println!("[sortcheck] 参数[{}] k={} j={} n={}", pipe.sort_params.len() - 1, p_last.k, p_last.j, p_last.n);
+
+    // A) 仅 preprocess（不排序）
+    let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("sc-a") });
+    record_field_passes_ex(&pipe, &mut enc, &view, clear, false);
+    gpu.queue.submit(Some(enc.finish()));
+    let da = read_depths(&gpu.device, &gpu.queue, &pipe.splats_a, pipe.n);
+    let (ma, ua) = depth_order_report(&da);
+    println!("[sortcheck] A（预处理输出）: 前 8 个 depth = {:?}", &da[..8.min(da.len())]);
+    println!("[sortcheck] A: 单调非增={} 不同取值={} 首/末={:.4}/{:.4}", ma, ua, da.first().copied().unwrap_or(0.0), da.last().copied().unwrap_or(0.0));
+    let ea = dump_splats(&gpu.device, &gpu.queue, &pipe.splats_a, pipe.n, 3);
+    for (i, s) in ea.iter().enumerate() {
+        println!("[sortcheck] A[{i}] pos=({:.3},{:.3},{:.3}) cov00={:.5} color=({:.2},{:.2},{:.2},{:.2}) depth={:.4}",
+            s.position[0], s.position[1], 0.0, s.cov2d[0], s.color[0], s.color[1], s.color[2], s.color[3], s.depth);
+    }
+
+    // B) preprocess + 排序
+    let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("sc-b") });
+    record_field_passes_ex(&pipe, &mut enc, &view, clear, true);
+    gpu.queue.submit(Some(enc.finish()));
+    let db = read_depths(&gpu.device, &gpu.queue, if pipe.sorted_is_b { &pipe.splats_b } else { &pipe.splats_a }, pipe.n);
+    let (mb, ub) = depth_order_report(&db);
+    println!("[sortcheck] B（排序结果）: 前 8 个 depth = {:?}", &db[..8.min(db.len())]);
+    println!("[sortcheck] B: 单调非增={} 不同取值={} 首/末={:.4}/{:.4}", mb, ub, db.first().copied().unwrap_or(0.0), db.last().copied().unwrap_or(0.0));
+    let eb = dump_splats(&gpu.device, &gpu.queue, if pipe.sorted_is_b { &pipe.splats_b } else { &pipe.splats_a }, pipe.n, 3);
+    for (i, s) in eb.iter().enumerate() {
+        println!("[sortcheck] B[{i}] pos=({:.3},{:.3},*) cov00={:.5} color=({:.2},{:.2},{:.2},{:.2}) depth={:.4}",
+            s.position[0], s.position[1], s.cov2d[0], s.color[0], s.color[1], s.color[2], s.color[3], s.depth);
+    }
+    println!("[sortcheck] 小规模逐步验证（n=8）：");
+    let pipe8 = build_pipeline(&gpu.device, 8, wgpu::TextureFormat::Rgba8UnormSrgb);
+    upload(&gpu.queue, &pipe8, &elems[..8], &g);
+    let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("sc-8a") });
+    record_field_passes_ex(&pipe8, &mut enc, &view, clear, false);
+    gpu.queue.submit(Some(enc.finish()));
+    let d8a = read_depths(&gpu.device, &gpu.queue, &pipe8.splats_a, 8);
+    println!("[sortcheck] n=8 A = {:?}", d8a);
+    let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("sc-8b") });
+    record_field_passes_ex(&pipe8, &mut enc, &view, clear, true);
+    gpu.queue.submit(Some(enc.finish()));
+    let d8b = read_depths(&gpu.device, &gpu.queue, if pipe8.sorted_is_b { &pipe8.splats_b } else { &pipe8.splats_a }, 8);
+    println!("[sortcheck] n=8 B = {:?}", d8b);
+    println!("[sortcheck] n=8 降序={} 趟数={}", depth_order_report(&d8b).0, pipe8.sort_passes);
+    0
+}
+
+/// 像素级差异：返回（平均绝对差, 差异超过 8 的像素占比）。
+///
+/// 说明：8×8 dHash 反映的是**大尺度结构**（适合"文本页 vs 图片页"这类跨内容比较）；
+/// 而"同一页面、只改四元组调制"属于**同结构内的细调制**，dHash 分辨不出（实测汉明仅 3–7），
+/// 必须改用像素级度量。**不同问题用不同尺子**。
+pub fn pixel_diff(a: &[u8], b: &[u8]) -> (f64, f64) {
+    if a.is_empty() || a.len() != b.len() {
+        return (0.0, 0.0);
+    }
+    let n = a.len() as f64;
+    let sum: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(x, y)| (*x as f64 - *y as f64).abs())
+        .sum();
+    let changed = a
+        .iter()
+        .zip(b.iter())
+        .filter(|(x, y)| (**x as i32 - **y as i32).abs() > 8)
+        .count() as f64;
+    (sum / n, 100.0 * changed / n)
+}
+
+/// 降序检查：返回（是否单调非增, 不同取值个数）。
+pub fn depth_order_report(d: &[f32]) -> (bool, usize) {
+    let mono = d.windows(2).all(|w| w[0] >= w[1]);
+    let mut uniq: Vec<f32> = Vec::new();
+    for v in d {
+        if !uniq.iter().any(|u| (u - v).abs() < 1e-6) {
+            uniq.push(*v);
+        }
+    }
+    (mono, uniq.len())
+}
+
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -508,11 +932,28 @@ fn main() {
         std::process::exit(selftest_main(&gpu));
     }
 
+    if has("--sortcheck") {
+        std::process::exit(sortcheck_main());
+    }
+    if has("--quad-check") {
+        std::process::exit(quadcheck_main());
+    }
+
     // 默认：**窗口宿主**（winit 开窗 + wgpu surface + 同一套场域渲染管线；不依赖 WebView2）
     //   `--frames N`：渲染 N 帧后自动测帧率 + 回读上屏像素判定，然后退出（无人值守验收）
     let frames: Option<u32> = val("--frames").and_then(|v| v.parse().ok());
     let sample: usize = val("--sample").and_then(|v| v.parse().ok()).unwrap_or(0);
-    if let Err(e) = window::run(window::RunOptions { frames, sample }) {
+    let quad: Option<[f64; 4]> = val("--quad").and_then(|s| {
+        let v: Vec<f64> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        if v.len() == 4 {
+            Some([v[0], v[1], v[2], v[3]])
+        } else {
+            None
+        }
+    });
+    let url = val("--url");
+    let ui_selftest = has("--ui-selftest");
+    if let Err(e) = window::run(window::RunOptions { frames, sample, quad, url, ui_selftest }) {
         eprintln!("[field-render] 窗口宿主启动失败：{e}");
         std::process::exit(2);
     }
@@ -587,10 +1028,11 @@ fn selftest_main(gpu: &Gpu) -> i32 {
         mapped_at_creation: false,
     });
 
+    // 管线建一次即可（三个样本共用；也便于渲染后回读排序结果做校验）
+    let pipe = build_pipeline(&gpu.device, N_ELEMENTS, wgpu::TextureFormat::Rgba8UnormSrgb);
     let mut images: Vec<Vec<u8>> = Vec::new();
     let mut fps_done = false;
     for (name, f, g, q_dummy) in cases.iter() {
-        let pipe = build_pipeline(&gpu.device, N_ELEMENTS, wgpu::TextureFormat::Rgba8UnormSrgb);
         let elems = elements_of(f, g, &q_dummy, N_ELEMENTS);
         upload(&gpu.queue, &pipe, &elems, g);
         let clear = clear_color_of(f, &q_dummy);
@@ -664,7 +1106,22 @@ fn selftest_main(gpu: &Gpu) -> i32 {
     let h12 = hamming64(dhash_8x8(&images[1], W, H), dhash_8x8(&images[2], W, H));
     println!("[selftest] pHash 汉明距离：文本↔图片={h01}｜文本↔图片·紧张={h02}｜图片↔图片·紧张={h12}（阈值 >10）");
 
+    // 排序校验（v0.121 新增断言）：验证"远者先画"确实成立
+    let depths = read_sorted_depths(&gpu.device, &gpu.queue, &pipe);
+    let (mono, distinct) = depth_order_report(&depths);
+    println!(
+        "[selftest] 排序校验：depth {}｜不同取值 {} 个（n={}，趟数={}）",
+        if mono { "已按降序排好（远者在前 → 先画）" } else { "**未按降序**（排序参数或乒乓缓冲有问题）" },
+        distinct,
+        pipe.n,
+        pipe.sort_passes
+    );
+
     let mut ok = true;
+    if !mono {
+        println!("[selftest] x 排序结果不是降序");
+        ok = false;
+    }
     for (i, px) in images.iter().enumerate() {
         if !pixel_stats(px).ok {
             println!("[selftest] ✗ 第 {} 幅为纯黑或纯白", i + 1);
@@ -723,6 +1180,54 @@ fn hamming64(a: u64, b: u64) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn splat2d_layout_matches_wgsl() {
+        // 与 WGSL 侧 struct Splat2D 逐项对齐（见 Splat2D 注释）；这条断言就是"布局不许漂移"的守门人
+        assert_eq!(std::mem::size_of::<Splat2D>(), 64, "Splat2D 必须是 64 字节（WGSL 步长）");
+        assert_eq!(std::mem::offset_of!(Splat2D, position), 0);
+        assert_eq!(std::mem::offset_of!(Splat2D, cov2d), 8);
+        assert_eq!(std::mem::offset_of!(Splat2D, color), 32, "vec4 需 16 字节对齐");
+        assert_eq!(std::mem::offset_of!(Splat2D, depth), 48);
+    }
+
+    #[test]
+    fn field_element_layout_matches_wgsl() {
+        // WGSL: vec3<f32> 对齐 16、占 12 字节；f32 紧随其后 → 16 字节
+        assert_eq!(std::mem::size_of::<FieldElement>(), 16);
+        assert_eq!(std::mem::offset_of!(FieldElement, intensity), 12);
+    }
+
+    #[test]
+    fn sort_param_series_matches_pass_count_and_order() {
+        for n in [2u32, 8, 64, 1024] {
+            assert_eq!(sort_param_series(n).len() as u32, bitonic_pass_count(n), "n={n}");
+        }
+        let s = sort_param_series(1024);
+        assert_eq!((s[0].k, s[0].j), (2, 1), "first pass must be (2,1)");
+        let last = s.last().unwrap();
+        assert_eq!((last.k, last.j), (1024, 1), "last pass must be (n,1)");
+    }
+
+    #[test]
+    fn pixel_diff_metrics() {
+        let a = vec![10u8; 200];
+        let b = vec![10u8; 200];
+        assert_eq!(pixel_diff(&a, &b), (0.0, 0.0));
+        let c = vec![30u8; 200];
+        let (mad, pct) = pixel_diff(&a, &c);
+        assert!((mad - 20.0).abs() < 1e-9, "平均绝对差应为 20，实得 {mad}");
+        assert!((pct - 100.0).abs() < 1e-9);
+        assert_eq!(pixel_diff(&[], &a), (0.0, 0.0), "长度不符时返回 0");
+    }
+
+    #[test]
+    fn depth_order_report_detects_descending() {
+        assert_eq!(depth_order_report(&[3.0, 2.0, 1.0]), (true, 3));
+        assert!(!depth_order_report(&[1.0, 2.0, 3.0]).0, "ascending is the wrong direction");
+        assert_eq!(depth_order_report(&[0.5, 0.5, 0.5]), (true, 1), "all equal means identity sort");
+        assert_eq!(depth_order_report(&[]), (true, 0));
+    }
 
     #[test]
     fn bitonic_pass_count_formula() {

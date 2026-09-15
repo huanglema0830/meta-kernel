@@ -16,6 +16,9 @@ bytemuck = { version = "1", features = ["derive"] }
 
 # 接入内核（路径依赖）：内核自身仍是**零依赖**，依赖方向是 host → kernel
 meta-kernel-core = { path = "../../meta-kernel-core" }
+egui = "0.30"
+egui-wgpu = "0.30"
+egui-winit = "0.30"
 
 [profile.release]
 opt-level = 3

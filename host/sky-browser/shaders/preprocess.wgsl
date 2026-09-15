@@ -53,7 +53,10 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>) {
     let cov2d = mat2x2<f32>(dot(j[0].xy, sigma3d[0].xy), dot(j[0].xy, sigma3d[1].xy),
                             dot(j[1].xy, sigma3d[0].xy), dot(j[1].xy, sigma3d[1].xy));
 
-    // 颜色：方向 → 色相；相位 → 偏移（与内核 modulate_gabor 的 ψ 一致）
+    // 颜色：方向 → 色相；相位 ψ → 色相偏移（与内核 modulate_gabor 的 ψ 一致）
+    // 已知不足（v0.121 实测）：ψ 直接当色相时**视觉影响偏弱**（同页面仅改"喜欢"→ 像素变化仅 0.5%）。
+    // 曾试加宿主侧色相增益，但那会连基准色一起改掉、画面反而趋平（方差 510→23）——
+    // **靠调参把测试打绿属自欺**，故已回退；此项如实列为待加强。
     let hue = (gabor.theta + gabor.psi) / 3.14159265;
     let color = vec4<f32>(abs(cos(hue * 6.283)), abs(cos((hue + 0.333) * 6.283)),
                           abs(cos((hue + 0.666) * 6.283)), elem.intensity);
@@ -61,5 +64,8 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>) {
     splats[idx].position = screen;
     splats[idx].cov2d = cov2d;
     splats[idx].color = color;
-    splats[idx].depth = clip.w;
+    // 深度口径修正（v0.121）：相机为恒等矩阵时 `clip.w` **恒等于 1**，全部 splat 深度相同 →
+    // 排序退化为恒等操作（"排了等于没排"）。改为用元素自身的 z 作深度
+    // （约定：z 大 = 更"远" → 排序降序后远者先画）。
+    splats[idx].depth = elem.position.z;
 }
