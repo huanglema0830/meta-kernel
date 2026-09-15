@@ -2,7 +2,7 @@
 
 > 适用：`host/field-render/`（**独立 crate，不并入 workspace**）。
 > 本文件是「宿主怎么建、怎么跑、怎么验收」的**单一事实源**。
-> 最后更新于：HEAD b1fe342（对应 v0.127）——快照口径，当前版本见 `git rev-list --count HEAD`。
+> 最后更新于：HEAD 2a4d2dc（对应 v0.129）——快照口径，当前版本见 `git rev-list --count HEAD`。
 
 ## 一、构建（Windows / GNU 工具链）——**必须先做这一步**
 
@@ -25,6 +25,41 @@ cargo build --target-dir C:/c/fr-build2      # 短 target-dir，规避 MAX_PATH
 - **llvm-mingw 的 `dlltool.exe` = `llvm-dlltool`（自包含 LLVM，不需要 `as`）** → 前置到 PATH 即通。
 - 本机 `~/.cargo/config.toml` 已把 GNU 链接器指向该工具链的 `x86_64-w64-mingw32-gcc.exe`；
   **但 PATH 没带上 `bin` —— 配置只写了一半**，这就是长期误判为"缺 dlltool"的原因。
+
+### ⚠️ llvm-mingw 版本约束（**勿随意升级**；v0.130 实测）
+
+sysroot **必须自带 `libgcc.a` / `libgcc_eh.a`**：
+
+- 本机在用 **`20260826`**：`x86_64-w64-mingw32/lib/` 含 `libgcc.a`、`libgcc_eh.a`、`libmingw32.a`、`libmingwex.a` ✅
+- **`20260908` 起已移除这两只库**，该目录只剩 `libmingw32/wex/thrd.a` ❌
+- 驱动（`x86_64-w64-mingw32-gcc.exe`）的库搜索路径**包含自己的 sysroot**：
+  `…/lib/clang/23`、`…/x86_64-w64-mingw32/lib`、`…/x86_64-w64-mingw32/mingw/lib`、`…/lib`
+  —— 所以**能不能解析 `-lgcc_eh` / `-lgcc`，取决于这个目录里有没有那两只库**。
+
+**为什么会"本机能过、CI 不能过"（关键不对称）：**
+
+| | 本机 | CI `windows-latest` |
+|---|---|---|
+| rustup 工具链 host | **GNU**（`stable-x86_64-pc-windows-gnu`） | **MSVC**（`dtolnay/rust-toolchain@stable` 默认） |
+| gnu target 的 `lib/rustlib/x86_64-pc-windows-gnu/lib/self-contained/` | **44 个文件**，含 `libgcc.a`/`libgcc_eh.a`/`libgcc_s.a` + 全套 mingw 导入库（来自 `rust-mingw` 组件） | **只有 2 个**：`crt2.o`、`dllcrt2.o` |
+| llvm-mingw 若不带 libgcc | 仍能从 `self-contained` 兜住 → **假绿** | **无人提供 → `lld: error: unable to find library -lgcc_eh`** |
+
+⇒ 本机用 llvm-mingw `20260908` 也**照样能构建**（被 `self-contained` 掩盖），**只有 CI 会炸**。
+CI 里已把这条约束变成**显式门禁**（安装步骤断言 sysroot 存在 `libgcc.a`/`libgcc_eh.a`/`libmingw32.a`/`libmingwex.a`），
+升级版本时会**在那一步明确报错**，而不是给一句难懂的 lld 链接失败。
+
+**最小复现（照抄 CI 失败行的库序列，跨版本对照）：**
+
+```bash
+echo 'int main(void){return 0;}' > t.c
+# 用某版 llvm-mingw 的驱动、按 CI 的库顺序链接
+"$LM/bin/x86_64-w64-mingw32-gcc.exe" t.c -o t.exe \
+  -Wl,-Bstatic -Wl,-Bdynamic -lkernel32 -lntdll -luserenv -lws2_32 -ldbghelp \
+  -lgcc_eh -l:libpthread.a -lmsvcrt -lmingwex -lmingw32 -lgcc -lmsvcrt -lmingwex -luser32 -lkernel32 \
+  -nodefaultlibs
+# 20260908 → lld: error: unable to find library -lgcc_eh / -lgcc（与 CI 报错逐字一致）
+# 20260826 → 那两条错误消失（只剩探针自身缺 Rust crt 符号的无关报错）
+```
 
 ### MSVC 路径（**本机不可用**，仅记录）
 
@@ -80,10 +115,16 @@ EXE=/c/c/fr-build2/debug/field-render.exe
 
 `.github/workflows/ci.yml` 的 **`host-windows`** job（`windows-latest`）：
 构建宿主并执行客观断言 ①方差>1 + 帧率 ②排序 ③L5诊断；④真实开窗为诊断性步骤。
-其"安装 llvm-mingw 并把 `bin` 前置到 PATH"步骤是 **R1 修复的固化**，**勿删**。
+其"安装 llvm-mingw 并把 `bin` 前置到 PATH"步骤是 **R1 修复的固化**，**勿删**；
+该步骤同时**钉住版本 `20260826`** 并**断言 sysroot 自带 libgcc**（原因见第一节的版本约束，勿随意升级）。
 
 帧率断言口径：**硬件适配器 → ≥30**；软件适配器（CI runner 无 GPU）→ 如实标注并按 >0 断言
 （不拿"改阈值"打绿，也不拿"CI 跑过"冒充硬件口径）。
+
+CI 里**不还原** `self-contained`（MSVC host 没有 `rust-mingw` 组件）——这正是"本机能过 CI 不能过"的分界；
+若要彻底消除这条不对称，可改为在 CI 装 **GNU host 工具链**（`rustup toolchain install stable-x86_64-pc-windows-gnu
+--component rust-mingw-x86_64-pc-windows-gnu`）后用 `cargo +stable-x86_64-pc-windows-gnu` 构建，此时 libgcc 由
+`self-contained` 提供、与 llvm-mingw 版本解耦。**当前未采用**（记为决策项 D14，见 `coordination/BASELINE.md`）。
 
 ## 六、运行期产物
 

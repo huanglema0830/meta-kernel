@@ -238,6 +238,18 @@ jobs:
   #   PATH** 即可。本地对应 `~/.cargo/config.toml` 的 GNU linker 指向该工具链；CI 里以
   #   `CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER` 等价复刻。
   #
+  # 为什么必须钉住 llvm-mingw 版本（R1-b 第二次失败的真实根因，2026-09-16 实测）：
+  #   CI 的 rustup 工具链是 **MSVC host**（windows-latest 默认），其 gnu target 的
+  #   `lib/rustlib/x86_64-pc-windows-gnu/lib/self-contained/` **只有 crt2.o / dllcrt2.o**，
+  #   没有 libgcc*.a（本机是 **GNU host**，self-contained 有 44 个文件、含 libgcc.a —— 所以本机能过、CI 不能）。
+  #   而 llvm-mingw **20260908 起把 libgcc.a / libgcc_eh.a 从 sysroot 移除了**
+  #   （`x86_64-w64-mingw32/lib/` 只剩 libmingw32/wex/thrd.a）⇒ rustc 请求的 `-lgcc_eh`、`-lgcc`
+  #   没有任何 -L 能覆盖 → `lld: error: unable to find library -lgcc_eh`。
+  #   ⇒ **钉住 20260826**（本机在用的版本，sysroot 自带 libgcc.a + libgcc_eh.a），并在安装步骤里
+  #     **断言**这两个文件存在：将来升级 llvm-mingw 会在那一步**明确报错**，而不是给一句难懂的 lld 链接失败。
+  #   （对照实验：把 CI 失败行里的库序列照抄给两版 llvm-mingw 驱动，20260908 复现同样两条 lld 报错、
+  #     20260826 该两条消失 → 根因坐实。）
+  #
   # 断言口径（把 2026-09-16 本机真实跑通的验收标准固化）：
   #   ① 离屏自检：退出码 0 + 结论 PASS + **每幅方差 > 1**（真实语义：非纯黑/纯白的空图不算过）
   #   ② 排序校验：退出码 0（GPU 双调排序正确性）
@@ -264,13 +276,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VER=20260908
+          # ⚠️ 版本约束（勿随意升级）：llvm-mingw 必须**自带 libgcc.a / libgcc_eh.a**。
+          #    20260908 起这两只库已从 sysroot 移除；本 job 的 rustup 工具链是 MSVC host，
+          #    其 gnu target 的 self-contained/ 也没有 libgcc ⇒ 会直接链接失败。详见文件头注释。
+          VER=20260826
           URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${VER}/llvm-mingw-${VER}-ucrt-x86_64.zip"
           TMPU="$(cygpath -u "$RUNNER_TEMP")"
           curl -sSL "$URL" -o "$TMPU/llvm-mingw.zip"
           unzip -q "$TMPU/llvm-mingw.zip" -d "$TMPU/lm"
           BIN_M="$(cygpath -m "$TMPU/lm/llvm-mingw-${VER}-ucrt-x86_64/bin")"
           test -f "$BIN_M/dlltool.exe" || { echo "::error::llvm-mingw 解压后找不到 dlltool.exe：$BIN_M"; exit 1; }
+          # sysroot 必须自带 libgcc —— 这是 MSVC-host 工具链下 `-lgcc_eh` / `-lgcc` 的唯一来源，
+          # 把它变成显式门禁（否则失败会以一句难懂的 lld 报错的形式出现在几十分钟后的构建步骤里）。
+          SYSLIB="$TMPU/lm/llvm-mingw-${VER}-ucrt-x86_64/x86_64-w64-mingw32/lib"
+          for f in libgcc.a libgcc_eh.a libmingw32.a libmingwex.a; do
+            test -f "$SYSLIB/$f" || { echo "::error::llvm-mingw ${VER} 的 sysroot 缺 $f（$SYSLIB）——该版本无法提供 -lgcc_eh/-lgcc，请换回自带 libgcc 的版本"; exit 1; }
+          done
+          echo "SYSLIB_LIBGCC_OK：sysroot 自带 libgcc.a / libgcc_eh.a（$SYSLIB）"
           echo "LLVM_MINGW_BIN=$BIN_M" >> "$GITHUB_ENV"
           echo "$BIN_M" >> "$GITHUB_PATH"
           export PATH="$BIN_M:$PATH"
