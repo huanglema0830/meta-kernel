@@ -20,6 +20,7 @@
 //! `host/sky-browser`（WebView2 版）**保留为降级路径与对照**；本 crate 完全独立。
 
 mod window;
+mod gene_store;
 
 use bytemuck::{Pod, Zeroable};
 use std::time::Instant;
@@ -1339,20 +1340,22 @@ pub fn depth_order_report(d: &[f32]) -> (bool, usize) {
 /// 内容全部来自**内核计算**：基因库规模、诊断证据系数、注意力联动结果——
 /// 一旦这些数字出现，就说明本次运行的判据取自内核，而非宿主自己又写了一套。
 pub fn kernel_banner(mode: &str) {
-    let mut lib = GeneLibrary::new();
-    seed_gabor_into(&mut lib);
-    seed_coherence_into(&mut lib);
-    l5_evidence::seed_into(&mut lib);
+    // **启动时加载持久化基因库**（单一事实源）：L4 阈值、证据系数等判据皆取自它。
+    let mut lib = crate::gene_store::load_or_seed();
+    crate::gene_store::seed_all(&mut lib);
     let s = lib.sizes();
     let gains = l5_evidence::gains_of(&lib);
     let plan = l5_attention::plan(&q4(0.5, 0.5, 0.5, 0.5), 0.0, 0.5, false);
+    let th = meta_kernel_core::l4::threshold::from_library(&lib);
     println!(
-        "[元内核] 参与：模式={mode}｜内核 v{}｜基因库 基础{} 场景{} 关系{} 验证{}｜证据系数 world_gain={:.2} pe_gain={:.2} pe_ref={:.3}｜{}",
+        "[元内核] 参与：模式={mode}｜内核 v{}｜基因库 基础{} 场景{} 关系{} 验证{}｜L4阈高{:.4}/低{:.4}（持久化库）｜证据系数 world_gain={:.2} pe_gain={:.2} pe_ref={:.3}｜{}",
         meta_kernel_core::VERSION,
         s[0],
         s[1],
         s[2],
         s[3],
+        th.high,
+        th.low,
         gains.world_gain,
         gains.pe_gain,
         gains.pe_ref,
@@ -1677,6 +1680,79 @@ pub fn link_check_main() -> i32 {
     if ok { 0 } else { 1 }
 }
 
+// ===== 验收：宿主端到端 L4 接线（改基因库即改 L4）=====
+
+/// 验收：**宿主端到端 L4 接线**——启动加载持久化基因库，传入 `check_state_from_library`；
+/// 修改库中 L4 阈值后，宿主端 L4 判定结果随之改变，且可落盘 → 重加载保持（端到端生效）。
+///
+/// 用隔离的临时库，避免污染用户真实的持久化库。
+pub fn l4_check_main() -> i32 {
+    use meta_kernel_core::l4::dimension::FieldState;
+    use meta_kernel_core::l4::l4_gate::{check_state_from_library, Decision};
+    use meta_kernel_core::l4::threshold::{self, GOLDEN_HIGH, NAME_HIGH};
+
+    let dir = std::env::temp_dir();
+    let main_p = dir.join("meta-kernel-l4check-genelib.txt");
+    let bak_p = dir.join("meta-kernel-l4check-genelib.bak");
+    let _ = std::fs::remove_file(&main_p);
+    let _ = std::fs::remove_file(&bak_p);
+
+    // ① 加载（或播种）持久化库，并登记 L4 阈值
+    let mut lib = crate::gene_store::load_or_seed_at(&main_p);
+    threshold::seed_into(&mut lib);
+    let base = FieldState::baseline();
+    // 构造：3 维偏离 2.0（默认高判据 1.618 → 拒绝「不非时食」）
+    let cur = FieldState::new(2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0);
+
+    let (d0, th0) = check_state_from_library(&cur, &base, &lib);
+    println!("[l4check] ① 默认阈高={:.4}：3 维偏离 2.0 → 判定 {:?}", th0.high, d0);
+    if !matches!(d0, Decision::UnseasonalMeal { .. }) {
+        println!("[l4check] ✗ 默认判据下应拒绝（不非时食）");
+        return 1;
+    }
+
+    // ② 改基因库：把高判据抬到 2.5 → 2.0 偏离不再越界 → 通过
+    lib.set_base_constant(NAME_HIGH, 2.5, [1.0; 7]);
+    let (d1, th1) = check_state_from_library(&cur, &base, &lib);
+    println!("[l4check] ② 改基因库阈高={:.4}：同场域 → 判定 {:?}", th1.high, d1);
+    if (th1.high - 2.5).abs() >= 1e-12 {
+        println!("[l4check] ✗ 判据未从基因库读取");
+        return 1;
+    }
+    if !matches!(d1, Decision::Pass) {
+        println!("[l4check] ✗ 改基因库后判定未改变（验收项失败）");
+        return 1;
+    }
+
+    // ③ 端到端：落盘 → 重新加载 → 判定仍随改后阈值（磁盘 → 内存 → 判定）
+    if let Err(e) = crate::gene_store::save_gene_library_to(&lib, &main_p) {
+        println!("[l4check] ✗ 落盘失败: {e}");
+        return 1;
+    }
+    let reloaded = match crate::gene_store::load_gene_library_from(&main_p) {
+        Ok(l) => l,
+        Err(e) => {
+            println!("[l4check] ✗ 重加载失败: {e}");
+            return 1;
+        }
+    };
+    let (d2, th2) = check_state_from_library(&cur, &base, &reloaded);
+    println!("[l4check] ③ 重加载库阈高={:.4}：判定 {:?}", th2.high, d2);
+    if (th2.high - 2.5).abs() >= 1e-12 || !matches!(d2, Decision::Pass) {
+        println!("[l4check] ✗ 持久化后判定未保持（端到端失败）");
+        return 1;
+    }
+
+    // ④ 复位：把阈高改回黄金值并落盘，避免污染后续运行
+    lib.set_base_constant(NAME_HIGH, GOLDEN_HIGH, [1.0; 7]);
+    let _ = crate::gene_store::save_gene_library_to(&lib, &main_p);
+    let _ = std::fs::remove_file(&main_p);
+    let _ = std::fs::remove_file(&bak_p);
+
+    println!("[l4check] 结论：PASS（改基因库即改 L4，且在宿主端到端生效 + 持久化）");
+    0
+}
+
 fn probe_str(m: ProbeMode) -> &'static str {
     match m {
         ProbeMode::Active => "主动",
@@ -1703,6 +1779,8 @@ fn mode_name(args: &[String]) -> &'static str {
         "diag-check"
     } else if has("--link-check") {
         "link-check"
+    } else if has("--l4-check") {
+        "l4-check"
     } else if has("--ui-selftest") {
         "ui-selftest"
     } else {
@@ -1753,6 +1831,9 @@ fn main() {
     }
     if has("--link-check") {
         std::process::exit(link_check_main());
+    }
+    if has("--l4-check") {
+        std::process::exit(l4_check_main());
     }
 
     // 默认：**窗口宿主**（winit 开窗 + wgpu surface + 同一套场域渲染管线；不依赖 WebView2）

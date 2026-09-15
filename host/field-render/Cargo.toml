@@ -22,3 +22,8 @@ egui-winit = "0.30"
 
 [profile.release]
 opt-level = 3
+
+# wasm 目标：基因库持久化走 localStorage（native 走文件系统，见 gene_store.rs）。
+# 仅 wasm 目标编译，不影响 native 构建。
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["Storage", "Window"] }

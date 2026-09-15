@@ -543,6 +543,7 @@ dependencies = [
  "egui-winit",
  "meta-kernel-core",
  "pollster",
+ "web-sys",
  "wgpu",
  "winit",
 ]

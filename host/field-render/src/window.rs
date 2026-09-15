@@ -380,9 +380,11 @@ impl State {
         println!("[window] 适配器: {} / {:?} / {:?}", info.name, info.backend, info.device_type);
 
         let pipeline = build_pipeline(&device, crate::N_ELEMENTS, format);
-        let mut lib = GeneLibrary::new();
-        seed_gabor_into(&mut lib);
-        seed_coherence_into(&mut lib); // 「喜欢＝预测误差降低」的系数（改库即改映射）
+        // 启动时加载持久化基因库（单一事实源，含 L4 阈值）；
+        // 落盘确保运行期学习 / 改判据在重启后可恢复（存储位置由宿主决定）。
+        let mut lib = crate::gene_store::load_or_seed();
+        crate::gene_store::seed_all(&mut lib);
+        let _ = crate::gene_store::save_gene_library(&lib);
 
         // egui 三件套
         let egui_ctx = egui::Context::default();
