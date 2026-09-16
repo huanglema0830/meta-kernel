@@ -2,9 +2,8 @@
 
 **每次对话开始，先读 [`CHARTER.md`](CHARTER.md)。**
 
-CHARTER.md 是项目全部机制的**总入口**：项目定位、命名体系、三方角色、机制清单、硬规则速查、启动引导、变更机制。
-
-读完 CHARTER.md 后，按其 §六 的顺序继续读其余文件（BASELINE → CONSTRAINTS → TEMPLATES → ROADMAP → instructions/ 最新 → reports/ 最新）。
+`CHARTER.md` 是**自包含**的：只读它一份，就知道项目是什么、三方是谁、有哪些机制、哪些红线、怎么开工。
+读完按 §五 给出**启动回执**（不回执＝未读），再按 §九 的顺序按需深入其余文件。
 
 ---
 
@@ -12,17 +11,17 @@ CHARTER.md 是项目全部机制的**总入口**：项目定位、命名体系�
 
 | 文件 | 职责 |
 |---|---|
-| **CHARTER.md** | **总入口**：全部机制清单 + 硬规则速查 + 启动引导 |
-| BASELINE.md | 项目当前状态的唯一权威描述（每版本更新） |
-| CONSTRAINTS.md | 硬约束清单 C1–C9（不可破） |
-| TEMPLATES.md | 指令/报告模板 + 优先级 + 无响应推进 + 断裂接续 + 讨论模板 |
-| TEMPLATES_CHANGELOG.md | 模板活相机制：模板变更记录 |
-| OBSERVATIONS.md | 模板活相机制：使用中的观察与提议 |
-| ROADMAP.md | 总行动路线图（三阶段 + 里程碑 + 设备梯队） |
+| **CHARTER.md** | **总入口（自包含）**：项目定位／命名体系／三方角色／机制清单／硬规则 C1–C10／**启动回执**／**动作约束**／紧急通道／冲突解决／按需深入 |
+| BASELINE.md | 项目当前状态的唯一权威描述（每版本更新；含漏洞 R1–R15、决策 D1–D15） |
+| CONSTRAINTS.md | 硬约束 C1–C10 全文（含"为什么/破了会怎样/判据"）+ 活相说明 |
+| TEMPLATES.md | 指令/报告模板（固定相）＋ 优先级 ＋ 无响应推进 ＋ 断裂接续 ＋ 讨论模板 ＋ **§七 变更记录**（活相机制与观察，**合并为一个文件**） |
+| ROADMAP.md | 总路线图：三阶段 ＋ 阶段二六子任务 ＋ 里程碑 ＋ 设备梯队 ＋ 活相说明 |
 | unsafe_whitelist.txt | C9 门禁白名单（当前为空＝不放行任何真实 unsafe） |
 | instructions/ | 指令归档 |
 | reports/ | 报告归档 |
 | discussions/ | 讨论记录归档 |
+
+> **已合并**：原 `TEMPLATES_CHANGELOG.md`、`OBSERVATIONS.md` 的内容并入 `TEMPLATES.md` §七（2026-09-16 简化）。
 
 ---
 

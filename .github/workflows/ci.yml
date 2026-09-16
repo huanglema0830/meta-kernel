@@ -259,9 +259,11 @@ jobs:
   #   ① 离屏自检：退出码 0 + 结论 PASS + **每幅方差 > 1**（真实语义：非纯黑/纯白的空图不算过）
   #   ② 排序校验：退出码 0（GPU 双调排序正确性）
   #   ③ L5 诊断：退出码 0 + 结论 PASS（证据调制与中性点 m=0.5 对齐）
-  #   ④ 帧率：**硬件适配器 → 断言 ≥ 30**；软件适配器（runner 无 GPU）→ 如实标注并断言 > 0
+  #   ④ 真实开窗 + URL + 上屏回读：**门禁**（run 35044362728 上真实验证通过后，
+  #      本轮按 D10 去掉 `continue-on-error`，改为硬断言：退出码 0 + 回读来源＝surface + 结论 PASS）。
+  #   ⑤ C9 门禁：unsafe 白名单 + 禁 transmute（D11/R10；含"门禁自检"，防止断言空转）。
+  # 帧率口径（含在验收①内）：**硬件适配器 → 断言 ≥ 30**；软件适配器（runner 无 GPU）→ 如实标注并断言 > 0
   #      —— 不拿"改阈值"打绿，也不拿"CI 跑过"冒充硬件口径。
-  #   ⑤ 真实开窗 + URL + 上屏回读：诊断性步骤（见该步骤注释），观察稳定后提升为门禁。
   # ===========================================================================================
   host-windows:
     name: 宿主 field-render（Windows 构建 + 客观验收）
@@ -429,11 +431,16 @@ jobs:
           test "$CODE" = "0" || { echo "::error::--diag-check 退出码 $CODE（应为 0，R7 已修）"; exit 1; }
           grep -q "结论：PASS" diagcheck.log || { echo "::error::--diag-check 结论非 PASS"; exit 1; }
 
-      - name: 验收 ④ 真实开窗 + URL 取源码 + 上屏回读（诊断性：先观察 runner 能否开窗）
-        continue-on-error: true
+      # ⚠️ 本步骤是**门禁**（D10 已执行：去掉 continue-on-error）。
+      #    升级依据：run 35044362728 上本步骤**真实通过**（runner 无 GPU → Dx12 WARP 软件适配器，
+      #    仍完成 开窗 1080×760 → 输入 URL → 取源码 108 字 → 从 surface 真实上屏纹理回读 → PASS、exit=0）。
+      #    一旦本步骤转红，即为"宿主开窗链路退化"的真实信号，**不得用放宽断言的方式打绿**。
+      - name: 验收 ④ 真实开窗 + URL 取源码 + 上屏回读（门禁）
         shell: bash
         run: |
           set -uo pipefail
+          set +e     # 同验收①：外层 `shell: bash` 自带 -e，必须显式关掉才能打印失败日志
+          export RUST_BACKTRACE=1
           export PATH="$LLVM_MINGW_BIN:$PATH"
           cat > page.html <<'HTML'
           <html><body><article>
@@ -446,16 +453,121 @@ jobs:
           trap 'kill $SRV 2>/dev/null || true' EXIT
           sleep 2
           curl -s -o /dev/null -w "服务 HTTP %{http_code}\n" http://127.0.0.1:18124/page.html
-          set +e
           "$EXE" --url http://127.0.0.1:18124/page.html --frames 120 > window.log 2>&1
           WCODE=$?
-          set -e
           cat window.log
           echo "---- exit=$WCODE ----"
           test "$WCODE" = "0" || { echo "::error::开窗运行退出码 $WCODE"; exit 1; }
           grep -q "回读来源：surface" window.log || { echo "::error::未从真实上屏纹理（surface）回读"; exit 1; }
           grep -q "结论：PASS" window.log || { echo "::error::开窗运行结论非 PASS"; exit 1; }
           echo "WINDOW_SURFACE_READBACK_PASS"
+
+      # C9 门禁落地（D11/R10）：把 CONSTRAINTS.md C9 的"文字约定"变成**可判定断言**。
+      # 本步骤之所以能成为门禁（而不是纸上规矩），靠三点：判据可自动判定 + 白名单单一来源 + **门禁自检**。
+      - name: 验收 ⑤ C9 门禁 —— unsafe 白名单 + 禁 transmute（含门禁自检）
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e     # 同验收①：外层 `shell: bash` 自带 -e，必须显式关掉才能打印诊断
+          # C9：unsafe 只允许"边界形态"（边界集中 + `// SAFETY:` 论证 + 禁 transmute + 白名单登记）。
+          # 判定三条：
+          #   ① `transmute` 全仓零出现（C9 明令一律禁止，含别名/重导出）
+          #   ② "真实 unsafe"（非注释行）所在文件必须**全部**登记在 coordination/unsafe_whitelist.txt
+          #   ③ 每个含真实 unsafe 的文件，`// SAFETY:` 出现次数必须 ≥ 真实 unsafe 行数
+          # 现状：真实 unsafe 0 处、白名单为空 ⇒ ①②③ 自然成立（机制就位、尚未放行任何条目）。
+
+          # —— 统一的"真实代码行"判定（**排除整行注释**）：主判定与门禁自检**共用同一段逻辑**，
+          #    保证自检验的就是真逻辑。
+          #    ⚠️ 注释里提到 `unsafe` / `transmute` **不算违规**（本仓库注释正在讨论它们，
+          #    如 window.rs 的"不需要 unsafe，也不是 transmute 类取巧"）。
+          real_code_lines() {
+            local pat="$1"; shift
+            grep -rnE "$pat" --include="*.rs" "$@" 2>/dev/null \
+              | grep -vE ':[[:space:]]*(//|/\*|\*)' || true
+          }
+
+          # ⚠️ 判据必须锚在**关键字/调用的确切用法**上，否则会大面积假阳性——
+          #    门禁第一次本地干跑就误报 `let unsafe_q = ...`（**变量名**，不是 unsafe 语法）。
+          #    · PAT_UNSAFE：只认 unsafe 块/`unsafe fn`/`unsafe impl`/`unsafe trait`/`unsafe extern`
+          #      （`unsafe_q`、`#[allow(unsafe_code)]` 因词边界不匹配 → 不违规）
+          #    · PAT_TRANSMUTE：只认 transmute 作为独立词/调用（`transmute::<..>(..)`）
+          PAT_UNSAFE='unsafe[[:space:]]*(\{|fn([^A-Za-z0-9_]|$)|impl([^A-Za-z0-9_]|$)|trait([^A-Za-z0-9_]|$)|extern([^A-Za-z0-9_]|$))'
+          PAT_TRANSMUTE='(^|[^A-Za-z0-9_])transmute([^A-Za-z0-9_]|$)'
+
+          # —— 扫描范围：内核 + 各宿主 crate 的 src ——
+          DRS="meta-kernel-core/src"
+          for d in host/*/src; do [ -d "$d" ] && DRS="$DRS $d"; done
+          echo "扫描目录：$DRS"
+
+          echo "===== ① transmute 绝对禁止 ====="
+          HITS_TR="$(real_code_lines "$PAT_TRANSMUTE" $DRS)"
+          if [ -n "$HITS_TR" ]; then
+            echo "$HITS_TR"
+            echo "::error::发现 transmute —— C9 明令一律禁止"
+            exit 1
+          fi
+          echo "TRANSMUTE_NONE_OK"
+
+          echo "===== ② 真实 unsafe（非注释行）必须全部在白名单内 ====="
+          WLFILE="coordination/unsafe_whitelist.txt"
+          test -f "$WLFILE" || { echo "::error::找不到白名单 $WLFILE（C9 门禁的单一来源）"; exit 1; }
+          WL="$(sed -e 's/#.*$//' -e 's/[[:space:]]*$//' "$WLFILE" | grep -v '^[[:space:]]*$' || true)"
+          if [ -z "$WL" ]; then echo "白名单条目：（空 —— 不放行任何真实 unsafe）"; else echo "白名单条目：$(echo "$WL" | tr '\n' ' ')"; fi
+
+          REAL="$(real_code_lines "$PAT_UNSAFE" $DRS)"
+          REALF="$(echo "$REAL" | sed -E 's/^([^:]+):[0-9]+:.*$/\1/' | sort -u | grep -v '^$' || true)"
+          if [ -n "$REALF" ]; then
+            BAD=""
+            for f in $REALF; do
+              echo "  真实 unsafe 出现于：$f"
+              ok=0
+              for w in $WL; do [ "$w" = "$f" ] && ok=1; done
+              [ "$ok" = "1" ] || BAD="$BAD $f"
+            done
+            if [ -n "$BAD" ]; then
+              echo "::error::以下文件含真实 unsafe 但未登记在白名单：$BAD"
+              exit 1
+            fi
+          fi
+          echo "UNSAFE_WHITELIST_OK（真实 unsafe 文件数=$(printf '%s\n' "$REALF" | grep -c . || true)）"
+
+          echo "===== ③ 每处真实 unsafe 必须有 // SAFETY: 论证 ====="
+          if [ -z "$REALF" ]; then
+            echo "（当前无真实 unsafe —— 该条自然成立）"
+          else
+            for f in $REALF; do
+              N="$(printf '%s\n' "$REAL" | grep -c "^${f}:" || true)"
+              M="$(grep -c 'SAFETY:' "$f" || true)"
+              echo "  $f：真实 unsafe 行数=$N ｜ // SAFETY: 次数=$M"
+              awk -v m="$M" -v n="$N" 'BEGIN{exit !(m>=n)}' \
+                || { echo "::error::$f 的 // SAFETY: 论证少于 unsafe 处数（$M < $N）"; exit 1; }
+            done
+          fi
+          echo "SAFETY_ARGUMENT_COVERED_OK"
+
+          echo "===== ④ 门禁自检（正反两侧，确认断言没有空转）====="
+          T="$(cygpath -u "$RUNNER_TEMP")/c9selftest"
+          mkdir -p "$T/clean" "$T/dirty"
+          # clean 样本：三类"看似有关、实为合规"的写法，都必须**不**被计入
+          #   · 整行注释里提到关键字（本仓库真实存在）
+          #   · 变量名叫 `unsafe_q`（本仓库真实存在 —— 门禁最初就误报过它）
+          #   · `#[allow(unsafe_code)]` 属性
+          printf '// unsafe 与 transmute 只出现在注释里，应被忽略\nfn a() {}\n' > "$T/clean/a.rs"
+          printf 'let unsafe_q = 1;\n#[allow(unsafe_code)]\nfn b() {}\n' > "$T/clean/b.rs"
+          # dirty 样本：真实违规写法，必须被计入
+          printf 'unsafe { } // 真实 unsafe 块\n' > "$T/dirty/c.rs"
+          printf 'fn d(){ let x: u32 = std::mem::transmute(1.0f32); }\n' > "$T/dirty/d.rs"
+          C_CLEAN="$(real_code_lines "$PAT_UNSAFE" "$T/clean" | grep -c . || true)"
+          C_DIRTY="$(real_code_lines "$PAT_UNSAFE" "$T/dirty" | grep -c . || true)"
+          C_TR="$(real_code_lines "$PAT_TRANSMUTE" "$T/dirty" | grep -c . || true)"
+          C_TR_CLEAN="$(real_code_lines "$PAT_TRANSMUTE" "$T/clean" | grep -c . || true)"
+          echo "  自检：合规样本 unsafe 计数=$C_CLEAN（期望 0；样本含注释/变量名 unsafe_q/allow 属性）"
+          echo "  自检：违规样本 unsafe 计数=$C_DIRTY（期望 ≥1）｜transmute 计数=$C_TR（期望 ≥1）｜合规样本 transmute 计数=$C_TR_CLEAN（期望 0）"
+          test "$C_CLEAN" = "0" || { echo "::error::门禁自检失败——合规样本被判为违规（假阳性，如变量名 unsafe_q）"; exit 1; }
+          awk -v c="$C_DIRTY" 'BEGIN{exit !(c>=1)}' || { echo "::error::门禁自检失败——真实 unsafe 未被识别（门禁形同空转）"; exit 1; }
+          awk -v c="$C_TR" 'BEGIN{exit !(c>=1)}' || { echo "::error::门禁自检失败——真实 transmute 未被识别"; exit 1; }
+          test "$C_TR_CLEAN" = "0" || { echo "::error::门禁自检失败——注释中的 transmute 被误判为违规"; exit 1; }
+          echo "C9_GATE_SELFTEST_OK"
 
       - name: 附：release 构建（供分发的 exe；不计入门禁）
         continue-on-error: true
