@@ -1,0 +1,14 @@
+[package]
+name = "meta-kernel-boot-kernel"
+version = "0.1.0"
+edition = "2021"
+description = "元内核 bare-metal kernel binary (阶段二·子任务2.2): no_std entry + framebuffer self-check."
+
+[[bin]]
+name = "kernel"
+path = "src/main.rs"
+
+[dependencies]
+# 引导层依赖（D31-a 已确认边界）：**只进 boot 层**，内核库与 nostd crate 保持零依赖（C1）。
+bootloader_api = "0.11"
+meta-kernel-core-nostd = { path = "../../meta-kernel-core-nostd" }

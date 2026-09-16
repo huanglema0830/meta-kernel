@@ -241,6 +241,113 @@ jobs:
           if-no-files-found: warn
 
   # ===========================================================================================
+  # boot-image（阶段二·子任务2.2：bootloader 0.11 接入 + QEMU **真实引导** + 截屏断言）
+  #
+  # 为什么**单开一个 job**，而不是塞进 `test`：
+  #   ① `meta-kernel-boot` **不在 workspace**（同 `host/field-render` 先例；boot 链的目标平台不是宿主）
+  #      ⇒ `cargo test --workspace` 根本不会碰它。**这正是 R18 的教训**（独立 crate 长期无人跑），
+  #         故必须**显式**把 boot 层纳入 CI。
+  #   ② 本 job 需要 **nightly**：bootloader 0.11 的 BIOS/UEFI stage 用 `-Zbuild-std` 构建；
+  #      而 artifact 依赖（把内核 ELF 当构建输入）也要求 `-Z bindeps` ——
+  #      stable cargo 会直接报 `artifact = … requires -Z bindeps`（本地实测，非文档推测）。
+  #      ⇒ 与 `test` job 的 stable 隔离，**不把整条流水线拖上 nightly**（对应 D31-b）。
+  #
+  # 验收口径（**路线 A：零 unsafe**，D31-d）：
+  #   内核把自检结果编码成**整屏颜色**（见 meta-kernel-boot/kernel/src/verify.rs）：
+  #     绿 = 引导成功 **且** 内核自检全过；红 = 自检失败；其它 = 未进内核/无帧缓冲 ⇒ 一律判失败。
+  #   ⇒ 断言 = 「QEMU 截屏采样点 == 绿」，**同时**证明：引导器真的加载并进入了内核入口、
+  #      且 2.1 迁出的内核子集（fmath + L4 判据 + 四戒律风险）在**裸机上真的算对了**。
+  #   判据脚本自带正反两侧自检（`scripts/check_screendump.py`，本地已用合成 PPM 验证过
+  #   绿→0 / 红→1 / 黑→1 / 半绿半黑→1），避免"断言空转"。
+  # ===========================================================================================
+  boot-image:
+    name: 元内核引导镜像（bootloader 0.11 + QEMU 真实引导）
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装 nightly（boot 层专用）+ llvm-tools-preview + rust-src
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install nightly --profile minimal \
+            --component llvm-tools-preview --component rust-src
+          rustc +nightly --version
+          echo "nightly 仅用于本 job 的 boot 层；workspace 其余部分由 test job 的 stable 构建（D31-b）"
+
+      - name: 安装 QEMU
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86
+          qemu-system-x86_64 --version
+
+      - name: 构建可引导镜像（bootloader 0.11 + 内核 ELF）
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e     # 外层 `shell: bash` 自带 -e：必须显式关掉才能打印失败详情（R13 教训）
+          cd meta-kernel-boot
+          cargo +nightly build --target-dir "$RUNNER_TEMP/bo" > "$GITHUB_WORKSPACE/boot_build.log" 2>&1
+          CODE=$?
+          tail -20 "$GITHUB_WORKSPACE/boot_build.log"
+          echo "---- exit=$CODE ----"
+          test "$CODE" = "0" || { echo "::error::boot 层构建失败（exit=$CODE）"; exit 1; }
+
+          IMG="$(find "$RUNNER_TEMP/bo" -name 'boot-bios.img' | head -1)"
+          test -n "$IMG" || { echo "::error::未产出 boot-bios.img（build.rs 未真正生成镜像？）"; exit 1; }
+          test -s "$IMG" || { echo "::error::boot-bios.img 为空"; exit 1; }
+          # 显式断言 MBR 引导签名：防"生成了一个不是可引导镜像的文件"这类空转
+          SIG="$(od -An -tx1 -j 510 -N 2 "$IMG" | tr -d ' \n')"
+          echo "IMAGE=$IMG size=$(stat -c%s "$IMG") mbr_sig=$SIG"
+          test "$SIG" = "55aa" || { echo "::error::镜像缺 MBR 引导签名(55aa)，实测=$SIG"; exit 1; }
+          echo "BOOT_IMAGE_BUILT_OK"
+          echo "IMG=$IMG" >> "$GITHUB_ENV"
+
+      - name: QEMU 真实引导 + 截屏（判定信号＝整屏颜色）
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${IMG:-}" || { echo "::error::IMG 未设置（构建步骤未通过）"; exit 1; }
+          # 无显示窗口 + 监视器走 stdio：等内核把自检结果刷成整屏颜色后再截屏
+          ( sleep 12; echo "screendump $PWD/shot.ppm"; sleep 3; echo "quit" ) \
+            | qemu-system-x86_64 \
+                -drive format=raw,file="$IMG" \
+                -m 512M -display none -monitor stdio -no-reboot \
+                > qemu.log 2>&1 || true
+          sed -n '1,20p' qemu.log
+          test -f shot.ppm || { echo "::error::未生成 shot.ppm（screendump 失败？见 qemu.log）"; exit 1; }
+          ls -la shot.ppm
+
+      - name: 断言截屏像素 == 绿（引导成功 + 内核自检全过）
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          test -n "${IMG:-}" || { echo "::error::IMG 未设置（构建步骤未通过）"; exit 1; }
+          test -f shot.ppm || { echo "::error::缺少 shot.ppm（QEMU 步骤未产出）"; exit 1; }
+          python3 meta-kernel-boot/scripts/check_screendump.py shot.ppm --expect 0,255,0
+          CODE=$?
+          echo "---- 断言 exit=$CODE ----"
+          test "$CODE" = "0" || { echo "::error::截屏断言未通过（非整屏绿 ⇒ 未进入内核或自检失败）"; exit 1; }
+          echo "BOOT_QEMU_SCREENSHOT_OK"
+
+      - name: Upload 引导镜像与截屏（always）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: meta-kernel-boot-image
+          path: |
+            shot.ppm
+            qemu.log
+            boot_build.log
+          if-no-files-found: warn
+
+  # ===========================================================================================
   # 宿主 field-render（Windows 真实构建 + 客观验收）
   #
   # 为什么需要这个 job（R6）：此前 CI 只有一个 ubuntu-latest job，`field-render` 命中 0 —— 宿主

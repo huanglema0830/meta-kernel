@@ -51,3 +51,9 @@ diag_env.log
 nostd-build.log
 phase1-test.log
 gateway-test.log
+
+# 子任务2.2：boot 层（不在 workspace ⇒ target 落在 crate 内，易误入库）
+meta-kernel-boot/target/
+boot_build.log
+shot.ppm
+qemu.log

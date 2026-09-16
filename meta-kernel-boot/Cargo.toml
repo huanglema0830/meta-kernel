@@ -1,0 +1,14 @@
+[package]
+name = "meta-kernel-boot"
+version = "0.1.0"
+edition = "2021"
+description = "Bootable image builder for 元内核 (阶段二·子任务2.2). Wraps the kernel ELF with bootloader 0.11."
+
+# 独立 workspace：**不并入父仓库 workspace**
+# 理由：boot 链的目标平台不是宿主；入父 workspace 会让 `cargo test --workspace` 在宿主上编译 no_std bin（必然失败）。
+# 同性质先例：`host/field-render` 亦不在 workspace。
+[workspace]
+
+[build-dependencies]
+bootloader = "0.11"
+kernel = { path = "kernel", package = "meta-kernel-boot-kernel", artifact = "bin", target = "x86_64-unknown-none" }

@@ -1,0 +1,3 @@
+[unstable]
+# artifact 依赖（内核 ELF 作为构建输入）需要 bindeps
+bindeps = true
