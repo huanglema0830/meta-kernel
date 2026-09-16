@@ -41,6 +41,7 @@ quad_state.txt.bak
 # 宿主验收/本地干跑的运行产物（R9 同族；避免误入库）
 page.html
 window.log
+unittest.log
 selftest.log
 sortcheck.log
 diagcheck.log

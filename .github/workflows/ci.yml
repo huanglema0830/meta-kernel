@@ -337,6 +337,42 @@ jobs:
           echo "EXE=$EXE" >> "$GITHUB_ENV"
           ls -la "$EXE"
 
+      # D-a（R18 遗留）：`host/field-render` **不在 workspace** ⇒ 原来的 `test` job（跑 workspace）从不包含它。
+      # 后果实测：该 crate 里 3 个单元测试**长期必红而无人知**（R18）。本步骤把它纳入自动回归。
+      # 与"构建宿主"用**同一套工具链**（GNU + llvm-mingw），保证测的就是实际分发的那个 target。
+      - name: 单元测试 field-render（独立 crate；R18 的 3 个必红测试就发生在这里）
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e     # 同其它断言步骤：外层 `shell: bash` 自带 -e，必须显式关掉才能打印失败详情
+          export RUST_BACKTRACE=1
+          export PATH="$LLVM_MINGW_BIN:$PATH"
+          export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$LLVM_MINGW_BIN/x86_64-w64-mingw32-gcc.exe"
+          # 显式断言 dlltool 可见：`cargo test` 同样要链接，缺 dlltool 会退化成
+          # `error calling dlltool 'dlltool.exe': program not found`（R4 的老症状）。
+          # 这里提前给出**明确**报错，而不是让它在几十秒后才以难懂形式出现。
+          test -x "$CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER" \
+            || { echo "::error::链接器不存在：$CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER"; exit 1; }
+          command -v dlltool >/dev/null 2>&1 \
+            || { echo "::error::PATH 里找不到 dlltool（R4 症状；检查 GITHUB_PATH 与 LLVM_MINGW_BIN 的形式）"; exit 1; }
+          echo "linker  => $CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER"
+          echo "dlltool => $(command -v dlltool)"
+          cargo test --manifest-path host/field-render/Cargo.toml \
+            --target x86_64-pc-windows-gnu \
+            --target-dir "$(cygpath -m "$RUNNER_TEMP/frt")" \
+            --bin field-render > unittest.log 2>&1
+          CODE=$?
+          cat unittest.log
+          echo "---- exit=$CODE ----"
+          test "$CODE" = "0" || { echo "::error::field-render 单元测试失败（exit=$CODE）"; exit 1; }
+          # 显式断言"全绿"：不接受"0 failed 但一个都没跑"这类空转
+          grep -qE '^test result: ok\. [0-9]+ passed; 0 failed' unittest.log \
+            || { echo "::error::单元测试结果不是全绿（缺 'test result: ok. N passed; 0 failed'）"; exit 1; }
+          PASSED="$(grep -m1 -oE '[0-9]+ passed' unittest.log | grep -oE '[0-9]+' || true)"
+          awk -v n="${PASSED:-0}" 'BEGIN{exit !(n>=30)}' \
+            || { echo "::error::通过的测试数 $PASSED 过少（预期 ≥30）——疑似空转"; exit 1; }
+          echo "FIELD_RENDER_UNIT_TESTS_OK（$PASSED passed）"
+
       # C9 门禁落地（D11/R10）：把 CONSTRAINTS.md C9 的"文字约定"变成**可判定断言**。
       # 本步骤之所以能成为门禁（而不是纸上规矩），靠三点：判据可自动判定 + 白名单单一来源 + **门禁自检**。
       - name: 验收 ⑤ C9 门禁 —— unsafe 白名单 + 禁 transmute（含门禁自检）
