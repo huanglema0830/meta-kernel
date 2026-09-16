@@ -112,7 +112,7 @@
 | unsafe | **真实 unsafe 关键字 0 处**（`unsafe_whitelist.txt` 为空 ⇒ 未放行任何条目；机制见 C9，**CI 门禁见验收⑤**）。ℹ️ `meta-kernel-core/src/l4_risk.rs` 里的 `unsafe_q` 是**变量名**（"不安全状态的四元组"），不是 unsafe 语法——C9 门禁首跑曾误报它，见 R16 |
 | 内核测试 | 411项（lib 390 + 集成 21） |
 | 本地验收模式实跑 | **11 个全跑**：**10 PASS**（含修复后的 `diag-check`）｜1 PARTIAL（`quad-check`·已知待加强） |
-| CI 覆盖 | ✅ **全绿并已逐行核实**（run `35069720108`，headSha `d4c4902`）：`test` job（ubuntu）＋ **`host-windows` job（windows-latest）**，后者含 **5 项验收**——⑤ C9 门禁（**前置**：纯静态、秒级、无 GPU）／① 离屏自检（退出码0+PASS+方差>1+帧率口径）／② 排序／③ L5 诊断／④ **真实开窗 + surface 回读（门禁）**；另含「环境诊断」步骤（打印适配器，不计门禁） |
+| CI 覆盖 | ✅ **全绿并已逐行核实**（run `35077993177`，headSha `c84afc0`）：`test` job（ubuntu）＋ **`host-windows` job（windows-latest）**，后者含 **6 项门禁**——⑤ C9 门禁（**前置**：纯静态、秒级、无 GPU）／**单元测试 field-render（35 项，D-a 新增）**／① 离屏自检（退出码0+PASS+方差>1+帧率口径）／② 排序／③ L5 诊断／④ **真实开窗 + surface 回读**；另含「环境诊断」步骤（打印适配器，不计门禁） |
 | **CI 上真实运行** | ✅ **是，且已逐行核实真实输出**（run `35069720108` 验收④）：runner 无 GPU，落 **Dx12 WARP 软件适配器**，完成 **开窗 → 输入 URL → 取源码（108 字）→ 从 surface（真实上屏纹理）回读（方差 100.3、非纯黑非纯白）→ 结论 PASS → exit=0**；呈现 18.1 FPS（**软件口径，如实标注、未按硬件 ≥30 断言**） |
 | 宿主单元测试 | ✅ **35 项全绿**（`cargo test --bin field-render`，含 R17 判据的正反两侧）。⚠️ 该 crate **不在 workspace** ⇒ CI 的 `test` job **不会跑到它**（R18 的 3 个必红测试因此长期无人知）；建议在 CI 里加一步独立 `cargo test` |
 | 验收模式 | 11个：`selftest`／`sortcheck`／`quad-check`／`like-check`／`lod-check`／`world-check`／`diag-check`／`link-check`／`l4-check`／`persist-check`／`ui-selftest` |
