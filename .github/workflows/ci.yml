@@ -256,6 +256,24 @@ jobs:
             ui_gw.log
           if-no-files-found: warn
 
+      # R24（用户要求：可 non-fatal，但**必须显式警告并留痕**）——
+      # 用 `toJSON(steps)` 精确判定"有没有步骤被 continue-on-error 吸收"，**不是无脑告警**。
+      # 本 job 只有 upload-artifact 是 non-fatal ⇒ outcome=failure 只可能来自它们。
+      - name: R24 检查 —— 诊断性上传是否发生软失败（显式告警 · 留痕）
+        if: always()
+        shell: bash
+        env:
+          STEPS: ${{ toJSON(steps) }}
+        run: |
+          set +e
+          N=$(printf '%s' "$STEPS" | grep -o '"outcome":"failure"' | wc -l | tr -d ' ')
+          echo "被 continue-on-error 吸收的失败步骤数：$N"
+          if [ "$N" != "0" ]; then
+            echo "::warning::R24 —— 本 job 有 $N 个**诊断性产物上传**软失败（GitHub 产物服务抖动，如 FinalizeArtifact 403）。这不影响门禁：所有判定性步骤仍为硬失败、一条断言未放宽。"
+          else
+            echo "R24_UPLOAD_NO_SOFT_FAILURE"
+          fi
+
   # ===========================================================================================
   # boot-image（阶段二·子任务2.2：bootloader 0.11 接入 + QEMU **真实引导** + 截屏断言）
   #
@@ -375,6 +393,21 @@ jobs:
             qemu.log
             boot_build.log
           if-no-files-found: warn
+
+      - name: R24 检查 —— 诊断性上传是否发生软失败（显式告警 · 留痕）
+        if: always()
+        shell: bash
+        env:
+          STEPS: ${{ toJSON(steps) }}
+        run: |
+          set +e
+          N=$(printf '%s' "$STEPS" | grep -o '"outcome":"failure"' | wc -l | tr -d ' ')
+          echo "被 continue-on-error 吸收的失败步骤数：$N"
+          if [ "$N" != "0" ]; then
+            echo "::warning::R24 —— 本 job 有 $N 个**诊断性产物上传**软失败（GitHub 产物服务抖动）。门禁未受影响：像素断言与镜像签名断言仍为硬失败。"
+          else
+            echo "R24_UPLOAD_NO_SOFT_FAILURE"
+          fi
 
   # ===========================================================================================
   # 宿主 field-render（Windows 真实构建 + 客观验收）
@@ -815,3 +848,18 @@ jobs:
           name: field-render-exe-windows-x86_64
           path: ${{ runner.temp }}/frt/x86_64-pc-windows-gnu/release/field-render.exe
           if-no-files-found: warn
+
+      - name: R24 检查 —— 诊断性上传是否发生软失败（显式告警 · 留痕）
+        if: always()
+        shell: bash
+        env:
+          STEPS: ${{ toJSON(steps) }}
+        run: |
+          set +e
+          N=$(printf '%s' "$STEPS" | grep -o '"outcome":"failure"' | wc -l | tr -d ' ')
+          echo "被 continue-on-error 吸收的失败步骤数：$N"
+          if [ "$N" != "0" ]; then
+            echo "::warning::R24 —— 本 job 有 $N 个**诊断性产物上传**软失败（GitHub 产物服务抖动）。门禁未受影响：验收①–⑤ 与 C9 门禁仍为硬失败。"
+          else
+            echo "R24_UPLOAD_NO_SOFT_FAILURE"
+          fi
