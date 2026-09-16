@@ -21,6 +21,21 @@ jobs:
           set -o pipefail
           cargo test --workspace --exclude npb-gateway 2>&1 | tee phase1-test.log
 
+      # D27 / 子任务2.1：`no_std` 子集必须能编到**裸机目标** —— 这是阶段二"元内核自举"路线的**第一道门禁**。
+      # 该 crate 是 workspace 成员 ⇒ 其单元测试（含 `fmath` 与 std 的**精度逐点对照**）已由上面的
+      # `cargo test --workspace` 覆盖；本步骤只额外验证"能编到 `x86_64-unknown-none`"。
+      # 说明：**编译通过即证明未依赖 `alloc`**（`no_std` 下无 `alloc` crate，出现 `Vec`/`String` 会直接编译失败）。
+      - name: 验收 no_std 构建门禁（x86_64-unknown-none）—— 阶段二自举第一道门禁
+        shell: bash
+        run: |
+          set -o pipefail
+          rustup target add x86_64-unknown-none
+          cargo build -p meta-kernel-core-nostd --target x86_64-unknown-none 2>&1 | tee nostd-build.log
+          # 显式断言产物存在：避免"其实没编译却退出码 0"这类空转
+          test -f target/x86_64-unknown-none/debug/libmeta_kernel_core_nostd.rlib \
+            || { echo "::error::no_std 构建产物缺失（疑似未真正编译）"; exit 1; }
+          echo "NOSTD_BUILD_OK"
+
       - name: Run npb-gateway tests (single-thread, nocapture, 120s watchdog)
         shell: bash
         run: |

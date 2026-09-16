@@ -1,0 +1,9 @@
+[package]
+name = "meta-kernel-core-nostd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Meta-Kernel core no_std subset: pure-math + L4 gate for bare-metal bootstrap (阶段二·子任务2.1)."
+
+[dependencies]
+# **零第三方依赖**（C1）—— 本子集只用 core 与固定长数组，**不使用 alloc**。

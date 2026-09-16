@@ -89,6 +89,10 @@ name = "meta-kernel-core"
 version = "0.2.0"
 
 [[package]]
+name = "meta-kernel-core-nostd"
+version = "0.2.0"
+
+[[package]]
 name = "npb"
 version = "0.2.0"
 dependencies = [
