@@ -1,6 +1,6 @@
 # 云内核项目 · 基准
 
-最后更新于：HEAD bf1e5ef（对应 v0.131）｜本轮更新内容见下方（本次更新随提交计入下一版）
+最后更新于：HEAD 8bfae5a（对应 v0.134）｜本轮更新内容见下方（本次更新随提交计入下一版）
 更新时间：2026-09-16
 
 > **口径说明**：上面一行记录的是「**本文件最后一次更新时所处的 HEAD / 版本**」，**不是「当前版本」**。
@@ -58,7 +58,8 @@
 | 项 | 状态 |
 |---|---|
 | 宿主真实运行验证 | ✅ **已达成**（2026-09-16 本机真实开窗 + 输入 URL + 取源码 + 上屏回读 PASS；见 `reports/2026-09-16_R1宿主真实运行调研.md`） |
-| **CI 覆盖宿主（R6）** | ✅ **已落地**：新增 `windows-latest` job（构建 + 4 项客观断言 + 开窗诊断步骤）；结论见本轮报告 |
+| **CI 覆盖宿主（R6）** | ✅ **已落地并已全绿**：`host-windows` job（windows-latest）**全步骤 success**，含 ①②③ 客观断言 **与 ④ 真实开窗**（run 35044362728） |
+| **CI 全绿（本轮目标）** | ✅ **达成**（2026-09-16，run `35044362728`：`test` 绿 + `host-windows` 全绿） |
 | **机制总纲缺失** | ✅ **已建**：`coordination/CHARTER.md`（全部机制总入口）+ `TEMPLATES_CHANGELOG.md` + `OBSERVATIONS.md`；README 改为极简入口 |
 | **CI 宿主 job 链接失败（R1-b）** | ✅ **已修**：libgcc **语义映射**（`libgcc.a←compiler-rt builtins`、`libgcc_eh.a←libunwind`）；本机在官方 20260908 干净包上实测 exit=0 |
 | **`--diag-check` 断言（R7）** | ✅ **已修**（断言对齐中性点 m=0.5；本机 PASS） |
@@ -85,7 +86,7 @@
 | R8 | `--quad-check` 喜欢维变化仅 0.5%（阈值 >10%） | 🟡 已知待加强（**不许在宿主层调参打绿**） |
 | R9 | 宿主运行期产物写到 CWD 易误入库 | ✅ **已修**（`.gitignore` 增 `gene_library.txt`/`trace_store.txt`/`habit_pool.txt`/`quad_state.txt` 及 `.bak`） |
 | R10 | C9 门禁目前**只有文字约定、尚无 CI 断言落地** | 🟡 待补（建议纳入 CI：unsafe 白名单 + 禁 transmute） |
-| R11 | CI 的「真实开窗」步骤暂为**诊断性**（`continue-on-error`） | 🟡 待观察 runner 能否开窗后提升为门禁 |
+| R11 | CI 的「真实开窗」步骤为**诊断性**（`continue-on-error`） | ✅ **已观察到位**：run `35044362728` 上验收④ **真实开窗成功**——窗口 1080×760 · Dx12(WARP) · 取源码成功（108 字）· **回读来源＝surface** · 方差 100.3 · 结论 PASS · exit=0 ⇒ 建议**升为门禁**（见 D10） |
 | **R12** | **本地 llvm-mingw sysroot 里存在「伪装库」**：`libgcc.a`/`libgcc_eh.a` 实为 `libunwind.a` 的拷贝（两文件 md5 相同、非官方包内容，时间戳 Sep 8）——本机长期"能构建"建立在此 hack 上，**不可复现**，且命名与内容不符会误导诊断 | ✅ **已查明并修正**（2026-09-16）：本机 sysroot 已改为**语义映射**（`libgcc.a←compiler-rt builtins`、`libgcc_eh.a←libunwind`），原文件留痕为 `*.hackbak`；CI 同步采用该映射 |
 | **R13** | CI 断言步骤存在**诊断盲区**：GitHub 的 `shell: bash` 外层自带 `-e`，步骤内 `set -uo pipefail` **去不掉它** → 被测程序非零退出即终止脚本，`CODE=$?`/`cat 日志` 被跳过，只见 exit 码不见原因 | ✅ **已修**（验收①/②/③ 显式 `set +e` + `RUST_BACKTRACE=1`；与验收④对齐） |
 | **R14** | **Dx12 后端下宿主根本起不来**（真实缺陷，非 CI 环境问题）：`sort.wgsl` 的 `Splat2D.cov2d: mat2x2<f32>` 经 naga 的 **HLSL 后端**在"整结构体赋值"降级时生成的代码被 FXC 拒绝 —— `error X3018: invalid subscript 'cov2d'`（`Device::create_compute_pipeline` → panic 101）。本机走 Vulkan 不经 FXC，故长期未暴露；**Windows 用户默认后端即 Dx12** | ✅ **已修**：`cov2d` 改为 `array<vec2<f32>, 2>`（WGSL 布局完全相同，64 字节不变）。**Dx12 与 Vulkan 双后端本机实测均 exit=0 且 PASS，方差/pHash 逐位一致** |
@@ -101,7 +102,8 @@
 | unsafe | **0 次**（`unsafe_whitelist.txt` 为空 ⇒ 未放行任何条目；机制见 C9） |
 | 内核测试 | 411项（lib 390 + 集成 21） |
 | 本地验收模式实跑 | **11 个全跑**：**10 PASS**（含修复后的 `diag-check`）｜1 PARTIAL（`quad-check`·已知待加强） |
-| CI 覆盖 | `test` job（ubuntu，**不含宿主**）+ **`host-windows` job（windows-latest）**：装 llvm-mingw → **libgcc 语义映射**（`libgcc.a←compiler-rt builtins`、`libgcc_eh.a←libunwind`）→ GNU 构建宿主 → 断言 ①方差>1/帧率 ②排序 ③L5诊断；④开窗为诊断性步骤；另含「环境诊断」步骤（打印适配器情况，不计门禁） |
+| CI 覆盖 | ✅ **全绿**（run `35044362728`）：`test` job（ubuntu）＋ **`host-windows` job（windows-latest）**：装 llvm-mingw → **libgcc 语义映射**（`libgcc.a←compiler-rt builtins`、`libgcc_eh.a←libunwind`）→ GNU 构建宿主 → 断言 ①方差>1/帧率 ②排序 ③L5诊断 ④**真实开窗+surface 回读**；另含「环境诊断」步骤（打印适配器，不计门禁） |
+| **CI 上真实运行** | ✅ **是**（run `35044362728` 验收④）：runner 无 GPU，落 **Dx12 WARP 软件适配器**，仍完成 **开窗 → 输入 URL → 取源码（108 字）→ 从 surface（真实上屏纹理）回读 → 结论 PASS**；呈现 20.9 FPS（软件口径，**未按硬件 ≥30 断言**） |
 | 验收模式 | 11个：`selftest`／`sortcheck`／`quad-check`／`like-check`／`lod-check`／`world-check`／`diag-check`／`link-check`／`l4-check`／`persist-check`／`ui-selftest` |
 
 ## 八、硬约束
@@ -122,7 +124,7 @@ C8 硬约束可扩充（用户确认后生效）｜C9 unsafe 只允许边界形�
 | D7 | ~~是否给 CI 加 windows job（R6）~~ | ✅ **已执行**（新增 `host-windows` job） |
 | D8 | `quad-check` 喜欢维（R8）排期 | P2；须在**内核映射层**改，禁止宿主调参打绿 |
 | D9 | ~~阶段二 unsafe 边界是否放行~~ | ✅ **已执行**：C9 已增补 + 白名单机制就位（当前为空，未放行任何条目） |
-| **D10** | CI 的「真实开窗」步骤何时从**诊断性**提升为**门禁**（R11） | 待观察 1–2 轮 CI 结果后提升 |
+| **D10** | CI 的「真实开窗」步骤何时从**诊断性**提升为**门禁**（R11） | ✅ **观察已完成**：run `35044362728` 上 ④ **真实通过**（开窗 1080×760 · Dx12(WARP) · 取源码 · surface 回读 · PASS · exit=0）。**建议下一轮去掉 `continue-on-error` 升为门禁**（断言已含"回读来源＝surface"） |
 | **D11** | C9 门禁尚无 **CI 断言**落地（R10） | 建议下一轮补：`unsafe` 白名单检查 + 禁 `transmute` |
 | **D12** | CI FPS 断言在**软件适配器**（runner 无 GPU）下按 >0 而非 ≥30 | 已如实标注；若要求 CI 上也强制 ≥30，需自建带 GPU runner |
 | **D13** | `研发开发/meta-kernel_repair_0907/` 如何处理 | 待定（性质同 R3，建议一并归档） |
