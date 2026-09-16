@@ -37,7 +37,7 @@
 | 子步 | 内容 | 优先级 | 参考 |
 |---|---|---|---|
 | **2.1** | ✅ **已完成**（2026-09-16）：新建 `meta-kernel-core-nostd/`（10 模块 + `quad` 数据契约 + **自实现 7 个超越函数**）；`cargo build --target x86_64-unknown-none` **成功**；原 core **411 项测试全绿且未被改动** | **P3**（已达成） | purpleK2/kernel |
-| **2.2** | 接入 GRUB / Limine 引导器 | **P3**（无架构决策；届时新增 `[[bin]]` ⇒ **需 panic handler**） | Dan-OS、OusmOS |
+| **2.2** | **能被引导器引导**（⚠️ 口径修正 2026-09-16：由"接入 GRUB/Limine"改为 **`bootloader` 0.11** 产出可引导 `.img`；**GRUB/Limine/ISO 化留 2.7**）。新增 `[[bin]]` ⇒ **需 panic handler**；需 **nightly**（**仅限 boot crate 目录内**） | **P3**（清单已出，**待 D31 确认后执行**） | rust-osdev/bootloader |
 | **2.3** | 实现最简内存管理（物理页分配）；**承接 2.1 的 alloc 迁移**（含 `l7` 4 子模块、`l5_*`、`fourier`/`interference`/`energy`） | **P3** | 标准内核 |
 | **2.4** | 实现 DRM/KMS 驱动，**直接输出场域画面** | **P1**（**需决策**：C9 unsafe 白名单要逐条放行，须用户确认） | rust_embedded_wgpu |
 | **2.5** | `field-render` 作为**第一个用户空间进程** | **P3** | 标准内核 |
