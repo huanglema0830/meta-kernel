@@ -46,3 +46,8 @@ selftest.log
 sortcheck.log
 diagcheck.log
 diag_env.log
+
+# no_std 构建门禁的本地干跑产物
+nostd-build.log
+phase1-test.log
+gateway-test.log
