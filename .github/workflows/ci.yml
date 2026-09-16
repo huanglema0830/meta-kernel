@@ -335,10 +335,30 @@ jobs:
           echo "EXE=$EXE" >> "$GITHUB_ENV"
           ls -la "$EXE"
 
+      # 诊断性：runner 有没有可用的图形适配器？失败原因常在这里，先如实记下来（不计入门禁）。
+      - name: 环境诊断 —— runner 的显示适配器与 wgpu 枚举情况
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          echo "===== Win32_VideoController ====="
+          powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion,Status | Format-Table -AutoSize" 2>&1 || true
+          echo "===== wgpu 适配器枚举（跑一次 --selftest，取前 25 行）====="
+          export PATH="$LLVM_MINGW_BIN:$PATH"
+          "$EXE" --selftest > diag_env.log 2>&1
+          echo "---- exit=$? ----"
+          sed -n '1,25p' diag_env.log
+
       - name: 验收 ① 离屏自检（断言 退出码0 + PASS + 方差>1 + 帧率口径）
         shell: bash
         run: |
+          # ⚠️ GitHub 的 `shell: bash` 展开为 `bash --noprofile --norc -e -o pipefail {0}` —— **外层自带 `-e`**。
+          #    只写 `set -uo pipefail` **并不能**去掉它：被测程序一旦非零退出，脚本会立刻结束，
+          #    后面的 `CODE=$?` / `cat 日志` 全被跳过（R1-b 第四次失败正是如此：日志一片空白，
+          #    只知道 exit=101，看不到任何 panic 信息）。故必须**显式 `set +e`**，靠下方显式断言判定成败。
           set -uo pipefail
+          set +e
+          export RUST_BACKTRACE=1     # panic 时给出回溯，便于定位（不改变断言）
           export PATH="$LLVM_MINGW_BIN:$PATH"
           test -n "${EXE:-}" || { echo "::error::EXE 未设置"; exit 1; }
           "$EXE" --selftest > selftest.log 2>&1
@@ -375,6 +395,8 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          set +e     # 同验收①：外层 `shell: bash` 自带 -e，必须显式关掉才能打印失败日志
+          export RUST_BACKTRACE=1
           export PATH="$LLVM_MINGW_BIN:$PATH"
           "$EXE" --sortcheck > sortcheck.log 2>&1
           CODE=$?
@@ -386,6 +408,8 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          set +e     # 同验收①：外层 `shell: bash` 自带 -e，必须显式关掉才能打印失败日志
+          export RUST_BACKTRACE=1
           export PATH="$LLVM_MINGW_BIN:$PATH"
           "$EXE" --diag-check > diagcheck.log 2>&1
           CODE=$?
