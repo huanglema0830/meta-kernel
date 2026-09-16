@@ -383,12 +383,23 @@ jobs:
           echo "适配器行：$ADAPTER"
           FPS="$(grep -m1 -oE '帧率：[0-9]+(\.[0-9]+)?' selftest.log | sed 's/帧率：//' || true)"
           test -n "$FPS" || { echo "::error::自检输出里没有帧率读数"; exit 1; }
-          if echo "$ADAPTER" | grep -qE 'IntegratedGpu|DiscreteGpu|VirtualGpu'; then
+          # 软件适配器识别（⚠️ 判据必须"名字优先"）：
+          #   Dx12 下的 WARP 是软件光栅器，但 wgpu 报的 device_type 是 **IntegratedGpu**
+          #   —— 只按 device_type 判会把 WARP 误当硬件（2026-09-16 实测：本机 Dx12 用真显卡 157.8 FPS，
+          #   而 runner 的 WARP 只有 28.0 FPS，于是"软件渲染"被判成"硬件不达标"）。
+          #   故以**适配器名/驱动关键词**作辅判据；命中即按软件口径（>0）断言，并在日志里如实标注。
+          #   注意：这是"识别机器有没有 GPU"，**不是**把 30 改成更低的阈值。
+          if echo "$ADAPTER" | grep -qiE 'basic render driver|warp|software|llvmpipe|lavapipe|swiftshader'; then
+            IS_SOFTWARE=1
+          else
+            IS_SOFTWARE=0
+          fi
+          if [ "$IS_SOFTWARE" = "0" ] && echo "$ADAPTER" | grep -qE 'IntegratedGpu|DiscreteGpu|VirtualGpu'; then
             awk -v f="$FPS" 'BEGIN{exit !(f>=30)}' || { echo "::error::硬件适配器上帧率 $FPS < 30"; exit 1; }
             echo "FPS_GTE_30_ON_HARDWARE_OK ($FPS)"
           else
             awk -v f="$FPS" 'BEGIN{exit !(f>0)}' || { echo "::error::帧率 $FPS 不为正"; exit 1; }
-            echo "::warning::CI runner 为软件适配器（无 GPU）——帧率 $FPS 不适用'硬件 ≥30'口径，已如实记录、未按硬件断言"
+            echo "::warning::软件适配器——帧率 $FPS 不适用'硬件 ≥30'口径，已如实记录、未按硬件断言"
           fi
 
       - name: 验收 ② GPU 双调排序校验

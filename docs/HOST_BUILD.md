@@ -2,7 +2,7 @@
 
 > 适用：`host/field-render/`（**独立 crate，不并入 workspace**）。
 > 本文件是「宿主怎么建、怎么跑、怎么验收」的**单一事实源**。
-> 最后更新于：HEAD 8187124（对应 v0.130）——快照口径，当前版本见 `git rev-list --count HEAD`。
+> 最后更新于：HEAD 766868f（对应 v0.133）——快照口径，当前版本见 `git rev-list --count HEAD`。
 
 ## 一、构建（Windows / GNU 工具链）——**必须先做这一步**
 
@@ -125,6 +125,38 @@ EXE=/c/c/fr-build2/debug/field-render.exe
 **不再需要**"钉住某个自带 libgcc 的 llvm-mingw 版本"，也**不再需要**为了 libgcc 去装 GNU host 工具链
 （实测 GNU host 的 `self-contained` 并不会被自动加入搜索路径，见第一节事实四）。
 libgcc 缺口一律由**语义映射**在安装步骤内补齐，从而与 llvm-mingw 版本解耦。
+
+CI runner 上拿到的适配器是 **`Microsoft Basic Render Driver / Dx12`**（软件适配器）——见 job 里的
+「环境诊断」步骤（诊断性，不计门禁）。
+
+## 五·补、跨后端一致性（R14 教训：**本机绿 ≠ 别处绿**）
+
+宿主默认 `Backends::all()`。本机拿到 **Vulkan**，CI runner 只有 **Dx12**；
+两个后端走的是**不同的 shader 编译链**：
+
+| 后端 | 编译链 | 谁在走 |
+|---|---|---|
+| Vulkan | WGSL → naga → **SPIR-V** → 驱动 | 本机（Intel Arc）走这条 |
+| Dx12 | WGSL → naga → **HLSL** → **FXC/DXC** | **Windows 用户默认走这条**、CI runner 走这条 |
+
+⇒ **只在 Vulkan 上验证 ＝ 漏掉 Windows 的默认路径。**
+
+**已踩的坑（真缺陷）**：`sort.wgsl` 里 `cov2d: mat2x2<f32>` —— naga 的 **HLSL 后端**在把
+"整个结构体赋值"（`dst[i] = src[i]`）降级为 HLSL 时，对**矩阵成员**生成的代码被 FXC 拒绝：
+
+```
+Internal error: FXC D3DCompile error (0x80004005): sort(60,36-48): error X3018: invalid subscript 'cov2d'
+```
+
+→ `Device::create_compute_pipeline` 直接 panic（exit 101），**宿主在 Dx12 上根本起不来**。
+改用 `array<vec2<f32>, 2>`（与 `mat2x2<f32>` **布局完全相同**：对齐 8、16 字节）即通。
+
+**纪律**：
+1. 改动 **shader / 结构体布局**后，**两个后端都要跑**，不能只跑本机默认那条。
+2. 用 `FIELD_RENDER_BACKEND=dx12|vulkan|gl|metal` 指定后端（未设置＝`all`，行为不变）——
+   这样能在**本地**复现别处的后端差异，而不是"推上去碰运气"。
+3. 判定要求：两后端 `--selftest` 均 **exit=0、结论 PASS**，且**方差与 pHash 一致**
+   （2026-09-16 实测 Dx12 与 Vulkan 的 pHash **逐位相同**：`aa4dc55ab6e77862` / `4068001890800000`）。
 
 ## 六、运行期产物
 
