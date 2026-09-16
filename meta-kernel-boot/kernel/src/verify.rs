@@ -27,6 +27,8 @@ pub const COLOR_PASS: [u8; 3] = [0x00, 0xFF, 0x00];
 pub const COLOR_FAIL: [u8; 3] = [0xFF, 0x00, 0x00];
 /// **内存门禁未通过**：黄 —— "拿不到堆区就停"的专用信号（与"算法算错"区分开）
 pub const COLOR_NO_HEAP: [u8; 3] = [0xFF, 0xFF, 0x00];
+/// ★ **诊断用**白色（画"判定编号条"）：**不参与判定**，只为让编号可被截屏读出。
+pub const COLOR_DIAG: [u8; 3] = [0xFF, 0xFF, 0xFF];
 
 /// 判定结果（三态）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +169,31 @@ pub fn render(boot_info: &mut BootInfo, verdict: Verdict) {
     };
     let buf = fb.buffer_mut();
     fill(buf, &info, color);
+
+    // ★ **判定编号诊断条**（2026-09-17 新增）：失败时把**编号**写成屏幕第 0 行最左 N 个**白**像素。
+    // 为什么必须加：`Fail(code)` 原先只刷红屏 ⇒ **编号不可观测**，CI 只能知道"失败了"、
+    // 不知道"第几号" ⇒ 每轮诊断都要重新猜（本轮 CI 首跑即撞上这个坑）。
+    // 判据不受影响：像素断言只采 25 个点（y=120/240/…），**不含 y=0** ⇒ 红屏仍是红屏、门禁照样判红。
+    if let Verdict::Fail(code) = verdict {
+        draw_code_bar(buf, &info, code);
+    }
+}
+
+/// 在第 0 行画 `code` 个白色像素（**仅用于诊断，不参与判定**）。
+fn draw_code_bar(buf: &mut [u8], info: &FrameBufferInfo, code: u8) {
+    let bpp = (info.bytes_per_pixel as usize).max(1);
+    if info.stride < bpp {
+        return;
+    }
+    let n = (code as usize).min(info.stride / bpp);
+    let row0 = 0usize;
+    for x in 0..n {
+        let off = row0 + x * bpp;
+        if off + bpp > buf.len() {
+            break;
+        }
+        write_pixel(&mut buf[off..off + bpp], info.pixel_format, COLOR_DIAG);
+    }
 }
 
 /// 单像素按 `PixelFormat` 写入（`p.len()` 即 `bytes_per_pixel`）。
