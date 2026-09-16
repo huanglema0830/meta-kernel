@@ -461,7 +461,11 @@ mod tests {
         // 第二版：改阈值
         a.set_base_constant("l4.threshold.high", 2.5, [1.0; 7]);
         save_gene_library_to(&a, &p).unwrap();
-        // 主文件应是 2.5，.bak 应是 1.618
+        // 主文件应是 2.5，.bak 应是**种子默认的高阈值**
+        // ⚠️ 修复（2026-09-16）：原断言把期望值**硬编码为字面量 `1.618`**（3 位小数），
+        //    而实际种子值是 `GOLDEN_HIGH`（黄金比例，1.6180339887…），容差 1e-12 ⇒ **必然失败**。
+        //    这里改用权威常量 `GOLDEN_HIGH`（与 `load_or_seed_creates_when_missing` 同口径）。
+        //    注意这是**修测试的错误断言**，不是放宽门槛——轮转语义一字未改。
         let main = load_gene_library_from(&p).unwrap();
         assert!(
             (main.base_constant("l4.threshold.high").unwrap() - 2.5).abs() < 1e-12,
@@ -469,8 +473,8 @@ mod tests {
         );
         let bak = load_gene_library_from(&sibling(&p, ".bak")).unwrap();
         assert!(
-            (bak.base_constant("l4.threshold.high").unwrap() - 1.618).abs() < 1e-12,
-            ".bak 保留旧值"
+            (bak.base_constant(NAME_HIGH).unwrap() - GOLDEN_HIGH).abs() < 1e-12,
+            ".bak 保留旧值（种子默认 GOLDEN_HIGH）"
         );
         let _ = std::fs::remove_file(&p);
         let _ = std::fs::remove_file(sibling(&p, ".bak"));
@@ -503,6 +507,11 @@ mod tests {
         let _ = std::fs::remove_file(sibling(&p, ".bak"));
         let mut a = GeneLibrary::new();
         seed_all(&mut a);
+        save_gene_library_to(&a, &p).unwrap();
+        // ⚠️ 修复（2026-09-16）：**必须 save 两次**才会产生 `.bak`。
+        //    轮转语义是"主文件已存在时，先把当前主文件复制为 .bak"（见 `save_gene_library_to`）；
+        //    只 save 一次时主文件原本不存在 ⇒ 不会有 .bak ⇒ 下面的回退断言**必然失败**
+        //    （原测试就少这一次 save，属测试缺陷，非产品缺陷）。
         save_gene_library_to(&a, &p).unwrap();
         // 破坏主文件
         std::fs::write(&p, "not a genelib\n").unwrap();
@@ -600,6 +609,9 @@ mod tests {
         clean(&p);
         let mut s = TraceStore::new();
         s.record(mk_trace(1, TraceType::Fire, 55, 0.6));
+        save_traces_to(&s, &p).unwrap();
+        // ⚠️ 修复（2026-09-16）：同 `corrupt_main_falls_back_to_bak` —— 必须 save 两次才有 `.bak`
+        //    （轮转只在主文件已存在时发生）。原测试只 save 一次，故回退断言必然失败。
         save_traces_to(&s, &p).unwrap();
         // 破坏主文件（非空但零有效条目 → 应回退 .bak）
         std::fs::write(&p, "total garbage\nnot a trace\n").unwrap();

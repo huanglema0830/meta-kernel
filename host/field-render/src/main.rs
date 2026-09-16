@@ -193,27 +193,31 @@ struct Gpu {
     queue: wgpu::Queue,
 }
 
-fn init_gpu() -> Result<Gpu, String> {
-    // 后端可用环境变量覆盖，用于**在本地复现别处（如 CI runner）的后端差异**：
-    // 本机（Intel Arc）默认走 Vulkan，**永远不会经过 Dx12 的 HLSL/FXC 编译路径**；
-    // 设 `FIELD_RENDER_BACKEND=dx12` 即可在本地复现 CI 的后端行为（2026-09-16 起）。
-    // 默认（未设置）= 保持原行为 `Backends::all()`。
-    let backends = match std::env::var("FIELD_RENDER_BACKEND")
+/// 后端选择（可由环境变量 `FIELD_RENDER_BACKEND` 覆盖）。
+///
+/// **离屏模式与开窗模式共用这一个实现**——否则会出现"离屏能复现 CI 后端、开窗不能"的分叉
+/// （2026-09-16 实测：`--url` 模式下该变量曾被忽略、仍走 Vulkan）。
+/// 用途：在本地复现别处（如 CI runner）的后端差异——本机（Intel Arc）默认走 Vulkan，
+/// **永远不会经过 Dx12 的 HLSL/FXC 编译路径**；设 `FIELD_RENDER_BACKEND=dx12` 即可复现。
+pub fn backends_from_env() -> Result<wgpu::Backends, String> {
+    match std::env::var("FIELD_RENDER_BACKEND")
         .unwrap_or_default()
         .to_ascii_lowercase()
         .as_str()
     {
-        "" => wgpu::Backends::all(),
-        "dx12" | "d3d12" => wgpu::Backends::DX12,
-        "vulkan" | "vk" => wgpu::Backends::VULKAN,
-        "gl" | "opengl" => wgpu::Backends::GL,
-        "metal" => wgpu::Backends::METAL,
-        other => {
-            return Err(format!(
-                "未知的 FIELD_RENDER_BACKEND={other}（可用：dx12/vulkan/gl/metal，留空=all）"
-            ))
-        }
-    };
+        "" => Ok(wgpu::Backends::all()),
+        "dx12" | "d3d12" => Ok(wgpu::Backends::DX12),
+        "vulkan" | "vk" => Ok(wgpu::Backends::VULKAN),
+        "gl" | "opengl" => Ok(wgpu::Backends::GL),
+        "metal" => Ok(wgpu::Backends::METAL),
+        other => Err(format!(
+            "未知的 FIELD_RENDER_BACKEND={other}（可用：dx12/vulkan/gl/metal，留空=all）"
+        )),
+    }
+}
+
+fn init_gpu() -> Result<Gpu, String> {
+    let backends = backends_from_env()?;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
         ..Default::default()

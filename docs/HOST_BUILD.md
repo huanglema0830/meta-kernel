@@ -113,14 +113,32 @@ EXE=/c/c/fr-build2/debug/field-render.exe
 
 ## 五、CI
 
-`.github/workflows/ci.yml` 的 **`host-windows`** job（`windows-latest`）：
-构建宿主并执行客观断言 ①方差>1 + 帧率 ②排序 ③L5诊断；④真实开窗为诊断性步骤。
-其"安装 llvm-mingw 并把 `bin` 前置到 PATH"步骤是 **R1 修复的固化**，**勿删**；
-该步骤还负责 **libgcc 语义映射**（`libgcc.a←compiler-rt builtins`、`libgcc_eh.a←libunwind`，
-原因见第一节）并在映射前**断言映射源存在**——缺源会在那一步明确报错，而不是给一句难懂的 lld 链接失败。
+`.github/workflows/ci.yml` 的 **`host-windows`** job（`windows-latest`）步骤顺序与口径（2026-09-16 更新）：
 
-帧率断言口径：**硬件适配器 → ≥30**；软件适配器（CI runner 无 GPU）→ 如实标注并按 >0 断言
-（不拿"改阈值"打绿，也不拿"CI 跑过"冒充硬件口径）。
+| 顺序 | 步骤 | 门禁？ | 说明 |
+|---|---|---|---|
+| 1 | 修复 R1 —— 装 llvm-mingw + 前置 `bin` 到 PATH + **libgcc 语义映射** | ✅ | **R1 修复的固化，勿删**；映射源缺失会在此**明确报错**，不会退化成难懂的 lld 链接失败 |
+| 2 | 构建宿主（GNU + 短 target-dir） | ✅ | 短路径规避 MAX_PATH |
+| 3 | **验收⑤ C9 门禁**（unsafe 白名单 + 禁 transmute + **门禁自检**） | ✅ | **纯静态 grep、秒级、无 GPU** ⇒ 故意排在最前：一旦后面 GPU 步骤失败，它不会被拖成 skipped |
+| 4 | 环境诊断（打印适配器） | ❌ 诊断性 | `continue-on-error` |
+| 5 | 验收① 离屏自检（退出码0 + PASS + 方差>1 + 帧率口径） | ✅ | |
+| 6 | 验收② GPU 双调排序 | ✅ | |
+| 7 | 验收③ L5 诊断（中性点对齐） | ✅ | |
+| 8 | **验收④ 真实开窗 + URL 取源码 + 上屏回读** | ✅ | **门禁**（2026-09-16 由诊断性升级；依据 run `35044362728` 真实通过）。含一道**独立的**帧率复核，见下 |
+| 9 | release 构建（分发的 exe） | ❌ | 不计门禁 |
+
+**帧率口径（宿主与 CI 两侧必须一致，不得分叉）**：
+
+- **硬件适配器 → ≥30**（呈现口径 或 管线裸口径，取其一）；**门槛一字未改**。
+- **软件适配器**（WARP / llvmpipe / lavapipe / swiftshader / `DeviceType::Cpu`）→ **只要求 >0**，
+  并**如实标注**"不适用硬件 ≥30 口径"（不拿"改阈值"打绿，也不拿"CI 跑过"冒充硬件口径）。
+- **识别必须"名字关键词优先"**：Dx12 下的 **WARP 自报 `device_type = IntegratedGpu`**，
+  只看 device_type 会把它当硬件（2026-09-16 实测：本机 Dx12 真显卡 157.8 FPS，runner 的 WARP 仅 14–28 FPS）。
+- 关键词表在两处**逐字一致**：CI（`.github/workflows/ci.yml` 验收①/④）与宿主
+  （`host/field-render/src/window.rs::adapter_is_software`，含 3 条单元测试）。**改一处必须同步另一处。**
+
+> **R17 教训**：这条口径原先只在 CI 侧实现，**宿主自身**仍硬编码 `> 30` ⇒ 在 WARP 上宿主自己返回 exit=1。
+> "诊断性步骤"时代被 `continue-on-error` 掩盖，**升为门禁后立刻暴露**——这说明"把诊断性升成门禁"本身就是一种有效的探针。
 
 **不再需要**"钉住某个自带 libgcc 的 llvm-mingw 版本"，也**不再需要**为了 libgcc 去装 GNU host 工具链
 （实测 GNU host 的 `self-contained` 并不会被自动加入搜索路径，见第一节事实四）。
@@ -128,6 +146,26 @@ libgcc 缺口一律由**语义映射**在安装步骤内补齐，从而与 llvm-
 
 CI runner 上拿到的适配器是 **`Microsoft Basic Render Driver / Dx12`**（软件适配器）——见 job 里的
 「环境诊断」步骤（诊断性，不计门禁）。
+
+### 本地复现 CI 的后端差异
+
+```bash
+FIELD_RENDER_BACKEND=dx12   ./field-render.exe --url http://127.0.0.1:PORT/page.html --frames 120
+FIELD_RENDER_BACKEND=vulkan ./field-render.exe --url ...
+```
+
+入口函数 `backends_from_env()`（`main.rs`）被**离屏与开窗两种模式共用**；
+⚠️ 此前开窗路径硬编码 `Backends::all()` ⇒ 该变量在 `--url` 模式下被忽略（2026-09-16 已修）。
+
+### 本地单元测试
+
+```bash
+cargo test --manifest-path host/field-render/Cargo.toml --bin field-render
+```
+
+**35 项**（含 R17 判据的正反两侧）。⚠️ 该 crate **不在 workspace 内**，CI 的 `test` job **不会**跑到它
+⇒ 曾有 **3 个测试长期必红而无人知**（见下）。若要让它们进入自动回归，需在 CI 里为它单独加一步。
+
 
 ## 五·补、跨后端一致性（R14 教训：**本机绿 ≠ 别处绿**）
 

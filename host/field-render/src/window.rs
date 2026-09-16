@@ -322,6 +322,36 @@ struct State {
     t_first: Option<Instant>,
     ui_selftest: bool,
     ui_selftest_done: bool,
+    /// 适配器是否为**软件光栅器**（WARP / llvmpipe / swiftshader / Cpu 等）。
+    /// 用于**帧率口径**判定（见 `adapter_is_software`）：硬件适配器仍严格要求 ≥30 FPS；
+    /// 软件适配器（如 CI runner 无 GPU 时落到 Dx12 WARP）只要求帧率 > 0 并**如实标注**。
+    adapter_is_software: bool,
+}
+
+/// 判定适配器是否为**软件光栅器**（R17 修复）。
+///
+/// 为什么需要它：`finish()` 里的"帧率 > 30 FPS"是**为硬件适配器定的门线**；
+/// CI runner 无 GPU、落到 `Microsoft Basic Render Driver`（Dx12 WARP）时必然达不到 30，
+/// 于是宿主自身返回 FAIL/exit=1 —— 这在"诊断性步骤"时代被 `continue-on-error` 掩盖，
+/// 升为门禁后立刻暴露（2026-09-16 run `35067319775`）。
+///
+/// ⚠️ 这不是"把 30 调低"：**硬件适配器仍严格 ≥30**（门槛一字未改），
+/// 只是让**软件适配器**走"只要求为正 + 如实标注"的口径。
+/// 关键词表与 CI（`.github/workflows/ci.yml` 验收①）**逐字一致**，两侧口径不得分叉。
+///
+/// 注意：**不能只看 `device_type`** —— WARP 自报 `IntegratedGpu`（2026-09-16 实测），
+/// 必须"名字关键词优先"。
+fn adapter_is_software(name: &str, device_type: wgpu::DeviceType) -> bool {
+    let n = name.to_ascii_lowercase();
+    const KEYWORDS: [&str; 6] = [
+        "basic render driver",
+        "warp",
+        "software",
+        "llvmpipe",
+        "lavapipe",
+        "swiftshader",
+    ];
+    KEYWORDS.iter().any(|k| n.contains(k)) || matches!(device_type, wgpu::DeviceType::Cpu)
 }
 
 impl State {
@@ -333,8 +363,11 @@ impl State {
         let size = window.inner_size();
         let (w, h) = (size.width.max(1), size.height.max(1));
 
+        // 后端选择与**离屏模式共用同一实现**（`crate::backends_from_env`，可用 `FIELD_RENDER_BACKEND` 覆盖）。
+        // ⚠️ 此前这里硬编码 `Backends::all()` ⇒ 开窗模式下该环境变量被忽略、仍走 Vulkan，
+        //    使"本地复现 CI 的 Dx12 后端差异"在 `--url` 模式下失效（2026-09-16 实测并修正）。
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends: crate::backends_from_env()?,
             ..Default::default()
         });
         // 安全函数（wgpu 23）——不需要 unsafe，也不是 transmute 类取巧
@@ -497,6 +530,7 @@ impl State {
             t_first: None,
             ui_selftest: opt.ui_selftest,
             ui_selftest_done: false,
+            adapter_is_software: adapter_is_software(&info.name, info.device_type),
         };
         st.apply_active();
         if let Some(u) = opt.url.clone() {
@@ -1245,14 +1279,31 @@ impl State {
             "[window] 帧率：呈现口径 {:.1} FPS（{} 帧 / {:.2}s）｜管线裸口径 {:.1} FPS（{} splat，排序 {} 趟）",
             present_fps, self.frames, secs, raw_fps, self.pipeline.n, self.pipeline.sort_passes
         );
+        // 帧率口径（R17 修复）：**硬件适配器严格 ≥30**；软件适配器只要求 >0 并**如实标注**。
+        // ⚠️ 这不是"把 30 调低"：软件适配器（WARP/llvmpipe）的 30 从来不是它该背的指标——
+        //    在真实硬件上口径一字未改。判据与 CI（验收①/④）逐字一致，两侧不得分叉。
+        let (fps_ok, fps_rule) = if self.adapter_is_software {
+            (
+                present_fps > 0.0 && raw_fps > 0.0,
+                "软件适配器 → 仅要求 >0（不适用硬件 ≥30 口径）",
+            )
+        } else {
+            (present_fps > 30.0 || raw_fps > 30.0, "硬件适配器 → 呈现或裸口径 ≥30")
+        };
         let mut ok = !selftest_fail;
         println!(
-            "[window] 验收① 帧率 > 30 FPS：呈现 {:.1}｜裸 {:.1} → {}",
+            "[window] 验收① 帧率：呈现 {:.1}｜裸 {:.1} → {}（口径：{}）",
             present_fps,
             raw_fps,
-            if present_fps > 30.0 || raw_fps > 30.0 { "PASS" } else { "FAIL" }
+            if fps_ok { "PASS" } else { "FAIL" },
+            fps_rule
         );
-        if !(present_fps > 30.0 || raw_fps > 30.0) {
+        if self.adapter_is_software {
+            println!(
+                "[window]   注：软件适配器——帧率读数**不适用**硬件 ≥30 口径，已如实标注、未按硬件断言"
+            );
+        }
+        if !fps_ok {
             ok = false;
         }
         match got {
@@ -1433,6 +1484,47 @@ fn make_targets(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R17 回归：软件适配器必须按**名字**识别出来。
+    /// 关键案例是 WARP —— 它自报 `IntegratedGpu`（2026-09-16 CI 实测），只按 `device_type` 判会漏。
+    #[test]
+    fn software_adapter_detected_by_name() {
+        use wgpu::DeviceType;
+        for name in [
+            "Microsoft Basic Render Driver",
+            "Microsoft Basic Render Driver (Dx12)",
+            "llvmpipe (LLVM 17.0.6)",
+            "lavapipe",
+            "SwiftShader Device (Subzero)",
+            "Software Adapter",
+            "WARP",
+        ] {
+            assert!(
+                adapter_is_software(name, DeviceType::IntegratedGpu),
+                "{name} 应判为软件适配器（否则帧率口径会按硬件 ≥30 断言 → 必假红）"
+            );
+        }
+    }
+
+    /// R17 回归的另一侧：真硬件**不得**被误判为软件（否则口径被悄悄放宽 = 调参打绿）。
+    #[test]
+    fn hardware_adapter_not_misjudged_as_software() {
+        use wgpu::DeviceType;
+        for (name, dt) in [
+            ("Intel(R) Arc(TM) Graphics", DeviceType::IntegratedGpu),
+            ("NVIDIA GeForce RTX 3060", DeviceType::DiscreteGpu),
+            ("AMD Radeon RX 6600 XT", DeviceType::DiscreteGpu),
+            ("Microsoft Direct3D12 (NVIDIA GeForce RTX 3060)", DeviceType::DiscreteGpu),
+        ] {
+            assert!(!adapter_is_software(name, dt), "{name} 不应判为软件适配器");
+        }
+    }
+
+    /// `DeviceType::Cpu` 一律按软件口径（无 GPU 可依赖）。
+    #[test]
+    fn cpu_device_type_is_software() {
+        assert!(adapter_is_software("未知适配器", wgpu::DeviceType::Cpu));
+    }
 
     fn lib() -> GeneLibrary {
         let mut l = GeneLibrary::new();
