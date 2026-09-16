@@ -533,32 +533,41 @@ mod tests {
     }
 
     #[test]
-    fn powi_matches_std() {
+    fn powi_matches_truth() {
         for &x in &[0.0f32, 1.0, -1.0, 2.0, 0.5, -2.5, 1e-3, 1e3] {
             for n in -20i32..=20 {
                 let a = powi(x, n);
-                let b = x.powi(n);
-                if b.is_infinite() {
-                    // 同为 ±∞ ⇒ 通过（符号也须一致）
-                    assert_eq!(a, b, "powi({x},{n})：无穷不一致 mine={a} std={b}");
-                } else if b == 0.0 {
-                    // ⚠️ **已知实现差异（如实记录，非放宽门线）**：
-                    //    `std::f32::powi` 在**次正规区间**会下溢为 `0`；本实现（平方-乘 + `f32` 累乘）
-                    //    会返回**次正规值**——后者更接近真值。
-                    //    例：`powi(0.001, 15)` → 本实现 `1e-45`（次正规），`std` 为 `0`（真值 1e-45）。
-                    //    故此处接受"两者同在下溢邻域"：差值 ≤ 4 个**最小次正规数**。
-                    let diff = abs_f32(a - b);
+                // ⚠️ **基准用 `f64` 真值，而不是 `std::f32::powi`**（实测教训）：
+                //    后者在**次正规/下溢区间跨平台行为不一致** ——
+                //    例：`powi(1000.0, -14)` 真值 `1e-42`（次正规）：**Linux 上 std 返回 `0`，Windows 上返回 `1e-42`**。
+                //    以 std 为基准会导致"本机绿、CI 红"（2026-09-16 实际发生）。
+                //    `f64` 无此区间问题，故取其为真值。
+                let truth = f64::from(x).powi(n) as f32;
+                if truth.is_infinite() || truth == 0.0 {
+                    let diff = abs_f32(a - truth);
                     let denorm_min = f32::from_bits(1); // 最小次正规数 ≈ 1.4e-45
                     assert!(
-                        diff <= denorm_min * 4.0,
-                        "powi({x},{n})：mine={a} std={b}（既非精确相等，也超出下溢邻域）"
+                        diff <= denorm_min * 4.0 || a == truth,
+                        "powi({x},{n})：mine={a} 真值={truth}（超出下溢邻域）"
                     );
                 } else {
-                    let u = ulp_diff(a, b);
-                    assert!(u <= 8, "powi({x},{n})：ULP={u}（门线 8，累乘误差）mine={a} std={b}");
+                    // 累乘误差：门线 8 ULP（实测 ≤4）
+                    let u = ulp_diff(a, truth);
+                    assert!(u <= 8, "powi({x},{n})：ULP={u}（门线 8）mine={a} 真值={truth}");
                 }
             }
         }
         assert_eq!(powi(0.0, 0), 1.0, "0^0 应为 1（与 std 一致）");
+        // 与 std 的**非次正规**区间仍逐点对照（该区间 std 跨平台一致）
+        for &x in &[1.0f32, 2.0, 0.5, -2.5, 1e3] {
+            for n in -12i32..=12 {
+                let t = f64::from(x).powi(n) as f32;
+                if t == 0.0 || t.is_infinite() {
+                    continue; // 跳过下溢/上溢区（见上）
+                }
+                let u = ulp_diff(powi(x, n), x.powi(n));
+                assert!(u <= 8, "powi({x},{n}) 与 std 差异 ULP={u}");
+            }
+        }
     }
 }

@@ -35,7 +35,7 @@
 
 | 子步 | 内容 | 参考 |
 |---|---|---|
-| **2.1** | 元内核编译为 `x86_64-unknown-none`（no_std） | purpleK2/kernel |
+| **2.1** | ✅ **已完成**（2026-09-16）：新建 `meta-kernel-core-nostd/`（10 模块 + `quad` 数据契约 + **自实现 7 个超越函数**）；`cargo build --target x86_64-unknown-none` **成功**；原 core **411 项测试全绿且未被改动** | purpleK2/kernel |
 | **2.2** | 接入 GRUB / Limine 引导器 | Dan-OS、OusmOS |
 | **2.3** | 实现最简内存管理（物理页分配） | 标准内核 |
 | **2.4** | 实现 DRM/KMS 驱动，**直接输出场域画面** | rust_embedded_wgpu |
