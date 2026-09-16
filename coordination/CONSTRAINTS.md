@@ -15,6 +15,12 @@
 - **破了会怎样**：依赖链膨胀，wasm体积增大，审计困难
 - **适用范围**：meta-kernel-core
 - **例外**：宿主侧可带依赖（wgpu/egui/web-sys等）
+- **⚠️ 界线举例（2026-09-17 用户确认，D34-b）**：
+  - ✅ **`core` / `alloc` 属 Rust 标准分发**，**不算外部依赖**（随 `rustup target` 一起提供，**不进 Cargo.lock 的第三方段**）
+  - ❌ **第三方 crate**（如 `heapless`、`libm`、`spin` 等）**算外部依赖**，内核侧一律不得引入
+  - ⚠️ **用 `alloc` 不等于放开 unsafe**：`alloc` 的**使用**（`Vec`/`String`）是安全 API；
+    但**提供** `alloc` 所需的 `GlobalAlloc` 实现**受 C9 约束**（须走白名单 + `// SAFETY:` + 禁 transmute）
+  - ⚠️ **`alloc` 使用不得引入外部 crate**（例：不得为了"方便"引入 `hashbrown` 来换掉 `HashMap`）
 
 ## C2：版本号自动生成，不手写
 

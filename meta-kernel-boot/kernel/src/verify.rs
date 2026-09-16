@@ -7,12 +7,15 @@
 //! ## 判定协议（供 QEMU 截图机读）
 //!
 //! 自检结果**编码为整屏颜色**：
-//! - **绿** `#00FF00` ⇒ 全部自检通过
-//! - **红** `#FF0000` ⇒ 自检失败（具体失败项编号见 [`self_check`]）
+//! - **绿** `#00FF00` ⇒ **全部自检通过**（含内存管理门禁 + 分配往返 + 数学/L4/戒律）
+//! - **黄** `#FFFF00` ⇒ **内存门禁未通过**（拿不到 `physical_memory_offset` 或没有可用物理内存区）
+//!   —— 即"**拿不到堆区就停**"，**不冒充成功**
+//! - **红** `#FF0000` ⇒ 其它自检失败（具体编号见 [`self_check`]／`mem::alloc_roundtrip` 的错误）
 //! - **不刷屏**（保持引导器输出） ⇒ 没有可用帧缓冲，无法判定
 //!
 //! 这样 CI 只需断言「截图中某像素 == 绿」，即可**同时**证明：
-//! ① 引导器真的把内核加载并进入了入口；② **2.1 迁出的内核子集在裸机上真的算对了**。
+//! ① 引导器真的把内核加载并进入了入口；② **2.1 迁出的内核子集在裸机上真的算对了**；
+//! ③ **2.3 的内存管理真的能用**（门禁通过 + 经 `GlobalAlloc` 的分配/释放/复用往返成立）。
 
 use bootloader_api::info::{FrameBufferInfo, PixelFormat};
 use bootloader_api::BootInfo;
@@ -22,6 +25,19 @@ use meta_kernel_core_nostd::{fmath, l4, l4_risk, quad::Quad};
 pub const COLOR_PASS: [u8; 3] = [0x00, 0xFF, 0x00];
 /// 失败：红
 pub const COLOR_FAIL: [u8; 3] = [0xFF, 0x00, 0x00];
+/// **内存门禁未通过**：黄 —— "拿不到堆区就停"的专用信号（与"算法算错"区分开）
+pub const COLOR_NO_HEAP: [u8; 3] = [0xFF, 0xFF, 0x00];
+
+/// 判定结果（三态）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    /// 全过
+    Pass,
+    /// 内存门禁未过（拿不到堆区）——**不冒充成功**
+    NoHeap,
+    /// 其它自检失败，附编号
+    Fail(u8),
+}
 
 /// 相对误差判据（f32）。
 fn close(actual: f32, expect: f32, tol: f32) -> bool {
@@ -91,13 +107,17 @@ pub fn self_check() -> u8 {
     0
 }
 
-/// 按自检结果刷整屏（**安全 API**；无帧缓冲时不动屏幕，交由 CI 判定"未出绿"即失败）。
-pub fn render(boot_info: &mut BootInfo, report: u8) {
+/// 按判定结果刷整屏（**安全 API**；无帧缓冲时不动屏幕，交由 CI 判定"未出绿"即失败）。
+pub fn render(boot_info: &mut BootInfo, verdict: Verdict) {
     let Some(fb) = boot_info.framebuffer.as_mut() else {
         return; // 无帧缓冲：保持引导器画面（CI 会因"非绿"而红，不会误判为通过）
     };
     let info = fb.info();
-    let color = if report == 0 { COLOR_PASS } else { COLOR_FAIL };
+    let color = match verdict {
+        Verdict::Pass => COLOR_PASS,
+        Verdict::NoHeap => COLOR_NO_HEAP,
+        Verdict::Fail(_) => COLOR_FAIL,
+    };
     let buf = fb.buffer_mut();
     fill(buf, &info, color);
 }

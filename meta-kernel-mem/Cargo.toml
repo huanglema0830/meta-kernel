@@ -1,0 +1,10 @@
+[package]
+name = "meta-kernel-mem"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "最简内存管理（物理帧位图 + 小块分配）：纯逻辑、零 unsafe、host 可测 —— 阶段二·子任务2.3。"
+
+[dependencies]
+# **零依赖**（C1）；**不使用 alloc**（本 crate 只操作调用方给的缓冲区）。
+# ⇒ 因此可 `#![forbid(unsafe_code)]`：**零 unsafe 是结构性保证，不靠 grep**。

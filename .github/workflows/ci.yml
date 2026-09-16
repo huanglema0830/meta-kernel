@@ -589,8 +589,12 @@ jobs:
           PAT_UNSAFE='unsafe[[:space:]]*(\{|fn([^A-Za-z0-9_]|$)|impl([^A-Za-z0-9_]|$)|trait([^A-Za-z0-9_]|$)|extern([^A-Za-z0-9_]|$))'
           PAT_TRANSMUTE='(^|[^A-Za-z0-9_])transmute([^A-Za-z0-9_]|$)'
 
-          # —— 扫描范围：内核 + 各宿主 crate 的 src ——
-          DRS="meta-kernel-core/src"
+          # —— 扫描范围：内核 + 各宿主 crate + **阶段二新增的裸机层** ——
+          # ⚠️ 2026-09-17（2.3）：原先只扫 `meta-kernel-core/src` 与 `host/*/src`，
+          #    而 2.3 的 unsafe 出现在 `meta-kernel-boot/kernel/src` 与 `meta-kernel-mem/src`。
+          #    若不加进来，白名单登记会**形式上合规、实际没被检查**（门禁空转）。
+          #    ⇒ 判据范围必须与代码范围同步（同 R17"两处口径须逐字一致"的教训）。
+          DRS="meta-kernel-core/src meta-kernel-core-nostd/src meta-kernel-mem/src meta-kernel-boot/kernel/src"
           for d in host/*/src; do [ -d "$d" ] && DRS="$DRS $d"; done
           echo "扫描目录：$DRS"
 

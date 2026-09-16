@@ -259,10 +259,15 @@ version = "0.1.0"
 dependencies = [
  "bootloader_api",
  "meta-kernel-core-nostd",
+ "meta-kernel-mem",
 ]
 
 [[package]]
 name = "meta-kernel-core-nostd"
+version = "0.2.0"
+
+[[package]]
+name = "meta-kernel-mem"
 version = "0.2.0"
 
 [[package]]

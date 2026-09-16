@@ -12,3 +12,5 @@ path = "src/main.rs"
 # 引导层依赖（D31-a 已确认边界）：**只进 boot 层**，内核库与 nostd crate 保持零依赖（C1）。
 bootloader_api = "0.11"
 meta-kernel-core-nostd = { path = "../../meta-kernel-core-nostd" }
+# 2.3：最简内存管理的**纯逻辑层**（零 unsafe、host 可测）；地址边界在本 crate 的 mem/global.rs。
+meta-kernel-mem = { path = "../../meta-kernel-mem" }
