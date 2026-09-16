@@ -194,8 +194,28 @@ struct Gpu {
 }
 
 fn init_gpu() -> Result<Gpu, String> {
+    // 后端可用环境变量覆盖，用于**在本地复现别处（如 CI runner）的后端差异**：
+    // 本机（Intel Arc）默认走 Vulkan，**永远不会经过 Dx12 的 HLSL/FXC 编译路径**；
+    // 设 `FIELD_RENDER_BACKEND=dx12` 即可在本地复现 CI 的后端行为（2026-09-16 起）。
+    // 默认（未设置）= 保持原行为 `Backends::all()`。
+    let backends = match std::env::var("FIELD_RENDER_BACKEND")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "" => wgpu::Backends::all(),
+        "dx12" | "d3d12" => wgpu::Backends::DX12,
+        "vulkan" | "vk" => wgpu::Backends::VULKAN,
+        "gl" | "opengl" => wgpu::Backends::GL,
+        "metal" => wgpu::Backends::METAL,
+        other => {
+            return Err(format!(
+                "未知的 FIELD_RENDER_BACKEND={other}（可用：dx12/vulkan/gl/metal，留空=all）"
+            ))
+        }
+    };
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::all(),
+        backends,
         ..Default::default()
     });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

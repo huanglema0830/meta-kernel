@@ -86,6 +86,9 @@
 | R9 | 宿主运行期产物写到 CWD 易误入库 | ✅ **已修**（`.gitignore` 增 `gene_library.txt`/`trace_store.txt`/`habit_pool.txt`/`quad_state.txt` 及 `.bak`） |
 | R10 | C9 门禁目前**只有文字约定、尚无 CI 断言落地** | 🟡 待补（建议纳入 CI：unsafe 白名单 + 禁 transmute） |
 | R11 | CI 的「真实开窗」步骤暂为**诊断性**（`continue-on-error`） | 🟡 待观察 runner 能否开窗后提升为门禁 |
+| **R12** | **本地 llvm-mingw sysroot 里存在「伪装库」**：`libgcc.a`/`libgcc_eh.a` 实为 `libunwind.a` 的拷贝（两文件 md5 相同、非官方包内容，时间戳 Sep 8）——本机长期"能构建"建立在此 hack 上，**不可复现**，且命名与内容不符会误导诊断 | ✅ **已查明并修正**（2026-09-16）：本机 sysroot 已改为**语义映射**（`libgcc.a←compiler-rt builtins`、`libgcc_eh.a←libunwind`），原文件留痕为 `*.hackbak`；CI 同步采用该映射 |
+| **R13** | CI 断言步骤存在**诊断盲区**：GitHub 的 `shell: bash` 外层自带 `-e`，步骤内 `set -uo pipefail` **去不掉它** → 被测程序非零退出即终止脚本，`CODE=$?`/`cat 日志` 被跳过，只见 exit 码不见原因 | ✅ **已修**（验收①/②/③ 显式 `set +e` + `RUST_BACKTRACE=1`；与验收④对齐） |
+| **R14** | **Dx12 后端下宿主根本起不来**（真实缺陷，非 CI 环境问题）：`sort.wgsl` 的 `Splat2D.cov2d: mat2x2<f32>` 经 naga 的 **HLSL 后端**在"整结构体赋值"降级时生成的代码被 FXC 拒绝 —— `error X3018: invalid subscript 'cov2d'`（`Device::create_compute_pipeline` → panic 101）。本机走 Vulkan 不经 FXC，故长期未暴露；**Windows 用户默认后端即 Dx12** | ✅ **已修**：`cov2d` 改为 `array<vec2<f32>, 2>`（WGSL 布局完全相同，64 字节不变）。**Dx12 与 Vulkan 双后端本机实测均 exit=0 且 PASS，方差/pHash 逐位一致** |
 
 ## 七、关键指标
 
@@ -98,18 +101,15 @@
 | unsafe | **0 次**（`unsafe_whitelist.txt` 为空 ⇒ 未放行任何条目；机制见 C9） |
 | 内核测试 | 411项（lib 390 + 集成 21） |
 | 本地验收模式实跑 | **11 个全跑**：**10 PASS**（含修复后的 `diag-check`）｜1 PARTIAL（`quad-check`·已知待加强） |
-| CI 覆盖 | `test` job（ubuntu，**不含宿主**）+ **`host-windows` job（新增）**：构建宿主 + 断言 ①方差>1/帧率 ②排序 ③L5诊断；④开窗为诊断性步骤 |
+| CI 覆盖 | `test` job（ubuntu，**不含宿主**）+ **`host-windows` job（windows-latest）**：装 llvm-mingw → **libgcc 语义映射**（`libgcc.a←compiler-rt builtins`、`libgcc_eh.a←libunwind`）→ GNU 构建宿主 → 断言 ①方差>1/帧率 ②排序 ③L5诊断；④开窗为诊断性步骤；另含「环境诊断」步骤（打印适配器情况，不计门禁） |
 | 验收模式 | 11个：`selftest`／`sortcheck`／`quad-check`／`like-check`／`lod-check`／`world-check`／`diag-check`／`link-check`／`l4-check`／`persist-check`／`ui-selftest` |
 
 ## 八、硬约束
 
-见 CONSTRAINTS.md。摘要：
-- 内核零依赖
-- 版本号自动生成，不手写
-- 不用unsafe取巧代码
-- 改前先列清单，确认后执行
-- 诚实标注未完成项
-- 每次报告带三量台账
+全文见 `CONSTRAINTS.md`；一句话速查见 `CHARTER.md` §五。九条摘要：
+C1 内核零依赖｜C2 版本号自动生成不手写｜C3 不用 unsafe 取巧代码（无例外）｜C4 改前先列清单、确认后执行｜
+C5 诚实标注未完成项（本地/CI/真实/未验证）｜C6 每次报告带三量台账｜C7 不用 CI 通过代替真实运行｜
+C8 硬约束可扩充（用户确认后生效）｜C9 unsafe 只允许边界形态（边界集中 + `// SAFETY:` + 禁 transmute + 白名单）
 
 ## 九、待用户决策
 
@@ -126,3 +126,4 @@
 | **D11** | C9 门禁尚无 **CI 断言**落地（R10） | 建议下一轮补：`unsafe` 白名单检查 + 禁 `transmute` |
 | **D12** | CI FPS 断言在**软件适配器**（runner 无 GPU）下按 >0 而非 ≥30 | 已如实标注；若要求 CI 上也强制 ≥30，需自建带 GPU runner |
 | **D13** | `研发开发/meta-kernel_repair_0907/` 如何处理 | 待定（性质同 R3，建议一并归档） |
+| **D14** | CI 的 libgcc 语义映射依赖 llvm-mingw 内部布局（`lib/clang/<ver>/lib/windows/libclang_rt.builtins-x86_64.a` + `x86_64-w64-mingw32/lib/libunwind.a`） | 已在安装步骤内**断言两个映射源存在**（缺源即明确报错）；升大版本时若布局变化，按报错同步即可，不必钉版本 |

@@ -4,7 +4,16 @@
 // 于是最近的先画、最远的最后画 → 叠加顺序反了。改为直接降序排序，使"远者先画"名副其实。
 // 说明：专家推荐 Fuchsia RadixSort 移植；本实现先落**双调排序**（同样全程在 GPU、
 // 每趟一次 dispatch、n 为 2 的幂），先把闭环跑通并可客观验证；后续可平滑换成基数排序。
-struct Splat2D { position: vec2<f32>, cov2d: mat2x2<f32>, color: vec4<f32>, depth: f32 }
+// ⚠️ `cov2d` 用 `array<vec2<f32>, 2>` 而**不是** `mat2x2<f32>`（2026-09-16 跨后端兼容性修复）：
+//    两者在 WGSL 里**布局完全相同**（对齐 8、大小 16 字节），Rust 侧仍是 `[f32; 4]`@8，
+//    所以 64 字节的结构体布局不变（`Splat2D` 布局单测仍守门）。
+//    但 naga 的 **HLSL 后端**在把"整个结构体赋值"（下面 `dst[i] = src[i]`）降级为 HLSL 时，
+//    对**矩阵成员**生成的代码会被 FXC 拒绝：
+//      `Internal error: FXC D3DCompile error (0x80004005): sort(60,36-48): error X3018: invalid subscript 'cov2d'`
+//    本机走 Vulkan（不经 FXC）所以一直没暴露；CI runner 只有 Dx12（WARP）立刻炸掉 ——
+//    这同时说明**真实的 Windows 用户（Dx12 默认后端）也会遇到**，属真缺陷而非 CI 环境问题。
+//    改成数组后语义与内存布局不变，两个后端都能编译。
+struct Splat2D { position: vec2<f32>, cov2d: array<vec2<f32>, 2>, color: vec4<f32>, depth: f32 }
 struct SortParams { k: u32, j: u32, n: u32, _pad: u32 }
 
 @group(0) @binding(0) var<uniform> params: SortParams;
