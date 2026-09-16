@@ -2,7 +2,7 @@
 
 > 适用：`host/field-render/`（**独立 crate，不并入 workspace**）。
 > 本文件是「宿主怎么建、怎么跑、怎么验收」的**单一事实源**。
-> 最后更新于：HEAD 2a4d2dc（对应 v0.129）——快照口径，当前版本见 `git rev-list --count HEAD`。
+> 最后更新于：HEAD 8187124（对应 v0.130）——快照口径，当前版本见 `git rev-list --count HEAD`。
 
 ## 一、构建（Windows / GNU 工具链）——**必须先做这一步**
 
@@ -116,15 +116,15 @@ EXE=/c/c/fr-build2/debug/field-render.exe
 `.github/workflows/ci.yml` 的 **`host-windows`** job（`windows-latest`）：
 构建宿主并执行客观断言 ①方差>1 + 帧率 ②排序 ③L5诊断；④真实开窗为诊断性步骤。
 其"安装 llvm-mingw 并把 `bin` 前置到 PATH"步骤是 **R1 修复的固化**，**勿删**；
-该步骤同时**钉住版本 `20260826`** 并**断言 sysroot 自带 libgcc**（原因见第一节的版本约束，勿随意升级）。
+该步骤还负责 **libgcc 语义映射**（`libgcc.a←compiler-rt builtins`、`libgcc_eh.a←libunwind`，
+原因见第一节）并在映射前**断言映射源存在**——缺源会在那一步明确报错，而不是给一句难懂的 lld 链接失败。
 
 帧率断言口径：**硬件适配器 → ≥30**；软件适配器（CI runner 无 GPU）→ 如实标注并按 >0 断言
 （不拿"改阈值"打绿，也不拿"CI 跑过"冒充硬件口径）。
 
-CI 里**不还原** `self-contained`（MSVC host 没有 `rust-mingw` 组件）——这正是"本机能过 CI 不能过"的分界；
-若要彻底消除这条不对称，可改为在 CI 装 **GNU host 工具链**（`rustup toolchain install stable-x86_64-pc-windows-gnu
---component rust-mingw-x86_64-pc-windows-gnu`）后用 `cargo +stable-x86_64-pc-windows-gnu` 构建，此时 libgcc 由
-`self-contained` 提供、与 llvm-mingw 版本解耦。**当前未采用**（记为决策项 D14，见 `coordination/BASELINE.md`）。
+**不再需要**"钉住某个自带 libgcc 的 llvm-mingw 版本"，也**不再需要**为了 libgcc 去装 GNU host 工具链
+（实测 GNU host 的 `self-contained` 并不会被自动加入搜索路径，见第一节事实四）。
+libgcc 缺口一律由**语义映射**在安装步骤内补齐，从而与 llvm-mingw 版本解耦。
 
 ## 六、运行期产物
 

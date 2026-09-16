@@ -238,17 +238,22 @@ jobs:
   #   PATH** 即可。本地对应 `~/.cargo/config.toml` 的 GNU linker 指向该工具链；CI 里以
   #   `CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER` 等价复刻。
   #
-  # 为什么必须钉住 llvm-mingw 版本（R1-b 第二次失败的真实根因，2026-09-16 实测）：
-  #   CI 的 rustup 工具链是 **MSVC host**（windows-latest 默认），其 gnu target 的
-  #   `lib/rustlib/x86_64-pc-windows-gnu/lib/self-contained/` **只有 crt2.o / dllcrt2.o**，
-  #   没有 libgcc*.a（本机是 **GNU host**，self-contained 有 44 个文件、含 libgcc.a —— 所以本机能过、CI 不能）。
-  #   而 llvm-mingw **20260908 起把 libgcc.a / libgcc_eh.a 从 sysroot 移除了**
-  #   （`x86_64-w64-mingw32/lib/` 只剩 libmingw32/wex/thrd.a）⇒ rustc 请求的 `-lgcc_eh`、`-lgcc`
-  #   没有任何 -L 能覆盖 → `lld: error: unable to find library -lgcc_eh`。
-  #   ⇒ **钉住 20260826**（本机在用的版本，sysroot 自带 libgcc.a + libgcc_eh.a），并在安装步骤里
-  #     **断言**这两个文件存在：将来升级 llvm-mingw 会在那一步**明确报错**，而不是给一句难懂的 lld 链接失败。
-  #   （对照实验：把 CI 失败行里的库序列照抄给两版 llvm-mingw 驱动，20260908 复现同样两条 lld 报错、
-  #     20260826 该两条消失 → 根因坐实。）
+  # 为什么需要 libgcc 映射（R1-b 第三次失败的真实根因，2026-09-16 实测坐实）：
+  #   rustc 对 `windows-gnu` target 会**无条件**在链接行里加 `-lgcc_eh` / `-lgcc`（GNU 命名），
+  #   而 **llvm-mingw 的 sysroot 里没有这两只库**（官方 20260826 与 20260908 的
+  #   `x86_64-w64-mingw32/lib/` 都只有 libmingw32/wex/thrd.a）——因为 llvm-mingw 工具链自己用
+  #   **compiler-rt + libunwind**，根本不需要 GNU libgcc。
+  #   ⇒ 报错：`lld: error: unable to find library -lgcc_eh` / `-lgcc`。
+  #   ⚠️ 本机之所以"能构建"，是因为本地 sysroot 里被**人为放了两只伪装库**
+  #      （把 `libunwind.a` 复制成 `libgcc.a` 与 `libgcc_eh.a`，两文件字节全同、大小均 91768
+  #       ＝ libunwind.a 的大小）——**这是未记录的环境 hack，不可复现，必须消除**（详见报告 R12）。
+  #   ✅ 正确做法：按**语义对应**把 LLVM 的真实现放到 GNU 命名上（不是空档、不是别处拷来的库）：
+  #        libgcc.a    ← lib/clang/<ver>/lib/windows/libclang_rt.builtins-x86_64.a  （低级运算 builtins）
+  #        libgcc_eh.a ← x86_64-w64-mingw32/lib/libunwind.a                          （异常展开＝GCC 的 libgcc_eh）
+  #   ✅ 实测（2026-09-16，本机）：在**官方 20260908 干净包**上做此映射后
+  #      `cargo build --manifest-path host/field-render/Cargo.toml` → **exit=0**，产出 exe 180 MB。
+  #      ⇒ 不再需要"钉住旧版本"，任何版本只要映射源存在即可；映射源缺失会**明确报错**，
+  #        不会退化成一句难懂的 lld 链接失败。
   #
   # 断言口径（把 2026-09-16 本机真实跑通的验收标准固化）：
   #   ① 离屏自检：退出码 0 + 结论 PASS + **每幅方差 > 1**（真实语义：非纯黑/纯白的空图不算过）
@@ -276,23 +281,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # ⚠️ 版本约束（勿随意升级）：llvm-mingw 必须**自带 libgcc.a / libgcc_eh.a**。
-          #    20260908 起这两只库已从 sysroot 移除；本 job 的 rustup 工具链是 MSVC host，
-          #    其 gnu target 的 self-contained/ 也没有 libgcc ⇒ 会直接链接失败。详见文件头注释。
-          VER=20260826
+          # 版本：不再需要"钉住自带 libgcc 的旧版本"（官方任何版本都不带 libgcc）；
+          # 改用下方**语义映射**补齐 GNU 命名的两只库。详见文件头注释。
+          VER=20260908
           URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${VER}/llvm-mingw-${VER}-ucrt-x86_64.zip"
           TMPU="$(cygpath -u "$RUNNER_TEMP")"
           curl -sSL "$URL" -o "$TMPU/llvm-mingw.zip"
           unzip -q "$TMPU/llvm-mingw.zip" -d "$TMPU/lm"
-          BIN_M="$(cygpath -m "$TMPU/lm/llvm-mingw-${VER}-ucrt-x86_64/bin")"
+          LMROOT="$TMPU/lm/llvm-mingw-${VER}-ucrt-x86_64"
+          BIN_M="$(cygpath -m "$LMROOT/bin")"
           test -f "$BIN_M/dlltool.exe" || { echo "::error::llvm-mingw 解压后找不到 dlltool.exe：$BIN_M"; exit 1; }
-          # sysroot 必须自带 libgcc —— 这是 MSVC-host 工具链下 `-lgcc_eh` / `-lgcc` 的唯一来源，
-          # 把它变成显式门禁（否则失败会以一句难懂的 lld 报错的形式出现在几十分钟后的构建步骤里）。
-          SYSLIB="$TMPU/lm/llvm-mingw-${VER}-ucrt-x86_64/x86_64-w64-mingw32/lib"
+          # ---- libgcc 语义映射：rustc 无条件请求 -lgcc_eh / -lgcc，llvm-mingw 用 compiler-rt + libunwind ----
+          # ① 先断言映射源存在（缺失就明确报错，别让它在几十分钟后的构建步骤里变成一句难懂的 lld 报错）
+          SYSLIB="$LMROOT/x86_64-w64-mingw32/lib"
+          CLDIRS=("$LMROOT"/lib/clang/*/lib/windows)
+          CLDIR="${CLDIRS[0]}"
+          test -d "$CLDIR" || { echo "::error::找不到 llvm-mingw 的 compiler-rt 目录：$CLDIR"; exit 1; }
+          test -f "$CLDIR/libclang_rt.builtins-x86_64.a" || { echo "::error::缺映射源 $CLDIR/libclang_rt.builtins-x86_64.a"; exit 1; }
+          test -f "$SYSLIB/libunwind.a" || { echo "::error::缺映射源 $SYSLIB/libunwind.a"; exit 1; }
+          # ② 按语义对应就位（真实现，非空档）：libgcc=低级运算 builtins；libgcc_eh=异常展开 libunwind
+          cp "$CLDIR/libclang_rt.builtins-x86_64.a" "$SYSLIB/libgcc.a"
+          cp "$SYSLIB/libunwind.a" "$SYSLIB/libgcc_eh.a"
+          # ③ 断言映射结果（构建步骤会用到；这里失败了就不必等到链接期）
           for f in libgcc.a libgcc_eh.a libmingw32.a libmingwex.a; do
-            test -f "$SYSLIB/$f" || { echo "::error::llvm-mingw ${VER} 的 sysroot 缺 $f（$SYSLIB）——该版本无法提供 -lgcc_eh/-lgcc，请换回自带 libgcc 的版本"; exit 1; }
+            test -f "$SYSLIB/$f" || { echo "::error::libgcc 映射后 sysroot 仍缺 $f（$SYSLIB）"; exit 1; }
           done
-          echo "SYSLIB_LIBGCC_OK：sysroot 自带 libgcc.a / libgcc_eh.a（$SYSLIB）"
+          ls -l "$SYSLIB/libgcc.a" "$SYSLIB/libgcc_eh.a"
+          echo "SYSLIB_LIBGCC_MAPPED_OK：libgcc.a←compiler-rt builtins / libgcc_eh.a←libunwind"
           echo "LLVM_MINGW_BIN=$BIN_M" >> "$GITHUB_ENV"
           echo "$BIN_M" >> "$GITHUB_PATH"
           export PATH="$BIN_M:$PATH"
