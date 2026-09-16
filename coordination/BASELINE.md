@@ -1,6 +1,6 @@
 # 云内核项目 · 基准
 
-最后更新于：HEAD 7a42407（对应 v0.135）｜本轮（机制简化 + D10–D13 执行）更新内容见下方（本次更新随提交计入下一版）
+最后更新于：HEAD d4c4902（对应 v0.137）｜本轮（机制简化 + D10–D13 + R17/R18 修复）更新内容见下方（本次更新随提交计入下一版）
 更新时间：2026-09-16
 
 > **口径说明**：上面一行记录的是「**本文件最后一次更新时所处的 HEAD / 版本**」，**不是「当前版本」**。
@@ -61,7 +61,7 @@
 |---|---|
 | 宿主真实运行验证 | ✅ **已达成**（2026-09-16 本机真实开窗 + 输入 URL + 取源码 + 上屏回读 PASS；见 `reports/2026-09-16_R1宿主真实运行调研.md`） |
 | **CI 覆盖宿主（R6）** | ✅ **已落地并已全绿**：`host-windows` job（windows-latest）**全步骤 success**，含 ①②③ 客观断言 **与 ④ 真实开窗**（run 35044362728） |
-| **CI 全绿（本轮目标）** | ✅ **达成**（2026-09-16，run `35044362728`：`test` 绿 + `host-windows` 全绿） |
+| **CI 全绿（本轮目标）** | ✅ **达成并已逐行核实**（2026-09-16，run `35069720108`，headSha `d4c4902`）：`test` ✅ ／ `host-windows` ✅，**5 项验收全部真实生效**（见 §七 指标） |
 | **机制总纲缺失** | ✅ **已建，并按评审简化为"能跑的最小集"**：`CHARTER.md`＝**自包含版**（前八节只读它就有全图；新增 **§五 启动回执**、**§六 动作约束 C10**、§七 紧急通道、§八 冲突解决）；活相机制三文件**合并为一个**（`TEMPLATES.md` §七「变更记录」，原 `TEMPLATES_CHANGELOG.md` / `OBSERVATIONS.md` 已删除）；`README.md` 改为极简入口 |
 | **C9 门禁无 CI 断言（R10 / D11）** | ✅ **已补**：CI `host-windows` **验收⑤**——`transmute` 零出现 + 真实 unsafe 必须全在白名单 + `// SAFETY:` 覆盖数 ≥ unsafe 处数 + **门禁自检（正反两侧样例）**；本地原样干跑 **exit=0** |
 | **CI 验收④为诊断性（R11 / D10）** | ✅ **已升为门禁**：去掉 `continue-on-error`，改为硬断言（退出码 0 + 回读来源＝surface + 结论 PASS） |
@@ -93,7 +93,7 @@
 | R10 | C9 门禁曾**只有文字约定、无 CI 断言** | ✅ **已修**（D11 执行：验收⑤落地 = `transmute` 零出现 + 白名单子集 + `// SAFETY:` 覆盖数 + **门禁自检**） |
 | R11 | CI 的「真实开窗」步骤曾为**诊断性**（`continue-on-error`） | ✅ **已升为门禁**（D10 执行）；升级依据＝run `35044362728` 上 ④ **真实通过**（开窗 1080×760 · Dx12(WARP) · 取源码 · **surface 回读** · PASS · exit=0） |
 | **R16** | **C9 门禁首跑出现假阳性**：初版判据用 `grep -rn "unsafe"`（无词边界）→ 把 `let unsafe_q = ...`（**变量名**）与注释里提到的 `transmute` 都判成违规（本地干跑即被拦下） | ✅ **已修**：判据锚在**关键字/调用的确切用法**上（只认 `unsafe{` / `unsafe fn` / `impl` / `trait` / `extern` 与 `transmute` 调用）+ 剔除整行注释；并把该案例**固化为门禁自检回归样例**（正反两侧，防止将来放宽正则时又漏回去） |
-| **R17** | **宿主自检的帧率门线没有环境感知**：`window.rs::finish()` 硬编码 `present_fps > 30 || raw_fps > 30`。CI runner 无 GPU、落到 Dx12 **WARP**（自报 `IntegratedGpu`）时只有 ~14 FPS ⇒ 宿主自身返回 **FAIL / exit=1**。在"诊断性步骤"时代被 `continue-on-error` 掩盖；**升为门禁后立刻暴露**（run `35067319775`：链路全通——开窗/取源码/surface 回读/方差 100.3 全 PASS，唯独帧率门线把它判死） | ✅ **已修**：新增 `adapter_is_software()`（关键词表与 CI 逐字一致，**名字优先**——WARP 自报 IntegratedGpu）+ `finish()` 改**环境感知**：**硬件适配器门槛一字未改（≥30）**，软件适配器只要求 >0 并如实标注。附 3 条单元测试（正反两侧 + Cpu 类型）。⚠️ **这不是"把 30 调低"** |
+| **R17** | **宿主自检的帧率门线没有环境感知**：`window.rs::finish()` 硬编码 `present_fps > 30 || raw_fps > 30`。CI runner 无 GPU、落到 Dx12 **WARP**（自报 `IntegratedGpu`）时只有 ~14 FPS ⇒ 宿主自身返回 **FAIL / exit=1**。在"诊断性步骤"时代被 `continue-on-error` 掩盖；**升为门禁后立刻暴露**（run `35067319775`：链路全通——开窗/取源码/surface 回读/方差 100.3 全 PASS，唯独帧率门线把它判死） | ✅ **已修，并已在 CI 上端到端确认**（run `35069720108`）：新增 `adapter_is_software()`（关键词表与 CI 逐字一致，**名字优先**——WARP 自报 IntegratedGpu）+ `finish()` 改**环境感知**。CI 实测输出：`适配器: Microsoft Basic Render Driver / Dx12`｜`验收① 帧率：呈现 18.1｜裸 33.5 → PASS（口径：软件适配器 → 仅要求 >0）`｜`结论：PASS`｜`exit=0`，且软件口径被**如实标注**。**硬件适配器门槛一字未改（≥30）**。附 3 条单元测试 |
 | **R18** | **`field-render` 有 3 个单元测试长期必红**（本地 `cargo test` 恒 FAILED：`rotation_keeps_previous_as_bak`、`corrupt_main_falls_back_to_bak`、`corrupt_traces_falls_back_to_bak`）——CI 的 `test` job 只跑 workspace（**不含**这个独立 crate），故从未被人发现 | ✅ **已修**（**测试自身缺陷，非产品缺陷**）：① `rotation_*` 把期望值硬编码为 `1.618`（3 位小数），而实际种子值是 `GOLDEN_HIGH`（黄金比例 1.6180339887…），容差 1e-12 ⇒ 必然失败 → 改用权威常量；②③ 两个 `corrupt_*` 只 save 一次，而轮转语义是"主文件已存在时才复制为 `.bak`" ⇒ 根本不会产生 `.bak` → 各补一次 save。**产品语义未改** |
 | **R12** | **本地 llvm-mingw sysroot 里存在「伪装库」**：`libgcc.a`/`libgcc_eh.a` 实为 `libunwind.a` 的拷贝（两文件 md5 相同、非官方包内容，时间戳 Sep 8）——本机长期"能构建"建立在此 hack 上，**不可复现**，且命名与内容不符会误导诊断 | ✅ **已查明并修正**（2026-09-16）：本机 sysroot 已改为**语义映射**（`libgcc.a←compiler-rt builtins`、`libgcc_eh.a←libunwind`），原文件留痕为 `*.hackbak`；CI 同步采用该映射 |
 | **R13** | CI 断言步骤存在**诊断盲区**：GitHub 的 `shell: bash` 外层自带 `-e`，步骤内 `set -uo pipefail` **去不掉它** → 被测程序非零退出即终止脚本，`CODE=$?`/`cat 日志` 被跳过，只见 exit 码不见原因 | ✅ **已修**（验收①/②/③ 显式 `set +e` + `RUST_BACKTRACE=1`；与验收④对齐） |
@@ -110,8 +110,9 @@
 | unsafe | **真实 unsafe 关键字 0 处**（`unsafe_whitelist.txt` 为空 ⇒ 未放行任何条目；机制见 C9，**CI 门禁见验收⑤**）。ℹ️ `meta-kernel-core/src/l4_risk.rs` 里的 `unsafe_q` 是**变量名**（"不安全状态的四元组"），不是 unsafe 语法——C9 门禁首跑曾误报它，见 R16 |
 | 内核测试 | 411项（lib 390 + 集成 21） |
 | 本地验收模式实跑 | **11 个全跑**：**10 PASS**（含修复后的 `diag-check`）｜1 PARTIAL（`quad-check`·已知待加强） |
-| CI 覆盖 | ✅ **全绿**（run `35044362728`）＋ 本轮新增**验收⑤**：`test` job（ubuntu）＋ **`host-windows` job（windows-latest）**：装 llvm-mingw → **libgcc 语义映射**（`libgcc.a←compiler-rt builtins`、`libgcc_eh.a←libunwind`）→ GNU 构建宿主 → ①方差>1/帧率 ②排序 ③L5诊断 ④**真实开窗+surface 回读（门禁）** ⑤**C9 门禁（unsafe 白名单 + 禁 transmute + 门禁自检）**；另含「环境诊断」步骤（打印适配器，不计门禁） |
-| **CI 上真实运行** | ✅ **是**（run `35044362728` 验收④）：runner 无 GPU，落 **Dx12 WARP 软件适配器**，仍完成 **开窗 → 输入 URL → 取源码（108 字）→ 从 surface（真实上屏纹理）回读 → 结论 PASS**；呈现 20.9 FPS（软件口径，**未按硬件 ≥30 断言**） |
+| CI 覆盖 | ✅ **全绿并已逐行核实**（run `35069720108`，headSha `d4c4902`）：`test` job（ubuntu）＋ **`host-windows` job（windows-latest）**，后者含 **5 项验收**——⑤ C9 门禁（**前置**：纯静态、秒级、无 GPU）／① 离屏自检（退出码0+PASS+方差>1+帧率口径）／② 排序／③ L5 诊断／④ **真实开窗 + surface 回读（门禁）**；另含「环境诊断」步骤（打印适配器，不计门禁） |
+| **CI 上真实运行** | ✅ **是，且已逐行核实真实输出**（run `35069720108` 验收④）：runner 无 GPU，落 **Dx12 WARP 软件适配器**，完成 **开窗 → 输入 URL → 取源码（108 字）→ 从 surface（真实上屏纹理）回读（方差 100.3、非纯黑非纯白）→ 结论 PASS → exit=0**；呈现 18.1 FPS（**软件口径，如实标注、未按硬件 ≥30 断言**） |
+| 宿主单元测试 | ✅ **35 项全绿**（`cargo test --bin field-render`，含 R17 判据的正反两侧）。⚠️ 该 crate **不在 workspace** ⇒ CI 的 `test` job **不会跑到它**（R18 的 3 个必红测试因此长期无人知）；建议在 CI 里加一步独立 `cargo test` |
 | 验收模式 | 11个：`selftest`／`sortcheck`／`quad-check`／`like-check`／`lod-check`／`world-check`／`diag-check`／`link-check`／`l4-check`／`persist-check`／`ui-selftest` |
 
 ## 八、硬约束
