@@ -6,4 +6,7 @@ license.workspace = true
 description = "Meta-Kernel core no_std subset: pure-math + L4 gate for bare-metal bootstrap (阶段二·子任务2.1)."
 
 [dependencies]
-# **零第三方依赖**（C1）—— 本子集只用 core 与固定长数组，**不使用 alloc**。
+# **零第三方依赖**（C1）。
+# 自 **2.3b**（2026-09-17）起使用**标准分发的 `alloc`**（`Vec`/`String`）——**D34-b 已认定不破 C1**：
+# `alloc` 随工具链提供，**不是第三方 crate**；使用它**不得因此引入任何外部依赖**。
+# 裸机可用性判据：sysroot 提供 `liballoc` + boot 层注册 `#[global_allocator]` + **QEMU 绿屏实测**。

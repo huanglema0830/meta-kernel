@@ -25,7 +25,12 @@
 //! | **6** | **堆几何不合理**（竞技场过小 / 区无效 / 容量为 0） |
 //! | **7** | **初始化后统计非净零**（新堆不该有占用） |
 //! | **8** | **往返后统计非净零**（⇒ **存在泄漏**） |
+//! | **9** | **`alloc::vec::Vec` 内容不符**（`alloc` 探针失败） |
+//! | **10** | **`alloc::string::String` 内容不符**（`alloc` 探针失败） |
+//! | **11** | **`alloc` 探针后统计非净零**（⇒ `Vec`/`String` 泄漏） |
 
+use alloc::string::String;
+use alloc::vec::Vec;
 use bootloader_api::info::MemoryRegionKind;
 use bootloader_api::BootInfo;
 use meta_kernel_mem::{MemErr, Stats, BLOCK_SIZE, FRAME_SIZE};
@@ -144,7 +149,8 @@ pub enum MemFail {
 /// 2. **几何合理**：竞技场不小于一个单元、区有效、容量非零
 /// 3. **初始化后净零**：新堆不该有任何占用
 /// 4. **往返**：经真实 `GlobalAlloc` 做 分配→写入→读回→释放→**再分配复用**，并覆盖帧路径对齐
-/// 5. **往返后净零**：占用回到 0 且容量未被改变 ⇒ **无泄漏**
+/// 5. **`alloc` 探针**（2.3b 门禁）：`Vec`/`String` 经真实 `GlobalAlloc` 走一遍
+/// 6. **净零**：往返 + 探针后占用回到 0 且容量未被改变 ⇒ **无泄漏**
 pub fn selftest(boot_info: &mut BootInfo) -> Result<(), MemFail> {
     let heap = match init(boot_info) {
         Ok(h) => h,
@@ -174,7 +180,10 @@ pub fn selftest(boot_info: &mut BootInfo) -> Result<(), MemFail> {
     // ④ 往返
     global::roundtrip().map_err(|e| MemFail::Bug(code_of(e)))?;
 
-    // ⑤ 往返后净零（**无泄漏**）
+    // ④b ★ `alloc` 探针（2.3b 门禁）
+    alloc_probe()?;
+
+    // ⑤ 往返 + 探针后净零（**无泄漏**）
     let after = stats();
     if after.frames_used != 0 || after.blocks_used != 0 {
         return Err(MemFail::Bug(8));
@@ -183,5 +192,53 @@ pub fn selftest(boot_info: &mut BootInfo) -> Result<(), MemFail> {
         return Err(MemFail::Bug(6));
     }
 
+    Ok(())
+}
+
+/// ★ **`alloc` 探针** —— 2.3b 的门禁：`alloc` 能否在**裸机目标**上链接并运行。
+///
+/// **为什么单独设这一步**：`extern crate alloc;` 若**没有任何代码真正使用**，
+/// 链接器根本不会去解析 `liballoc` —— 于是"用了 alloc"这件事**从未被验证**，
+/// 只会得到一个"看起来能编"的假象（＝判断空转）。本探针逼 `Vec`/`String` 
+/// **真实走一遍 `GlobalAlloc`**，其释放由外层的**净零断言**兜底（⇒ 顺带证**无泄漏**）。
+///
+/// 覆盖三种不同分配路径：`Vec` 渐进增长（alloc→realloc）／`with_capacity`（大块）／
+/// `String` 拼接与 `format!`（fmt 机制）。
+fn alloc_probe() -> Result<(), MemFail> {
+    // ① Vec 渐进增长（每步可能触发 realloc）
+    let mut v: Vec<u32> = Vec::new();
+    for i in 0..64u32 {
+        v.push(i.wrapping_mul(3));
+    }
+    let want: u32 = (0..64u32).map(|i| i.wrapping_mul(3)).sum();
+    if v.len() != 64 || v[0] != 0 || v[63] != 189 || v.iter().sum::<u32>() != want {
+        return Err(MemFail::Bug(9));
+    }
+
+    // ② with_capacity + resize（另一条 layout 路径）
+    let mut w: Vec<u8> = Vec::with_capacity(96);
+    w.resize(96, 0x5A);
+    if w.len() != 96 || w.iter().any(|b| *b != 0x5A) {
+        return Err(MemFail::Bug(9));
+    }
+
+    // ③ String 拼接 + format!（fmt 机制）
+    let mut s = String::with_capacity(8);
+    s.push_str("meta-kernel");
+    s.push('/');
+    s.push_str("boot");
+    if s.as_str() != "meta-kernel/boot" || s.len() != 14 {
+        return Err(MemFail::Bug(10));
+    }
+    let t = alloc::format!("{}-{}", s.len(), v.len());
+    if t.as_str() != "14-64" {
+        return Err(MemFail::Bug(10));
+    }
+
+    // ④ 全部释放 —— 净零由外层 ⑤ 断言
+    drop(t);
+    drop(s);
+    drop(w);
+    drop(v);
     Ok(())
 }

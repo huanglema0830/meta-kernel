@@ -126,6 +126,22 @@ jobs:
           test -f manifest-ui/src/l6_app.rs
           echo SITE_FILES_OK
 
+      # ===== 机制 17：私有资产**指针**门禁（骨架-实现分离的机器校验）=====
+      # 为什么在 CI 只跑 syntax 模式：**CI 看不到私有文件夹**（它在仓库外、CI 上根本不存在）
+      # ⇒ 存在性校验必须在本机跑（`--mode=resolve`）。CI 这一半负责：
+      #   ① 每个 `{PRIVATE_ASSETS}/<路径>` 的**格式**合法（无 `..`/反斜杠/绝对路径）
+      #   ② 仓库内**不得新增** ⛔ 泄漏（本机绝对路径 / 用户名 / 内网 IP）
+      #      —— 基线见 `coordination/security/leak_baseline.txt`，**只减不增**（C15）
+      - name: 机制 17 指针门禁 —— 引用格式 + ⛔ 泄漏基线（CI 安全的一半）
+        shell: bash
+        run: |
+          set +e
+          python3 coordination/tools/check_private_pointers.py --mode=syntax
+          CODE=$?
+          echo "---- exit=$CODE ---- (0=通过；非 0=有格式错误或新增泄漏)"
+          set -e
+          test "$CODE" -eq 0
+
       - name: Build NPB cdylib (native)
         run: cargo build -p npb
 

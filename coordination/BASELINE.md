@@ -1,6 +1,7 @@
 # 云内核项目 · 基准
 
-最后更新于：HEAD effa487（对应 v0.167）｜本轮（**子任务2.3 内存管理：C9 首次放行 + 唯一 unsafe 边界 + 三色判定门禁**）更新内容见下方（本次更新随提交计入下一版）
+最后更新于：HEAD 837dd6a（对应 v0.168）｜本轮（**2.3b 分片启动（片1 已执行）＋ alloc 裸机门禁通过 ＋ 机制17 第二实例（大模型接入骨架）＋ C13 扩为 9 步 ＋ 新增 C15 ＋ R25 泄漏台账与机器判据**）更新内容见下方（本次更新随提交计入下一版）
+更新时间：2026-09-17
 更新时间：2026-09-17
 
 > **口径说明**：上面一行记录的是「**本文件最后一次更新时所处的 HEAD / 版本**」，**不是「当前版本」**。
@@ -11,9 +12,9 @@
 
 | 项 | 值 |
 |---|---|
-| **唯一权威项目根** | `C:/Users/香忆/WorkBuddy/研发开发/tmp_a45_review/gh_clone2` |
+| **唯一权威项目根** | **本文件所在仓库的根** —— 运行时用 `git rev-parse --show-toplevel` 取得。⚠️ **绝对路径属 ⛔**（C12），**不入库**（原写法为同目录级的字面路径，2026-09-17 按 R25 换壳） |
 | 版本号来源 | 上述仓库的 `git rev-list --count HEAD` |
-| 陈旧分叉归档位置 | `C:/Users/香忆/WorkBuddy/研发开发/archive/` —— 内含 `meta-kernel-v0.48/`（自带 git，仍可自证 v0.48 / `cbf1b1d` / 74 处未提交改动原样封存）与 `meta-kernel_repair-0907/`（更早的修复副本，自带 git）。**均为移出根目录、保留不删** |
+| 陈旧分叉归档位置 | **仓库根的同级 `archive/`**（`$(dirname "$(git rev-parse --show-toplevel)")/archive/`）—— 内含 `meta-kernel-v0.48/`（自带 git，仍可自证 v0.48 / `cbf1b1d` / 74 处未提交改动原样封存）与 `meta-kernel_repair-0907/`（更早的修复副本，自带 git）。**均为移出根目录、保留不删**。⚠️ 其**绝对路径同样属 ⛔**，不入库 |
 | 其它同名/相似目录 | `研发开发/` 本身**不是** git 仓库；根目录下已无陈旧分叉 |
 
 > **判据**：任何"当前版本/提交/改动"的统计，一律以上表仓库为准；发现别处也有 `meta-kernel-core/` 时，**默认它是陈旧副本**。
@@ -111,6 +112,7 @@
 | **R22** | **`-Zbuild-std` 需要 `rust-src` 组件**（只装 `llvm-tools-preview` **不够**）——首次构建 `bootloader` 时失败：`.../lib/rustlib/src/rust/library/Cargo.lock does not exist, unable to build with the standard library` | ✅ **已修**：安装步骤补齐 `--component rust-src`（本地与 CI **双处**）；**并新增显式断言**（缺组件即 `::error`，不让它退化成难懂报错） |
 | **R23** | **CI 上 nightly 未装裸机 target** → `boot-image` 首跑红：`error[E0463]: can't find crate for 'core'`（`the x86_64-unknown-none target may not be installed`）。**本机早在 2.1 装过该 target（stable），掩盖了缺口** | ✅ **已修**（2026-09-16）：步骤内显式 `rustup target add x86_64-unknown-none --toolchain nightly` + **显式断言**（`rustup target list --installed` 必须含它）。**性质＝R14 同族**（"本机绿 ≠ CI 绿"，差异来自**环境既有状态**）；**教训**：新增一条工具链时，"工具链" ≠ "工具链 + 组件 + target"，**三件事都要写全且各配一条断言** |
 | **R24** | **CI 的"诊断性产物上传"会把整条流水线判红**：`actions/upload-artifact@v4` 偶发 **`Failed to FinalizeArtifact: (403) Forbidden`**（GitHub 侧中间层返回）⇒ 整个 `test` job 判红，**掩盖真实状态**。实测（run `35148724033`，@`14edb8b`）：**20/20 个真实步骤全部 success**，唯一失败的是 `Upload UI verify artifacts`；**重跑即全绿**（同 sha、`conclusion: success`）⇒ **基础设施抖动，非代码缺陷** | ✅ **已加固**（2026-09-17）：**把"诊断"与"门禁"分离** —— **7/7 个 `upload-artifact` 步骤一律 `continue-on-error: true`**（注释里写明 R24 与理由）；**真正的门禁（workspace 测试／no_std 构建／像素断言／C9 门禁）保持硬失败，断言一条未放宽**。<br>⚠️ 注意与 **D10** 的区别：D10 当年**去掉** `continue-on-error` 是因为它**掩盖了验收④的真实失败** ⇒ 本次只对**纯上传步骤**加固，**任何带判定语义的步骤一律不加** |
+| **R25** | **公开仓库（R20）内仍存在 ⛔ 级内容，且与历轮报告的声明不符**：实测 `coordination/BASELINE.md` **2 行**本机绝对路径（含用户名）、`reports/*` **1 行**本机 PATH（含用户名）、`docs/*` **13 处**内网 IP ＋ **6 处**用户名 ＋ **6 行**桌面/家目录路径、`deploy/win64/README.md` **1 处**内网 IP。⚠️ **要点不是"有泄漏"，而是"历轮报告每轮都写『⛔ 已预屏蔽』"——声明与事实不符**（C5/C7 意义上更严重：它让人以为已安全） | ✅ **本轮处置（2026-09-17）**：① 建**机器判据**＝`coordination/tools/check_private_pointers.py --mode=syntax`（**已入 CI**：校验指针格式 ＋ 比对泄漏基线，**只减不增**）② 按 **D30-1「C 档增量换壳」**把 **`coordination/` 内 ⛔ 泄漏清零**（`BASELINE.md` 项目根 → `git rev-parse --show-toplevel` 写法；`reports/2026-09-16_R1…` 的 PATH → "仓库根的同级目录"写法）③ `docs/` 与 `deploy/` 的 **14 条**进基线 `coordination/security/leak_baseline.txt`（**换壳范围待 D35**）<br>⚠️ **未解除部分**：`docs/` 历史报告内的路径/IP **仍在公网**（git 历史撤不回）；基线只是**锁住"不再新增"** |
 | **R12** | **本地 llvm-mingw sysroot 里存在「伪装库」**：`libgcc.a`/`libgcc_eh.a` 实为 `libunwind.a` 的拷贝（两文件 md5 相同、非官方包内容，时间戳 Sep 8）——本机长期"能构建"建立在此 hack 上，**不可复现**，且命名与内容不符会误导诊断 | ✅ **已查明并修正**（2026-09-16）：本机 sysroot 已改为**语义映射**（`libgcc.a←compiler-rt builtins`、`libgcc_eh.a←libunwind`），原文件留痕为 `*.hackbak`；CI 同步采用该映射 |
 | **R13** | CI 断言步骤存在**诊断盲区**：GitHub 的 `shell: bash` 外层自带 `-e`，步骤内 `set -uo pipefail` **去不掉它** → 被测程序非零退出即终止脚本，`CODE=$?`/`cat 日志` 被跳过，只见 exit 码不见原因 | ✅ **已修**（验收①/②/③ 显式 `set +e` + `RUST_BACKTRACE=1`；与验收④对齐） |
 | **R14** | **Dx12 后端下宿主根本起不来**（真实缺陷，非 CI 环境问题）：`sort.wgsl` 的 `Splat2D.cov2d: mat2x2<f32>` 经 naga 的 **HLSL 后端**在"整结构体赋值"降级时生成的代码被 FXC 拒绝 —— `error X3018: invalid subscript 'cov2d'`（`Device::create_compute_pipeline` → panic 101）。本机走 Vulkan 不经 FXC，故长期未暴露；**Windows 用户默认后端即 Dx12** | ✅ **已修**：`cov2d` 改为 `array<vec2<f32>, 2>`（WGSL 布局完全相同，64 字节不变）。**Dx12 与 Vulkan 双后端本机实测均 exit=0 且 PASS，方差/pHash 逐位一致** |
@@ -132,7 +134,9 @@
 | WebView2依赖 | 0处 |
 | unsafe | **真实 unsafe 关键字 0 处**（`unsafe_whitelist.txt` 为空 ⇒ 未放行任何条目；机制见 C9，**CI 门禁见验收⑤**）。ℹ️ `meta-kernel-core/src/l4_risk.rs` 里的 `unsafe_q` 是**变量名**（"不安全状态的四元组"），不是 unsafe 语法——C9 门禁首跑曾误报它，见 R16 |
 | 内核测试 | 411项（lib 390 + 集成 21） |
-| **no_std 子集（2.1）** | ✅ `meta-kernel-core-nostd` **60 项测试全绿**；`cargo build --target x86_64-unknown-none` 成功（**CI 门禁**，编译通过即证明未依赖 `alloc`） |
+| **no_std 子集（2.1 / 2.3b 片1）** | ✅ `meta-kernel-core-nostd` **71 项测试全绿**（2.1 时 60；**+11 为 2.3b 片1 迁入的 `l7::grade` 自带测试**）；`cargo build --target x86_64-unknown-none` 成功（**CI 门禁**）。⚠️ 2.3b 起**使用标准分发的 `alloc`**（D34-b），故"未依赖 alloc"这一旧判据**已不再适用**（改为：裸机目标可编 ＋ boot 层 `alloc` 探针 ＋ **QEMU 绿屏**） |
+| **alloc 迁移（2.3b）** | 🚧 **分片执行中**：**片1 ✅**（`l7::grade` 294 行；保真度判据＝剔除插入行后 **270 有效行逐字相同**；实际改动 **+1 行 `use alloc::vec::Vec`**）｜**片2–5 待确认**（C4，清单见 `reports/2026-09-17_子任务2.3b_改动清单_订正.md`）。<br>⚠️ **规模订正**：真实**依赖闭包 = 22 模块 / 6,853 行**（上轮"10 文件 3,098 行"**只算直接文件、漏了 12 个传递依赖 3,755 行**）；另有 **151 处 `std` 专有浮点方法**（`.abs()` 100／`.sqrt()` 8／…；fmath 已覆盖 7 类，缺 `round`/`log2`）<br>**alloc 裸机门禁**：✅ **通过** —— `liballoc` 随裸机 target sysroot 提供；内核增 **`alloc` 探针**（`Vec` 渐进增长/`with_capacity`/`String` 拼接/`format!`，并断言**净零＝无泄漏**）后镜像可构建（内核 ELF **+155,816 B**，证 `liballoc` 已真链接） |
+| **机制 17 第二实例（大模型接入骨架）** | ✅ 公开层 `coordination/llm/`（4 文件：任务分级／降级规则／成本记录 三接口 ＋ 总览，**只写"做什么"**）｜实现层 `{PRIVATE_ASSETS}/llm/`（4 文件，⛔；**合同已定、取值待填**，未编造）｜**机器校验**：`coordination/tools/check_private_pointers.py`（`--mode=syntax` **已入 CI**／`--mode=resolve` 仅本机）＋ 泄漏基线 `coordination/security/leak_baseline.txt` |
 | **内存管理（2.3）** | ✅ `meta-kernel-mem`（纯逻辑层）**25 项 host 测试全绿**；`#![forbid(unsafe_code)]`（**零 unsafe 结构性保证**）｜boot 层 `mem/` 可建堆并完成**经真实 `GlobalAlloc` 的往返**（分配→写入→读回→释放→**再分配复用**＋帧路径对齐）；**判定升级三色**（绿=全过／**黄=拿不到堆区就停**／红=失败）<br>**C9 门禁**：真实 unsafe **仅 1 个文件**（21 处／`// SAFETY:` 22 条／`transmute` **0**）；白名单**首次登记 1 条**；**扫描范围已扩到阶段二新增目录**（原先不含 ⇒ 会让门禁空转） |
 | **引导层（2.2）** | ✅ `meta-kernel-boot`：可引导 `boot-bios.img` **3,638,272 字节**／MBR 签名 **`55aa`**；**CI `boot-image` job 上 QEMU 真实引导 + 帧缓冲截屏断言通过**（**1280×720**、**25 个采样点全为 `(0,255,0)`**）；**真实 unsafe = 0**（路线 A：屏幕输出只经安全 API） |
 | 本地验收模式实跑 | **11 个全跑**：**10 PASS**（含修复后的 `diag-check`）｜1 PARTIAL（`quad-check`·已知待加强） |
@@ -201,3 +205,4 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
 | **D33** | **夜间是否允许 push**（机制 19 安全边界，T-015） | ✅ **用户已确认（2026-09-17）：选① 夜间默认不自动 push**。**夜间只允许本地 commit**；**次日由用户一句话放行推送**。若确需推送，**必须走 C10（用户明确确认）**。<br>⇒ 已同步写入 23:00 定时任务 prompt（禁止清单第 5 条）与 `TEMPLATES.md` §11.8 |
 | **D34** | **是否放行 C9 白名单**（首次，机制 19 → 2.3 触发） | ✅ **用户已确认（2026-09-17）：同意放行，仅限 `meta-kernel-boot/kernel/src/mem/global.rs`**。<br>**四项要求**：① 每块 unsafe **必须有 `// SAFETY:` 论证** ② **禁 transmute** ③ 白名单登记 ④ **纳入 CI 门禁**。<br>⇒ 已执行：白名单登记该 1 条；CI 的 C9 门禁（词边界 + 剔注释 + SAFETY 计数 + 禁 transmute + **门禁自检**）自动覆盖 |
 | **D34-b** | **`alloc` 是否破 C1「内核零依赖」** | ✅ **用户已确认（2026-09-17）：认定 `alloc` 属标准分发，不破 C1**。<br>**要求写的三条界线**（已写入 `CONSTRAINTS.md` **C1 举例**）：① `core`/`alloc` 属标准分发、**不算外部依赖**；② **`alloc` 使用不得引入外部 crate**；③ **`GlobalAlloc` 实现受 C9 约束** |
+| **D35** | **`docs/` 与 `deploy/` 历史文件内 ⛔ 内容的换壳范围**（R25 的**未解除部分**；本轮新增） | ⏳ **待用户确认**：这 **14 条**（`docs/FULL_AUDIT_REPORT.md` 13 处内网 IP ＋ 3 用户名 ＋ 3 路径；`docs/HOST_BUILD.md`／`SECURITY_TROUBLESHOOTING.md`；`docs/*_REPORT.md` 的内网 IP；`deploy/win64/README.md`）**已在公网**（git 历史撤不回）。<br>**三种做法**：① **全量换壳**（改当前文件内容，**历史仍留**）② **保持现状**（只靠基线锁住"不再新增"＋**新文件零泄漏**）③ **只换 `deploy/`**（部署文档最可能被外部读到）。<br>**成本/风险**：① 约 30 分钟、可逆（git diff 可回）但**会让历史报告与当时事实不完全一致**（须留痕说明）；② 成本 0，但**这 14 条继续公开**；③ 折中。<br>**若你选①，我会在每处加"（已换壳，原值为本机路径）"留痕**，不做静默改写 |

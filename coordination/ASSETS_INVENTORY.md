@@ -33,7 +33,7 @@
 | 实现 | **`{PRIVATE_ASSETS}/ASSETS_INVENTORY.md`** | 39 项资产、分级、原术语↔物理语言对照表、替换四档 |
 
 > **同一套做法已推广到通用工作流**：`coordination/workflows/sub/01..08` 的"实现层"节
-> 由"[占位]"改为 **`{PRIVATE_ASSETS}/workflows/sub/0N_*_impl.md` 指针**（骨架-实现一一对应）。
+> 由"[占位]"改为 **`{PRIVATE_ASSETS}/workflows/sub/0N_*_impl.md` 指针**（**模式**：`0N` 指 01–08 八个实现文件，骨架-实现一一对应；故此处按"模式"豁免存在性校验）。
 > 规范与检查清单见 `TEMPLATES.md` **§十**。
 
 ## 三、与其他机制的关系

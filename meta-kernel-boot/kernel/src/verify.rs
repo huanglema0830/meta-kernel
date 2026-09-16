@@ -104,6 +104,53 @@ pub fn self_check() -> u8 {
         return 8;
     }
 
+    // ④ ★ **2.3b 迁移代码在裸机上算对**（`l7::grade` —— 本轮分片第 1 片）
+    //    这一段的意义：不只证明"`alloc` 能链接"，而是证明**迁移过来的真实业务代码
+    //    在裸机上跑出正确结果**（含 `Vec` 路径 ⇒ 经真实 `GlobalAlloc`）。
+    //    含**反向断言**（触及用户数据必须 T3 拒绝）—— 防"判据空转"。
+    {
+        use meta_kernel_core_nostd::l7::grade::{
+            grade_of, ActionSpec, Grade, Grants, Scope, Touches,
+        };
+
+        // 正向：纯读 ⇒ T0
+        let read = ActionSpec::new(1, "read-only", Scope::ReadOnly, Touches::Nothing);
+        if grade_of(&read) != Grade::T0Read {
+            return 9;
+        }
+        // 反向①：触及**用户数据** ⇒ 必须 **T3 拒绝**（红线优先于一切）
+        let user_data = ActionSpec::new(2, "touch-user-data", Scope::SelfApp, Touches::UserData);
+        if grade_of(&user_data) != Grade::T3Refuse {
+            return 10;
+        }
+        // 反向②：触及**网络配置** ⇒ 必须 **T2**（**不是** T1 —— 分级不能"往下漏"）
+        let net = ActionSpec::new(3, "net-config", Scope::SelfApp, Touches::NetworkConfig);
+        if grade_of(&net) != Grade::T2Confirm {
+            return 11;
+        }
+        // 反向③：不可逆且无回滚 ⇒ **T3**（"无法回滚的一律拒绝"）
+        let irreversible = ActionSpec {
+            id: 4,
+            name: "irreversible",
+            scope: Scope::SelfApp,
+            touches: Touches::OwnFiles,
+            reversible: false,
+            has_rollback: false,
+        };
+        if grade_of(&irreversible) != Grade::T3Refuse {
+            return 12;
+        }
+        // `Vec` 路径（经真实 `GlobalAlloc`）：授权**幂等**、撤销**单条**
+        let mut g = Grants::new();
+        g.grant(7);
+        g.grant(7); // 幂等：不得重复追加
+        g.grant(9);
+        g.revoke(7);
+        if g.granted.len() != 2 || g.granted[1] != 9 || g.revoked.len() != 1 || g.revoked[0] != 7 {
+            return 13;
+        }
+    }
+
     0
 }
 

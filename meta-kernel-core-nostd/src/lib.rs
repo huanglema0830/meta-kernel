@@ -29,10 +29,24 @@
 //! | [`l4`] | 拒绝层：七维场域判据 + 路由（阈值经 `Thresholds` 注入） | 复制 + **拆分** |
 //! | [`l4_risk`] | 四条戒律风险判定（**纯判据**；文本输出留 std） | 复制 + **拆分** |
 //!
-//! **不迁（留 2.3）**：`l5_*`（baseline/quad/evidence）、`fourier`/`interference`/`energy`、
-//! **`l7` 及其 4 个子模块（`grade`/`ledger`/`mesh`/`repair`，共 1,122 行，均含 alloc）**、
+//! **2.3b 迁移进度（2026-09-17 起）**：
+//!
+//! | 片 | 模块 | 状态 |
+//! |---|---|---|
+//! | 第 1 片 | [`l7::grade`] | ✅ **已迁入**（自包含、无 std、无浮点；仅补 1 行 `use alloc::vec::Vec`） |
+//!
+//! **仍不迁**：`l5_*`（baseline/quad/evidence）、`fourier`/`interference`/`energy`、
+//! `l7::{ledger,mesh,repair}`（共 1,122 行中未迁部分）、
 //! `gene_library`、`ontology`、`sanitizer`、`state`、`trace`、`habit`、`dna_*`、`executor` 等。
-//! 判据见报告：**"alloc 出现在算法内部/结构体字段" ⇒ 本轮不强拆**（避免改算法语义）。
+//!
+//! ⚠️ **2.3b 的真实规模（订正）**：上轮清单写"10 文件 3,098 行"——那**只算了直接文件**。
+//! 实测**非测试代码的依赖闭包 = 22 模块 / 6,853 行**（10 种子 3,098 + 12 个传递依赖 3,755），
+//! 另有 **151 处 `std` 专有浮点方法**需改走 [`fmath`]。**故 2.3b 改为分片执行**，
+//! 每片必须**自包含**（不引入未迁模块），逐片验证。清单见
+//! `coordination/reports/2026-09-17_子任务2.3b_改动清单_订正.md`。
+//!
+//! **`alloc` 的地位**（**D34-b**）：`alloc` 属**标准分发**（随工具链提供、非第三方 crate），
+//! **使用它不破 C1**；但使用时**不得因此引入任何外部 crate**。
 //!
 //! ## 测试策略
 //!
@@ -41,6 +55,11 @@
 //! 而 `cargo build --target x86_64-unknown-none` 时严格 `no_std`。
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
+
+// **D34-b**：`alloc` 属**标准分发**（随工具链提供、非第三方 crate），使用它**不破 C1**。
+// 裸机目标上 `alloc` 的可用性由 **`liballoc` 随 sysroot 提供 + boot 层注册 `#[global_allocator]`** 保证；
+// 是否真的"能链接"由 **boot 层的 `alloc` 探针 + QEMU 绿屏**证成（不靠宣称）。
+extern crate alloc;
 
 pub mod math;
 
@@ -53,3 +72,5 @@ pub mod linear;
 
 pub mod l4;
 pub mod l4_risk;
+
+pub mod l7;

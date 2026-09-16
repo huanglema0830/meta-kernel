@@ -1,0 +1,27 @@
+# 机制 17 · ⛔ 泄漏**基线**（R25 台账）
+#
+# 用途：`coordination/tools/check_private_pointers.py --mode=syntax` 把它当作"已存在、已知情"的集合——
+#   * 某文件某模式的命中数 **> 基线** ⇒ **判红**（＝新增泄漏，必须修）
+#   * **< 基线** ⇒ 只提示"可精简基线"（＝有人修好了，请下调这里的数字）
+#
+# 为什么要有基线：这些是**已公开的历史内容**（`docs/` 的既有审计/报告），
+#   git 历史撤不回（D30-1），换壳范围**需用户定**；先用基线把"**不再新增**"锁住。
+#
+# ⚠️ 维护纪律（C15）：**只减不增**。修好一条 ⇒ 下调一条；**新增一条 ⇒ 必须先修代码，不是改基线**。
+# 生成时间：2026-09-17（本轮）
+#
+# 格式：<仓库相对路径>|<模式>|<条数>
+deploy/win64/README.md|lan_ip|1
+docs/FULL_AUDIT_REPORT.md|lan_ip|13
+docs/FULL_AUDIT_REPORT.md|username_literal|3
+docs/FULL_AUDIT_REPORT.md|win_abs_path|3
+docs/HOST_BUILD.md|unix_home_path|1
+docs/HOST_BUILD.md|username_literal|1
+docs/HOST_BUILD.md|win_abs_path|1
+docs/HOST_UI_DECISION.md|lan_ip|1
+docs/L5_VALIDATION_REPORT.md|lan_ip|3
+docs/PERFORMANCE_REPORT.md|lan_ip|1
+docs/SECURITY_TROUBLESHOOTING.md|lan_ip|1
+docs/SECURITY_TROUBLESHOOTING.md|username_literal|2
+docs/SECURITY_TROUBLESHOOTING.md|win_abs_path|1
+docs/SILA_IMPLEMENTATION.md|lan_ip|1
