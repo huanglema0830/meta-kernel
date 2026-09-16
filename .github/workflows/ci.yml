@@ -45,6 +45,10 @@ jobs:
 
       - name: Upload npb-gateway test log
         if: always()
+        # R24：诊断性**产物上传**不是门禁 —— GitHub 侧产物服务抖动（实测 `Failed to FinalizeArtifact: 403 Forbidden`）
+        # 会把整个 job 判红，**掩盖真实状态**（那次 20/20 个真实步骤全过、重跑即绿）。
+        # 故上传步骤一律 non-fatal；**真正的门禁（测试/构建/像素断言/C9）保持硬失败，不放宽**。
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: gateway-test-log
@@ -98,6 +102,10 @@ jobs:
 
       - name: Upload workspace test log
         if: always()
+        # R24：诊断性**产物上传**不是门禁 —— GitHub 侧产物服务抖动（实测 `Failed to FinalizeArtifact: 403 Forbidden`）
+        # 会把整个 job 判红，**掩盖真实状态**（那次 20/20 个真实步骤全过、重跑即绿）。
+        # 故上传步骤一律 non-fatal；**真正的门禁（测试/构建/像素断言/C9）保持硬失败，不放宽**。
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: phase1-test-log
@@ -132,6 +140,10 @@ jobs:
 
       - name: Upload DOS demo log
         if: always()
+        # R24：诊断性**产物上传**不是门禁 —— GitHub 侧产物服务抖动（实测 `Failed to FinalizeArtifact: 403 Forbidden`）
+        # 会把整个 job 判红，**掩盖真实状态**（那次 20/20 个真实步骤全过、重跑即绿）。
+        # 故上传步骤一律 non-fatal；**真正的门禁（测试/构建/像素断言/C9）保持硬失败，不放宽**。
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: dos-demo-log
@@ -232,6 +244,10 @@ jobs:
 
       - name: Upload UI verify artifacts (always)
         if: always()
+        # R24：诊断性**产物上传**不是门禁 —— GitHub 侧产物服务抖动（实测 `Failed to FinalizeArtifact: 403 Forbidden`）
+        # 会把整个 job 判红，**掩盖真实状态**（那次 20/20 个真实步骤全过、重跑即绿）。
+        # 故上传步骤一律 non-fatal；**真正的门禁（测试/构建/像素断言/C9）保持硬失败，不放宽**。
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ui-verify-artifacts
@@ -347,6 +363,10 @@ jobs:
 
       - name: Upload 引导镜像与截屏（always）
         if: always()
+        # R24：诊断性**产物上传**不是门禁 —— GitHub 侧产物服务抖动（实测 `Failed to FinalizeArtifact: 403 Forbidden`）
+        # 会把整个 job 判红，**掩盖真实状态**（那次 20/20 个真实步骤全过、重跑即绿）。
+        # 故上传步骤一律 non-fatal；**真正的门禁（测试/构建/像素断言/C9）保持硬失败，不放宽**。
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: meta-kernel-boot-image
@@ -770,6 +790,10 @@ jobs:
 
       - name: Upload 宿主验收日志（always）
         if: always()
+        # R24：诊断性**产物上传**不是门禁 —— GitHub 侧产物服务抖动（实测 `Failed to FinalizeArtifact: 403 Forbidden`）
+        # 会把整个 job 判红，**掩盖真实状态**（那次 20/20 个真实步骤全过、重跑即绿）。
+        # 故上传步骤一律 non-fatal；**真正的门禁（测试/构建/像素断言/C9）保持硬失败，不放宽**。
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: host-field-render-logs
@@ -782,6 +806,10 @@ jobs:
 
       - name: Upload 宿主 exe（release，可直接下载运行）
         if: always()
+        # R24：诊断性**产物上传**不是门禁 —— GitHub 侧产物服务抖动（实测 `Failed to FinalizeArtifact: 403 Forbidden`）
+        # 会把整个 job 判红，**掩盖真实状态**（那次 20/20 个真实步骤全过、重跑即绿）。
+        # 故上传步骤一律 non-fatal；**真正的门禁（测试/构建/像素断言/C9）保持硬失败，不放宽**。
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: field-render-exe-windows-x86_64
