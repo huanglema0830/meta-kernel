@@ -268,13 +268,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 安装 nightly（boot 层专用）+ llvm-tools-preview + rust-src
+      - name: 安装 nightly（boot 层专用）+ llvm-tools-preview + rust-src + 裸机 target
         shell: bash
         run: |
           set -euo pipefail
           rustup toolchain install nightly --profile minimal \
             --component llvm-tools-preview --component rust-src
+          # ⚠️ 必须显式加裸机 target：**本机早因 2.1 装过，会掩盖这个缺口** ——
+          #    首跑 CI 就报 `error[E0463]: can't find crate for core`
+          #    （`the x86_64-unknown-none target may not be installed`）。
+          #    这是 R14 同族问题："本机绿 ≠ CI 绿"，故在此显式安装 + 显式断言。
+          rustup target add x86_64-unknown-none --toolchain nightly
+          rustup target list --installed --toolchain nightly | tee "$RUNNER_TEMP/nightly_targets.txt"
+          grep -qx 'x86_64-unknown-none' "$RUNNER_TEMP/nightly_targets.txt" \
+            || { echo "::error::nightly 缺少裸机 target x86_64-unknown-none"; exit 1; }
           rustc +nightly --version
+          echo "NIGHTLY_BOOT_TOOLCHAIN_OK"
           echo "nightly 仅用于本 job 的 boot 层；workspace 其余部分由 test job 的 stable 构建（D31-b）"
 
       - name: 安装 QEMU
