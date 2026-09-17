@@ -857,12 +857,21 @@ mod tests {
     }
 
     /// **大参数专项**：Cody-Waite 归约质量（|x| ∈ [10, 1000]）
+    ///
+    /// ⚠️ **2026-09-17（P3-3）修正**：原断言写的是 `s.max_ulp <= 4 || c.max_ulp <= 4` ——
+    /// 用 **`||`** 意味着 **`sin` 与 `cos` 只要一侧达标就算通过**，**弱化了一半门线**（真实缺陷）。
+    /// 实测两侧均为 **1 ULP**（`sin` 1／`cos` 1，40,000 点）⇒ 改为 **`&&`** 后**断言收紧且仍为绿**。
     #[test]
     fn sin_cos_large_argument() {
         let xs = sample(10.0, 1000.0, 40_000);
         let s = check("sin大参数", &xs, sin, f32::sin);
         let c = check("cos大参数", &xs, cos, f32::cos);
-        assert!(s.max_ulp <= 4 || c.max_ulp <= 4, "大参数归约应保持 ≤4 ULP");
+        assert!(
+            s.max_ulp <= 4 && c.max_ulp <= 4,
+            "大参数归约应保持 ≤4 ULP（sin={} cos={}）",
+            s.max_ulp,
+            c.max_ulp
+        );
     }
 
     #[test]
@@ -1148,6 +1157,82 @@ mod f64_tests {
         assert!(rem_euclid_f64(1.0, 0.0).is_nan());
         // 典型语义（std 文档例）
         assert_eq!(rem_euclid_f32(-1.0, 4.0), 3.0);
+    }
+
+    /// `sin` / `cos` 的 **f64 路径**回归（**性质判据**；2026-09-17 P3-3 补缺）。
+    ///
+    /// ## ⚠️ 为什么本测试**不**断言 D29 的 ≤4 ULP 门线（**诚实标注**）
+    ///
+    /// 实测（host，基准 `std`，见报告 `2026-09-17_fmath精度回归补缺.md`）：
+    ///
+    /// | 量 | 实测 |
+    /// |---|---|
+    /// | `sin`/`cos` f64 **ULP 上界**（全域，含 `\|x\| ≤ 1000`） | **≈ 3500 ULP** |
+    /// | **绝对误差上界** | **≈ 3.9e-13** |
+    /// | 根因 | `cos` 泰勒级数**截断于 `r¹²`**（缺 `r¹⁴/14!`，该项残差 ≈ **3.87e-13**，与实测吻合）；`sin` 截断于 `r¹³` |
+    /// | 门线（**D29**） | **≤ 4 ULP** ⇒ **未达标（差约 875×）** |
+    ///
+    /// 另有**归约失效区**（仅三段 Cody-Waite，无 Payne-Hanek）：
+    /// `|x| ≈ 1e8` 起绝对误差 > 1e-9，`|x| ≥ 1e15` 起灾难性错误 —— **已在报告中登记为缺陷**。
+    ///
+    /// 按 **C5（诚实标注）／C7（不用 CI 通过代替真实运行）**：
+    /// **既不降门线、也不打绿** ⇒ 本测试只固化**当前确实成立**的性质以拦截**静默回归**；
+    /// **⚠️ 该缺陷修复后，应在此处补上「≤ 4 ULP」的门线断言。**
+    #[test]
+    fn sin_cos_f64_regression() {
+        use FloatOps as F;
+
+        // ① 特殊点：**位级精确**（零点 / 无穷 / NaN / 负零符号）
+        assert_eq!(F::sin(0.0f64), 0.0);
+        assert_eq!(F::cos(0.0f64), 1.0);
+        assert_eq!(F::sin(-0.0f64).to_bits(), (-0.0f64).to_bits(), "sin(-0) 应保留负零");
+        assert!(F::sin(f64::INFINITY).is_nan(), "sin(∞) 应为 NaN");
+        assert!(F::cos(f64::NAN).is_nan(), "cos(NaN) 应为 NaN");
+
+        // ② 奇偶性（**位级**）｜③ 周期 2π｜④ 恒等式 sin²+cos²=1｜⑤ 输出有界
+        const N: usize = 20_001;
+        let mut parity_sin = 0usize;
+        let mut parity_cos = 0usize;
+        let mut worst_id = 0.0f64;
+        let mut worst_period = 0.0f64;
+        for i in 0..N {
+            let x = -1000.0 + 2000.0 * (i as f64) / ((N - 1) as f64);
+            let (s, c) = (F::sin(x), F::cos(x));
+
+            if F::sin(-x).to_bits() != (-s).to_bits() {
+                parity_sin += 1;
+            }
+            if F::cos(-x).to_bits() != c.to_bits() {
+                parity_cos += 1;
+            }
+            worst_id = worst_id.max((s * s + c * c - 1.0).abs());
+            worst_period = worst_period.max((F::sin(x + core::f64::consts::TAU) - s).abs());
+
+            assert!(s.is_finite() && c.is_finite(), "sin/cos 在 x={x:e} 返回非有限值");
+            assert!(s.abs() <= 1.0 && c.abs() <= 1.0, "sin/cos 越界：x={x:e} s={s} c={c}");
+        }
+        assert_eq!(parity_sin, 0, "sin 奇对称性**位级**违例 {parity_sin} 处");
+        assert_eq!(parity_cos, 0, "cos 偶对称性**位级**违例 {parity_cos} 处");
+        // 门线取实测值的 2 个数量级余量（实测 5.77e-13 / 2.16e-14），**不是精度门线**
+        assert!(worst_id <= 1e-12, "sin²+cos² 恒等式残差 {worst_id:e} 超过 1e-12");
+        assert!(worst_period <= 1e-12, "周期 2π 残差 {worst_period:e} 超过 1e-12");
+
+        // ⑥ 归约**有效域**（实测 |x| ≤ 1e7 时绝对误差 ≤ 1.2e-14；此处留 2 个数量级余量）
+        //    ⚠️ 本断言**只覆盖 |x| ≤ 1e7** —— 更大参数的退化已在报告中登记为缺陷，**此处不固化错误行为**
+        let mut worst_abs = 0.0f64;
+        for &x in &[1.0f64, -1.0, 1e2, -1e2, 1e4, 1e6, 1e7, -1e7] {
+            worst_abs = worst_abs.max((F::sin(x) - x.sin()).abs());
+            worst_abs = worst_abs.max((F::cos(x) - x.cos()).abs());
+        }
+        assert!(
+            worst_abs <= 1e-12,
+            "|x| ≤ 1e7 的绝对误差 {worst_abs:e} 超过 1e-12（归约或级数可能被改坏）"
+        );
+
+        println!(
+            "sin_cos_f64 回归：恒等式残差={worst_id:e}｜周期残差={worst_period:e}｜|x|≤1e7 绝对误差={worst_abs:e}\
+｜（⚠️ 精度**未达** D29 的 ≤4 ULP 门线，本测试只固化性质）"
+        );
     }
 
     /// **trait 对 f64 真被实现**（用**显式路径**调用，绕开 host 上的"内在方法优先"，否则本断言会空转）。
