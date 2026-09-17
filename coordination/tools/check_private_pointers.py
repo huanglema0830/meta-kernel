@@ -53,7 +53,7 @@ PENDING_MARKS = ("待建", "示例", "模式")
 LEAK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # 盘符路径：**要求 `Users/` 或 `用户/` 之后紧跟"名字型字符"**（字母/数字/下划线/汉字）。
     # —— 于是 `C:\Users\...`、`C:\Users\<用户名>` 这类**掩码示例不命中**，
-    #    只有 `C:\Users\香忆\...` 这种**真名**才命中。
+    #    只有 `C:\Users\<用户名>\...` 这种**真名**才命中。
     # ⚠️ 初版写成"`Users/` 后跟非空白 2 字符"是**过宽**的：`...` 与后面的汉字之间能"跨过"
     #    反引号等标点连成一段，导致**掩码示例被误报**（本题第 2 次改判据，R16 同族教训）。
     ("win_abs_path", re.compile(
@@ -339,6 +339,15 @@ def main() -> int:
             print(f"[info] 可精简基线：{key[0]}｜{key[1]}｜实测 {n} < 基线 {allowed}（建议下调）")
         if not new_leaks:
             print(f"[PASS] 未新增 ⛔ 泄漏（基线项 {len(base)} 条，本次命中 {len(hits)} 条）")
+            # ★ **如实标注判据覆盖盲区**（R30）：`username_literal` 依赖**本机 home 名**，
+            #    在 CI（`runneradmin`）上**根本无法匹配** ⇒ 该项在 CI 侧"看起来已修好"，
+            #    实际只是**不可评估**。**不得**因此下调基线（C15：只减不增）。
+            uname_item = [k for k in base if k[1] == "username_literal"]
+            if uname_item:
+                print(f"[info] ⚠️ **R30 判据盲区**：`username_literal` 项（{len(uname_item)} 条）"
+                      f"依赖**本机 home 名**或**掩码名**，**CI 侧不可评估** ⇒ "
+                      f"「命中数 < 基线」若出现在这一项，**代表不可评估，不代表已修好**。"
+                      f"（本机需单独跑 `--mode=syntax` 才能覆盖该项）")
 
         # —— [5] 密钥级别判据（同时也算"泄漏"侧的一条硬判据）——
         key_bad = check_key_levels(root)
