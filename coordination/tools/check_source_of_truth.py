@@ -158,8 +158,26 @@ def selftest():
         e2, _, _ = _check(repo, mem)
         assert e2, "阴性对照 2 应失败（ROADMAP 缺阶段映射）"
         print("  阴性对照2 PASS（去掉阶段映射 ⇒ 判红）")
+        (repo / "coordination" / "ROADMAP.md").write_text("阶段路线（主线）", encoding="utf-8")
 
-    print("selftest: PASS（阳性 1 ＋ 阴性 2）")
+        # 阳性对照 2（**CI 场景**）：MEMORY 在仓库外、CI 上不存在 ⇒ 仅凭合规 CHARTER 仍应 PASS。
+        # 为什么必须有这一条：2026-09-18 v0.191 CI 首次判红——判据 D 查 CHARTER∪MEMORY，
+        # 而 CI 上没有 MEMORY，CHARTER 又只写了 `docs/` 泛指、没列核心底图文件名 ⇒ 本机绿、CI 红。
+        # 教训：**"本机绿"不等于"CI 绿"**；凡是依赖仓库外文件的判据，必须有 CI 场景的对照。
+        e3, w3, _ = _check(repo, str(repo / "NO_SUCH_MEMORY.md"), ci=True)
+        assert not e3, "阳性对照 2 应通过（CI 场景：无 MEMORY 但 CHARTER 合规），实际：%s" % e3
+        assert w3, "阳性对照 2 应产生 MEMORY 缺失 warn"
+        print("  阳性对照2 PASS（CI 场景：无 MEMORY 仍 PASS，仅 warn）")
+
+        # 阴性 3（**CI 场景**）：CHARTER 只写 `docs/` 泛指、不列核心底图文件名 ⇒ 应 fail
+        vague = "底图 = README.md + docs/ ；冲突以底图为准"
+        charter.write_text(vague, encoding="utf-8")
+        e4, _, _ = _check(repo, str(repo / "NO_SUCH_MEMORY.md"), ci=True)
+        assert e4, "阴性对照 3 应失败（CI 场景：CHARTER 无核心底图名单 ⇒ 判据 D 判红）"
+        print("  阴性对照3 PASS（CI 场景：CHARTER 无核心底图名单 ⇒ 判红）")
+        charter.write_text(good_charter, encoding="utf-8")
+
+    print("selftest: PASS（阳性 2 ＋ 阴性 3）")
 
 
 def main():
