@@ -262,12 +262,14 @@ fn atan_f64(t: f64) -> f64 {
         (0.0, t)
     };
 
-    // atan(t) = t - t³/3 + t⁵/5 - …  （|t| ≤ 0.268 ⇒ t²¹/21 项 ~1e-15）
+    // atan(t) = t - t³/3 + t⁵/5 - …
+    // ⚠️ **项数由 10 提到 16**（2026-09-17 片3 修正）：|t| ≤ 0.268 ⇒ 10 项残差 ≈ 0.268²¹/21 ≈ **5.7e-14**，
+    //    对 f32 足够，但 **对 f64 不够**（f64 需要 ≲1e-17）。16 项残差 ≈ 0.268³³/33 ≈ **1.6e-21** ✓
     let t2 = t * t;
     let mut term = t;
     let mut sum = t;
     let mut i = 1u32;
-    while i <= 10 {
+    while i <= 16 {
         term *= -t2;
         sum += term / f64::from(2 * i + 1);
         i += 1;
@@ -400,39 +402,258 @@ pub fn log2(x: f32) -> f32 {
     ln(x) / core::f32::consts::LN_2
 }
 
+// ================== f64 侧实现（**2.3b 片3 发现的需求**）==================
+
+// **为什么必须有 f64 侧**（编译探针实测，不是推测）：`core` 对 f64 **只给 `abs`/`max`/`min`**，
+// `round`/`sqrt`/`log2`/`exp`/`powi`/`floor`/`rem_euclid` **一律没有**。
+// 片3 的 `ontology`（f64 `.round()`/`.sqrt()`）与 `state`（f64 `.log2()`）在 no_std 下
+// **无处可去** ⇒ 不补 f64 实现，片3 就不成立（**先决条件**，不是可选项）。
+// 精度判据与 f32 同口径：**与 `std` 逐点对照的 ULP 上限**（见文末测试）。
+
+/// f64 平方根：**位技巧初值 + 牛顿迭代**（与 f32 同法）。
+#[must_use]
+pub fn sqrt_f64(x: f64) -> f64 {
+    if x.is_nan() {
+        return x;
+    }
+    if x < 0.0 {
+        return f64::NAN;
+    }
+    if x == 0.0 || x.is_infinite() {
+        return x; // 保 ±0；+∞ → +∞
+    }
+    // 次正规数：先放大 2^54 进入正规区，结果再缩回 2^27（否则初值位技巧不成立）
+    if x < f64::MIN_POSITIVE {
+        return sqrt_f64(x * 1.801_439_850_948_198_4e16) / 1.342_177_28e8;
+    }
+    let mut y = f64::from_bits((x.to_bits() >> 1) + 0x1ff8_0000_0000_0000);
+    let mut i = 0;
+    while i < 5 {
+        y = 0.5 * (y + x / y);
+        i += 1;
+    }
+    y
+}
+
+/// `2^k`（整指数，**用位模式构造**，不走 `powf`）。
+fn exp2i(k: i64) -> f64 {
+    if k >= 1024 {
+        return f64::INFINITY;
+    }
+    if k <= -1075 {
+        return 0.0;
+    }
+    if k >= -1022 {
+        return f64::from_bits(((k + 1023) as u64) << 52);
+    }
+    f64::from_bits(1u64 << (k + 1074)) // 次正规
+}
+
+/// f64 自然指数：**范围归约 + 泰勒级数**（`x = k·ln2 + r`，`|r| ≤ ln2/2`）。
+#[must_use]
+pub fn exp_f64(x: f64) -> f64 {
+    if x.is_nan() || x.is_infinite() {
+        return x;
+    }
+    // **Cody-Waite 两段式 ln2**（2026-09-17 片3 修正）：
+    // 单段写法 `r = x - k*LN_2` 在 |x| 大时**抵消**掉有效数字 ——
+    // 实测 `exp(-700)` 误差 **244 ULP**（k·ln2 ≈ -700，相乘舍入 ~1e-13 直接变成 r 的绝对误差）。
+    // 两段写法：`LN2_HI` 的低位为零 ⇒ `k*LN2_HI` **精确**，且与 `x` 同量级 ⇒ 该减法**精确**（Sterbenz），
+    // 残余误差只来自 `LN2_LO` 项，量级 ~1e-27 ⇒ 实测回到 ≤2 ULP。
+    const LN2_HI: f64 = 0.693_147_180_369_123_8;
+    const LN2_LO: f64 = 1.908_214_929_270_587_7e-10;
+    let k = round_f64(x * core::f64::consts::LOG2_E);
+    let r = (x - k * LN2_HI) - k * LN2_LO;
+    let mut term = 1.0f64;
+    let mut sum = 1.0f64;
+    let mut i = 1.0f64;
+    while i <= 20.0 {
+        term *= r / i;
+        sum += term;
+        i += 1.0;
+    }
+    sum * exp2i(k as i64)
+}
+
+/// f64 以 2 为底的对数：**指数/尾数分解 + atanh 级数**。
+#[must_use]
+pub fn log2_f64(x: f64) -> f64 {
+    if x <= 0.0 {
+        return if x == 0.0 { f64::NEG_INFINITY } else { f64::NAN };
+    }
+    if !x.is_finite() {
+        return x;
+    }
+    let mut xv = x;
+    let mut adj = 0.0f64;
+    if xv < f64::MIN_POSITIVE {
+        xv *= 1.801_439_850_948_198_4e16; // ×2^54
+        adj = -54.0;
+    }
+    let bits = xv.to_bits();
+    let e = ((bits >> 52) & 0x7ff) as i64 - 1023;
+    let m = f64::from_bits((bits & 0x000f_ffff_ffff_ffff) | 0x3ff0_0000_0000_0000);
+    // log2(m) = (2/ln2)·(t + t³/3 + t⁵/5 + …)，t = (m−1)/(m+1) ∈ [0, 1/3]
+    let t = (m - 1.0) / (m + 1.0);
+    let t2 = t * t;
+    let mut term = t;
+    let mut sum = 0.0f64;
+    let mut k = 1.0f64;
+    let mut i = 0;
+    while i < 24 {
+        sum += term / k;
+        term *= t2;
+        k += 2.0;
+        i += 1;
+    }
+    adj + (e as f64) + sum * (2.0 / core::f64::consts::LN_2)
+}
+
+/// f64 自然对数（`ln(x) = log2(x)·ln2`）。
+#[must_use]
+pub fn ln_f64(x: f64) -> f64 {
+    log2_f64(x) * core::f64::consts::LN_2
+}
+
+/// f64 两参数反正切（与 f32 版同法；f32 版内部本就全用 f64，故此处只是去掉 `as f32`）。
+#[must_use]
+pub fn atan2_f64(y: f64, x: f64) -> f64 {
+    const PI: f64 = 3.141_592_653_589_793;
+    const FRAC_PI_2: f64 = 1.570_796_326_794_896_6;
+    if x.is_nan() || y.is_nan() {
+        return f64::NAN;
+    }
+    if x.is_infinite() || y.is_infinite() {
+        let (xi, yi) = (x.is_infinite(), y.is_infinite());
+        return match (xi, yi) {
+            (true, false) => {
+                if x > 0.0 {
+                    if y > 0.0 { 0.0 } else if y < 0.0 { -0.0 } else { 0.0 }
+                } else if y > 0.0 {
+                    PI
+                } else if y < 0.0 {
+                    -PI
+                } else {
+                    PI
+                }
+            }
+            (false, true) => {
+                if y > 0.0 { FRAC_PI_2 } else { -FRAC_PI_2 }
+            }
+            (true, true) => {
+                let base = if x > 0.0 { PI / 4.0 } else { 3.0 * PI / 4.0 };
+                if y > 0.0 { base } else { -base }
+            }
+            (false, false) => unreachable!(),
+        };
+    }
+    if x == 0.0 && y == 0.0 {
+        return 0.0;
+    }
+    let ax = abs_f64(x);
+    let ay = abs_f64(y);
+    let a = if ax >= ay { atan_f64(ay / ax) } else { FRAC_PI_2 - atan_f64(ax / ay) };
+    if x >= 0.0 {
+        if y >= 0.0 { a } else { -a }
+    } else if y >= 0.0 {
+        PI - a
+    } else {
+        a - PI
+    }
+}
+
+/// f64 整数幂（平方-乘；`n < 0` 先取倒数——与 f32 版同一教训）。
+#[must_use]
+pub fn powi_f64(x: f64, n: i32) -> f64 {
+    if n == 0 {
+        return 1.0;
+    }
+    let (mut base, mut e): (f64, i64) = (x, n.unsigned_abs() as i64);
+    let mut acc = 1.0f64;
+    while e > 0 {
+        if e & 1 == 1 {
+            acc *= base;
+        }
+        base *= base;
+        e >>= 1;
+    }
+    if n > 0 {
+        return acc;
+    }
+    // ⚠️ **负数指数：先在"最后"取倒数**（2026-09-17 片3 修正）。
+    //    初版照抄 f32 的"**先**取倒数再累乘"：那样每步都在放大误差 ——
+    //    实测 `powi_f64(-2.5, -20)` 达 **15 ULP**；改为最后取倒数后为 ~1 ULP。
+    //    但"最后取倒数"在**已上溢/下溢**时会把真值变成 0 或 ∞ ⇒ 退化时回退到"先取倒数"路径
+    //    （该路径精度差，但**只在退化区**发生，且比返回错值好）。
+    if acc.is_finite() && acc != 0.0 {
+        return 1.0 / acc;
+    }
+    let mut b = 1.0 / x;
+    let mut e2 = n.unsigned_abs() as i64;
+    let mut a2 = 1.0f64;
+    while e2 > 0 {
+        if e2 & 1 == 1 {
+            a2 *= b;
+        }
+        b *= b;
+        e2 >>= 1;
+    }
+    a2
+}
+
+/// `rem_euclid`（**与 `std` 源码逐字同法**：`%` 后把负余数加 `|rhs|`）。
+/// `core` 不提供它（编译探针实测）⇒ no_std 下 `.rem_euclid()` 需要这条替身。
+#[must_use]
+pub fn rem_euclid_f32(x: f32, rhs: f32) -> f32 {
+    let r = x % rhs;
+    if r < 0.0 { r + abs_f32(rhs) } else { r }
+}
+
+/// `f64` 版 `rem_euclid`（同法）。
+#[must_use]
+pub fn rem_euclid_f64(x: f64, rhs: f64) -> f64 {
+    let r = x % rhs;
+    if r < 0.0 { r + abs_f64(rhs) } else { r }
+}
+
 // ============================== `FloatOps`：让迁移"零改调用点" ==============================
 
-/// **`f32` 浮点运算的 `no_std` 替身**（`core` 不提供浮点数学，`std` 用不了）。
+/// **`no_std` 浮点运算替身**（`core` 不提供浮点数学，`std` 用不了）。
 ///
 /// **为什么用 trait 而不是逐个改调用点**（2.3b 的关键技术前提）：
 /// - `no_std` 下 `std` 不在场 ⇒ 内在方法不存在 ⇒ `x.abs()` **解析到本 trait**，**调用点一行不改**；
-/// - host 的 `cargo test`（启用 std）下**内在方法优先于 trait 方法** ⇒ 同一份源码**两边都能编**（无歧义冲突）。
+/// - host 的 `cargo test` 下**内在方法优先于 trait 方法** ⇒ 同一份源码**两边都能编**。
 /// ⇒ 迁移动作从「151 处机械改写」降为「**加 1 行 `use`**」。
 ///
-/// **⚠️ 使用注意**：在 host 下本 trait 的方法**不会被调用**（内在方法优先），
-/// 因此 `use crate::fmath::FloatOps;` 在 host 编译时可能被判"未使用"⇒ 使用处须加
-/// `#[allow(unused_imports)]`（这不是回避警告，而是这一机制的**必然结果**）。
-pub trait FloatOps {
-    /// 绝对值（`std::f32::abs` 的替身）。
-    fn abs(self) -> f32;
+/// **⚠️ host 下本 trait 不会被调用** ⇒ `use crate::fmath::FloatOps;` 可能被判"未使用"
+/// ⇒ 使用处须加 `#[allow(unused_imports)]`（**机制的必然结果**，不是回避警告）。
+///
+/// **⚠️ 为什么返回 `Self` 而不是 `f32`**（2026-09-17 片3 修正）：初版只服务 f32，
+/// 于是片3 的 `ontology`（f64 `round`/`sqrt`）与 `state`（f64 `log2`）**无处可去**。
+/// 改 `Self` 后**同一 trait 覆盖 f32/f64**，已迁文件的 `use` 行无需再改。
+pub trait FloatOps: Copy {
+    /// 绝对值（`std::f32::abs` / `std::f64::abs` 的替身）。
+    fn abs(self) -> Self;
     /// 平方根。
-    fn sqrt(self) -> f32;
+    fn sqrt(self) -> Self;
     /// 自然指数。
-    fn exp(self) -> f32;
+    fn exp(self) -> Self;
     /// 自然对数。
-    fn ln(self) -> f32;
+    fn ln(self) -> Self;
     /// 正弦。
-    fn sin(self) -> f32;
+    fn sin(self) -> Self;
     /// 余弦。
-    fn cos(self) -> f32;
+    fn cos(self) -> Self;
     /// 反正切（`y.atan2(x)`）。
-    fn atan2(self, other: f32) -> f32;
+    fn atan2(self, other: Self) -> Self;
     /// 整数次幂。
-    fn powi(self, n: i32) -> f32;
+    fn powi(self, n: i32) -> Self;
     /// 四舍五入。
-    fn round(self) -> f32;
+    fn round(self) -> Self;
     /// 以 2 为底的对数。
-    fn log2(self) -> f32;
+    fn log2(self) -> Self;
+    /// 欧几里得余数（**`core` 不提供**，片3 需要）。
+    fn rem_euclid(self, rhs: Self) -> Self;
 }
 
 impl FloatOps for f32 {
@@ -465,6 +686,45 @@ impl FloatOps for f32 {
     }
     fn log2(self) -> f32 {
         log2(self)
+    }
+    fn rem_euclid(self, rhs: f32) -> f32 {
+        rem_euclid_f32(self, rhs)
+    }
+}
+
+impl FloatOps for f64 {
+    fn abs(self) -> f64 {
+        abs_f64(self)
+    }
+    fn sqrt(self) -> f64 {
+        sqrt_f64(self)
+    }
+    fn exp(self) -> f64 {
+        exp_f64(self)
+    }
+    fn ln(self) -> f64 {
+        ln_f64(self)
+    }
+    fn sin(self) -> f64 {
+        sin_cos_f64(self).0
+    }
+    fn cos(self) -> f64 {
+        sin_cos_f64(self).1
+    }
+    fn atan2(self, other: f64) -> f64 {
+        atan2_f64(self, other)
+    }
+    fn powi(self, n: i32) -> f64 {
+        powi_f64(self, n)
+    }
+    fn round(self) -> f64 {
+        round_f64(self)
+    }
+    fn log2(self) -> f64 {
+        log2_f64(self)
+    }
+    fn rem_euclid(self, rhs: f64) -> f64 {
+        rem_euclid_f64(self, rhs)
     }
 }
 
@@ -730,5 +990,179 @@ mod floatops_tests {
         assert!((s - 3.0).abs() < 1e-6);
         let a = FloatOps::atan2(1.0f32, 1.0);
         assert!((a - core::f32::consts::FRAC_PI_4).abs() < 1e-6);
+    }
+}
+
+
+// ============================== f64 与 rem_euclid 的精度测试 ==============================
+
+#[cfg(test)]
+mod f64_tests {
+    use super::*;
+
+    /// f64 的 ULP 距离（同号前提下有效；NaN/∞ 视为不适用）。
+    fn ulp64(a: f64, b: f64) -> u64 {
+        if a.is_nan() && b.is_nan() {
+            return 0;
+        }
+        if a.is_infinite() || b.is_infinite() || a.is_nan() || b.is_nan() {
+            return u64::MAX;
+        }
+        let ia = a.to_bits() as i64;
+        let ib = b.to_bits() as i64;
+        (ia - ib).unsigned_abs()
+    }
+
+    /// `sqrt_f64`：**≤1 ULP**（含次正规、极大/极小、完全平方点）。
+    #[test]
+    fn sqrt_f64_matches_std() {
+        let xs: [f64; 18] = [
+            1e-300, 1e-100, 1e-10, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 9.0, 100.0, 123456.789,
+            1e10, 1e100, 1e300, f64::MIN_POSITIVE, 5e-324,
+        ];
+        let mut worst = 0u64;
+        for &x in &xs {
+            let a = sqrt_f64(x);
+            let b = x.sqrt();
+            let u = ulp64(a, b);
+            worst = worst.max(u);
+            assert!(u <= 1, "sqrt_f64({x:e}) 我们={a:e} std={b:e} ULP={u}");
+        }
+        // 完全平方数必须精确
+        assert_eq!(sqrt_f64(4.0), 2.0);
+        assert_eq!(sqrt_f64(9.0), 3.0);
+        assert_eq!(sqrt_f64(0.0), 0.0);
+        assert!(sqrt_f64(-1.0).is_nan(), "负数应为 NaN");
+        assert_eq!(sqrt_f64(f64::INFINITY), f64::INFINITY);
+        // 次正规输入必须能被处理（不返回 0 / 不返回 NaN）
+        let s = sqrt_f64(f64::from_bits(1));
+        assert!(s > 0.0 && s.is_finite(), "最小次正规开方应为正有限数，实得 {s:e}");
+        println!("sqrt_f64 最差 ULP = {worst}");
+    }
+
+    /// `log2_f64`：**≤4 ULP**（与 f32 侧同口径），含 2 的幂精确点。
+    #[test]
+    fn log2_f64_matches_std() {
+        let xs: [f64; 17] = [
+            1e-300, 5e-324, 1e-100, 0.001, 0.5, 1.0, 1.5, 2.0, 3.0, 10.0, 1024.0, 12345.0, 1e6,
+            1e-6, 1e100, 1e300, f64::MAX,
+        ];
+        let mut worst = 0u64;
+        for &x in &xs {
+            let a = log2_f64(x);
+            let b = x.log2();
+            let u = ulp64(a, b);
+            worst = worst.max(u);
+            assert!(u <= 4, "log2_f64({x:e}) 我们={a} std={b} ULP={u}");
+        }
+        // 精确点
+        assert_eq!(log2_f64(1.0), 0.0);
+        assert_eq!(log2_f64(2.0), 1.0);
+        assert_eq!(log2_f64(1024.0), 10.0);
+        assert_eq!(log2_f64(0.5), -1.0);
+        // 边界与 std 对齐
+        assert_eq!(log2_f64(0.0), f64::NEG_INFINITY);
+        assert!(log2_f64(-1.0).is_nan());
+        assert_eq!(log2_f64(f64::INFINITY), f64::INFINITY);
+        println!("log2_f64 最差 ULP = {worst}");
+    }
+
+    /// `exp_f64` / `ln_f64`：**≤4 ULP**。
+    #[test]
+    fn exp_ln_f64_match_std() {
+        let mut worst_e = 0u64;
+        for &x in &[-700.0f64, -100.0, -1.0, -0.5, 0.0, 1e-15, 0.5, 1.0, 2.0, 10.0, 100.0, 700.0]
+        {
+            let a = exp_f64(x);
+            let b = x.exp();
+            let u = ulp64(a, b);
+            worst_e = worst_e.max(u);
+            assert!(u <= 4, "exp_f64({x}) 我们={a:e} std={b:e} ULP={u}");
+        }
+        assert_eq!(exp_f64(0.0), 1.0);
+        let mut worst_l = 0u64;
+        for &x in &[1e-300f64, 0.5, 1.0, 2.0, 10.0, 12345.0, 1e100, 1e300] {
+            let a = ln_f64(x);
+            let b = x.ln();
+            let u = ulp64(a, b);
+            worst_l = worst_l.max(u);
+            assert!(u <= 4, "ln_f64({x:e}) 我们={a} std={b} ULP={u}");
+        }
+        assert_eq!(ln_f64(1.0), 0.0);
+        println!("exp_f64 最差 ULP = {worst_e}｜ln_f64 最差 ULP = {worst_l}");
+    }
+
+    /// `powi_f64` / `atan2_f64`：**≤4 ULP**。
+    #[test]
+    fn powi_atan2_f64_match_std() {
+        for &(x, n) in &[(2.0f64, 10i32), (1.5, -3), (-2.5, -20), (10.0, 15), (3.0, 0), (0.5, 40)]
+        {
+            let a = powi_f64(x, n);
+            let b = x.powi(n);
+            let u = ulp64(a, b);
+            assert!(u <= 4, "powi_f64({x},{n}) 我们={a:e} std={b:e} ULP={u}");
+        }
+        for &(y, x) in &[(1.0f64, 1.0f64), (1.0, -1.0), (-1.0, -1.0), (-1.0, 1.0), (3.0, 4.0), (0.0, 1.0)]
+        {
+            let a = atan2_f64(y, x);
+            let b = y.atan2(x);
+            let u = ulp64(a, b);
+            assert!(u <= 4, "atan2_f64({y},{x}) 我们={a} std={b} ULP={u}");
+        }
+        assert_eq!(atan2_f64(0.0, 1.0), 0.0);
+    }
+
+    /// `round_f64`：**与 std 完全相等**（不是 ULP，是精确相等）。
+    #[test]
+    fn round_f64_exact() {
+        for &x in &[
+            0.0f64, 0.4, 0.5, 0.6, 1.5, 2.5, -0.4, -0.5, -0.6, -1.5, -2.5, 3.14159, -3.14159,
+            1e-9, -1e-9, 1e30, -1e30, f64::MAX, f64::MIN,
+        ] {
+            assert_eq!(round_f64(x), x.round(), "round_f64({x})");
+        }
+        assert!(round_f64(f64::NAN).is_nan());
+        assert_eq!(round_f64(f64::INFINITY), f64::INFINITY);
+        assert_eq!(round_f64(0.5), 1.0);
+        assert_eq!(round_f64(-0.5), -1.0);
+        assert_eq!(round_f64(2.5), 3.0);
+    }
+
+    /// `rem_euclid`：**f32 与 f64 都要与 std 完全相等**（含负自变数、负除数、除零）。
+    #[test]
+    fn rem_euclid_matches_std() {
+        for &(x, y) in &[
+            (4.0f32, 2.0f32), (-4.0, 2.0), (1.0, -4.0), (-1.0, -4.0), (5.5, 2.0), (-5.5, 2.0),
+            (0.0, 3.0), (3.0, 3.0), (-3.0, 3.0), (1e10, 7.0), (-1.0, 4.0),
+        ] {
+            assert_eq!(rem_euclid_f32(x, y), x.rem_euclid(y), "f32 rem_euclid({x},{y})");
+        }
+        for &(x, y) in &[
+            (4.0f64, 2.0f64), (-4.0, 2.0), (1.0, -4.0), (-1.0, -4.0), (5.5, 2.0), (-5.5, 2.0),
+            (3.0, 3.0), (-3.0, 3.0), (1e10, 7.0),
+        ] {
+            assert_eq!(rem_euclid_f64(x, y), x.rem_euclid(y), "f64 rem_euclid({x},{y})");
+        }
+        // 除零 ⇒ 双方都是 NaN
+        assert!(rem_euclid_f32(1.0, 0.0).is_nan());
+        assert!(rem_euclid_f64(1.0, 0.0).is_nan());
+        // 典型语义（std 文档例）
+        assert_eq!(rem_euclid_f32(-1.0, 4.0), 3.0);
+    }
+
+    /// **trait 对 f64 真被实现**（用**显式路径**调用，绕开 host 上的"内在方法优先"，否则本断言会空转）。
+    #[test]
+    fn floatops_trait_covers_f64() {
+        assert_eq!(FloatOps::abs(-3.5f64), 3.5);
+        assert_eq!(FloatOps::round(2.5f64), 3.0);
+        assert_eq!(FloatOps::log2(8.0f64), 3.0);
+        assert_eq!(FloatOps::sqrt(9.0f64), 3.0);
+        assert_eq!(FloatOps::powi(2.0f64, 10), 1024.0);
+        assert_eq!(FloatOps::rem_euclid(-1.0f64, 4.0), 3.0);
+        assert_eq!(FloatOps::exp(0.0f64), 1.0);
+        assert_eq!(FloatOps::ln(1.0f64), 0.0);
+        assert!(FloatOps::sin(0.0f64).abs() < 1e-15);
+        assert!((FloatOps::cos(0.0f64) - 1.0).abs() < 1e-15);
+        assert!((FloatOps::atan2(1.0f64, 1.0) - core::f64::consts::FRAC_PI_4).abs() < 1e-15);
     }
 }

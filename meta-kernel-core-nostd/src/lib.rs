@@ -79,3 +79,13 @@ pub mod l7;
 pub mod fourier;
 pub mod l5_baseline;
 pub mod l5_senses;
+
+// —— 2.3b 片3（2026-09-17）：元标尺链（片内自包含；依赖 `math` 与片2 的 `fourier`） ——
+//   ⚠️ 本片含**两处类型替换**（`HashSet` 在 no_std 不存在）：
+//   `ontology` 的 `std::collections::HashSet` → `alloc::collections::BTreeSet`
+//   —— 该集合**只用 insert/len、从不迭代** ⇒ 逐位等价（编译级证据与论证见报告 D37）。
+pub mod ontology;
+pub mod state;
+pub mod energy;
+pub mod sanitizer;
+pub mod interference;

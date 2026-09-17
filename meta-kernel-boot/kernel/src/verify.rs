@@ -215,6 +215,110 @@ pub fn self_check() -> u8 {
         }
     }
 
+    // ================== ⑥ 段（2.3b 片3）：元标尺链在裸机上算得对 ==================
+    //
+    // 覆盖片3 的五个模块，且**每条断言都打在"这两个数必须相等/必须在界内"上**（不是"能跑就算过"）。
+    // 这一段同时把三条 `no_std` 浮点替身路径**跑了一遍**：
+    // f64 `round`/`sqrt`（`ontology`）、f64 `log2`（`state`）、f32 `rem_euclid`（`interference`）。
+    {
+        use meta_kernel_core_nostd::{energy, interference, ontology, sanitizer, state};
+
+        // ① `sanitizer`：负值归零 + 上界钳位；**合法值不得被改动**（反向断言防"一律归零"式假过）
+        if sanitizer::finalize(-1.0) != 0.0 {
+            return 31;
+        }
+        if sanitizer::finalize(0.5) != 0.5 {
+            return 31;
+        }
+        if sanitizer::finalize(2.0) > 1.0 {
+            return 31;
+        }
+        if sanitizer::negative_to_zero(0.7) != 0.7 {
+            return 32;
+        }
+        if sanitizer::negative_to_zero(-0.7) != 0.0 {
+            return 32;
+        }
+
+        // ② `ontology`：常量表 + 特征向量维度与值域（内部走 f64 `abs`/`round`/`sqrt`）
+        if ontology::level_name(0) != "黑" || ontology::level_name(3) != "黄" {
+            return 33;
+        }
+        if ontology::level_name(99) != "白" {
+            return 33; // 越界必须被钳到最高层（不是 panic、不是空串）
+        }
+        let p = ontology::Pattern::new(alloc::vec![
+            ontology::Element::new(1, 0.1),
+            ontology::Element::new(4, 0.5),
+            ontology::Element::new(4, 0.5), // 与上一个**同层同强度** ⇒ 触发去重/重复强度路径
+            ontology::Element::new(7, 0.9),
+        ]);
+        let s = ontology::analyze(&p);
+        if s.len() != ontology::LEVELS {
+            return 34;
+        }
+        for v in &s {
+            if v.is_nan() || !(0.0..=1.0).contains(v) {
+                return 34;
+            }
+        }
+        // 反向：**全黑（仅 0 层）与全白（含 10 层）必须给出不同的特征向量**，
+        //      否则说明算子在"空转"（任何输入都返回同一结果）。
+        let p_black = ontology::Pattern::new(alloc::vec![ontology::Element::new(0, 1.0)]);
+        let p_white = ontology::Pattern::new(alloc::vec![ontology::Element::new(10, 1.0)]);
+        if ontology::analyze(&p_black) == ontology::analyze(&p_white) {
+            return 34; // 正反两侧输出相同 ⇒ 判据失效
+        }
+
+        // ③ `energy`：活力指数在界内 + 决议的**边界语义**（含 `.exp()` 路径）
+        let e = energy::energy_level_evaluate(&p);
+        if !(0.0..=1.0).contains(&e) || e.is_nan() {
+            return 35;
+        }
+        if !matches!(energy::verdict_for(0.1), energy::Verdict::DecomposeToGranules) {
+            return 35;
+        }
+        if !matches!(energy::verdict_for(0.9), energy::Verdict::Adopt) {
+            return 35;
+        }
+
+        // ④ `state`：熵 → 物态（`entropy_of_history` 内部走 f64 `log2`）
+        let mut hist = alloc::vec::Vec::new();
+        for i in 0..8usize {
+            hist.push(i as f64 / 8.0);
+        }
+        let ent = state::entropy_of_history(&hist);
+        if ent.is_nan() || !(0.0..=1.0).contains(&ent) {
+            return 36;
+        }
+        if state::state_of_entropy(0.9).code() != 0 {
+            return 36; // ≥0.618 ⇒ 能量态
+        }
+        if state::state_of_entropy(0.0).code() != 3 {
+            return 36; // <0.206 ⇒ 固态
+        }
+        // 反向：空历史按口径返回 1.0（"未分化波动"），不是 0（0 会落入固态，是错的）
+        if state::entropy_of_history(&[]) != 1.0 {
+            return 36;
+        }
+
+        // ⑤ `interference`：相位差与驻点检测（内部走 f32 `rem_euclid`）
+        let mut wa = alloc::vec::Vec::new();
+        for i in 0..32usize {
+            wa.push(fmath::sin(2.0 * core::f32::consts::PI * (i as f32) / 8.0));
+        }
+        let d = interference::phase_difference(&wa, &wa);
+        if d.is_nan() || !d.is_finite() {
+            return 37;
+        }
+        if d.abs() > 1e-4 {
+            // 同一列波与自身比 ⇒ 相位差必须为 0
+            return 37;
+        }
+        let ps = interference::detect(&wa, &wa, 1);
+        let _ = ps.len(); // 只证"能算完且不 panic"；数量语义由 host 单测覆盖
+    }
+
     0
 }
 
