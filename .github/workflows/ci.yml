@@ -142,6 +142,25 @@ jobs:
           set -e
           test "$CODE" -eq 0
 
+      # ===== 机制 21：**内核纯度**门禁（执行体归属判据的机器校验）=====
+      # 判什么：内核三个 crate（core / nostd / mem）的**非测试代码区**，不得出现 7 类「感知/动作」用法
+      #   （文件 IO · 网络 · 进程 · 时钟 · 环境变量 · 线程 · 系统调用）。
+      # 为什么：内核的边界是「**只算**」——需要感知/动作的必须落在宿主或 WorkBuddy 侧。
+      #   这条边界以前只写在文档里 ⇒ 下一个人加一行 std::fs **不会被发现**。
+      # 自检：--selftest 四侧（注入真违规必红 / 注释与 alloc::·core::·env! 不误报 /
+      #   仅测试区违规「可见但不判红」）——**判据本身也要被验**，否则门禁可能空转。
+      - name: 机制 21 内核纯度门禁 —— 内核不得出现「感知/动作」用法（含判据自检）
+        shell: bash
+        run: |
+          set +e
+          python3 coordination/tools/check_kernel_purity.py --selftest
+          SELFTEST=$?
+          python3 coordination/tools/check_kernel_purity.py
+          CHECK=$?
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (两个都应为 0)"
+          set -e
+          test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
+
       - name: Build NPB cdylib (native)
         run: cargo build -p npb
 
