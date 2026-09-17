@@ -195,9 +195,7 @@ pub fn selftest(boot_info: &mut BootInfo) -> Result<(), MemFail> {
     Ok(())
 }
 
-/// ★ **`alloc` 探针** —— 2.3b 的门禁：`alloc` 能否在**裸机目标**上链接并运行。
-///
-/// **为什么单独设这一步**：`extern crate alloc;` 若**没有任何代码真正使用**，
+/// ★ **`alloc` 探针** —— 2.3b 的门禁：`alloc` 能否在**裸机目标**上链接并运行。/// **为什么单独设这一步**：`extern crate alloc;` 若**没有任何代码真正使用**，
 /// 链接器根本不会去解析 `liballoc` —— 于是"用了 alloc"这件事**从未被验证**，
 /// 只会得到一个"看起来能编"的假象（＝判断空转）。本探针逼 `Vec`/`String` 
 /// **真实走一遍 `GlobalAlloc`**，其释放由外层的**净零断言**兜底（⇒ 顺带证**无泄漏**）。
@@ -205,6 +203,18 @@ pub fn selftest(boot_info: &mut BootInfo) -> Result<(), MemFail> {
 /// 覆盖三种不同分配路径：`Vec` 渐进增长（alloc→realloc）／`with_capacity`（大块）／
 /// `String` 拼接与 `format!`（fmt 机制）。
 fn alloc_probe() -> Result<(), MemFail> {
+    /// 第 ③ 步期望的字符串内容。
+    ///
+    /// ⚠️ **为什么单独抽成常量**：这里初版把长度**手算成 14**（实际 **16**）⇒ CI 判红（编号 10），
+    /// **根因是"断言期望值算错"，与分配器无关**。抽成常量后，长度由 `.len()` 取，
+    /// 下面再用**编译期断言**把它与 `"{}-{}"` 的期望钉在一起 ⇒ **再算错就编不过**。
+    const EXPECT_S: &str = "meta-kernel/boot";
+    /// 编译期一致性判据：`EXPECT_S` 长度 + 两个长度值 ⇒ 期望的 `format!` 结果。
+    /// 改任一处而忘了改另一处，**编译就会失败**（把"记性"换成"编译器"）。
+    const EXPECT_T: &str = "16-64";
+    const _: () = assert!(EXPECT_S.len() == 16, "EXPECT_S.len() 不再是 16 ⇒ 必须同步改 EXPECT_T");
+    const _: () = assert!(EXPECT_T.len() == 5, "EXPECT_T 形态变了（应为 \"<sl>-<vl>\"）");
+
     // ① Vec 渐进增长（每步可能触发 realloc）
     let mut v: Vec<u32> = Vec::new();
     for i in 0..64u32 {
@@ -227,11 +237,14 @@ fn alloc_probe() -> Result<(), MemFail> {
     s.push_str("meta-kernel");
     s.push('/');
     s.push_str("boot");
-    if s.as_str() != "meta-kernel/boot" || s.len() != 14 {
+    if s.as_str() != EXPECT_S || s.len() != EXPECT_S.len() {
         return Err(MemFail::Bug(10));
     }
     let t = alloc::format!("{}-{}", s.len(), v.len());
-    if t.as_str() != "14-64" {
+    // ⚠️ **期望串必须与 `EXPECT_S` 对齐**：这里曾是 **14**，而 `"meta-kernel/boot"` 实际 **16**
+    //    ⇒ CI 判红（判定编号 10）、**根因是"我手算长度算错"，不是分配器有问题**。
+    //    现在用下面的 `const _` 编译期断言把两者钉在一起，再算错就**编不过**。
+    if t.as_str() != EXPECT_T {
         return Err(MemFail::Bug(10));
     }
 
