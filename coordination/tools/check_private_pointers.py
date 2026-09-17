@@ -249,6 +249,15 @@ def check_resolve(root: Path, private_root: Path, refs: list[tuple[str, int, str
         target = private_root / tail.lstrip("/")
         if target.exists():
             continue
+        # —— **密文等价**（2026-09-17 新增；D39 执行后当场暴露）——
+        # 背景：机制 20 的**逻辑名**是 `X.md`，但按 D39 执行 `purge` 后**磁盘上只剩 `X.md.enc`**。
+        # 于是**执行 purge 之前写的文档**（含历史报告，按 D30-b 不追改）会指向一个"逻辑名存在、
+        # 物理文件已换形态"的目标 ⇒ 若判红，就变成"**判据与机制不同步**"（不是文档错）。
+        # 判据：目标不存在，但**同名 `.enc` 存在** ⇒ 视为**已解析**（内容确实在场，只是加密形态）。
+        enc_target = target if target.suffix == ".enc" else target.with_name(target.name + ".enc")
+        if enc_target.exists():
+            print(f"  [密文等价] {file_}:{line} → 明文已按 D39 删除，命中间名密文 {enc_target.name}")
+            continue
         # 「（待建）」标注允许缺失，但**必须显式标注**
         try:
             src = (root / file_).read_text(encoding="utf-8", errors="replace").splitlines()

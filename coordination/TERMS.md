@@ -43,7 +43,7 @@
 | 算法 | **AES-256-GCM**（**AEAD**：篡改/换文件都会被认证标签拒绝） |
 | 密钥 | **32 随机字节**，存**本地**、位于 `PRIVATE_ASSETS` **同级**目录，**绝不进仓库** | ｜**密钥级别：⛔ 机密**（本体／路径／其余一律先按机密）
 | 解密时机 | **内部查阅时按需解密、用完即弃**（明文不落盘） |
-| 工具 | 仓库外 `{PRIVATE_ASSETS}/tools/terms_crypt.py`（`keygen` / `enc` / `dec` / `verify` / `purge`） |
+| 工具 | 仓库外 `{PRIVATE_ASSETS}/tools/terms_crypt.py`（`keygen` / `keycheck` / `keyexport` / `enc` / `dec` / `verify` / `purge`） |
 | ⚠️ 不可逆 | **密钥丢失 ⇒ 私有层永久不可读**。生成后**必须离线备份**。 | ｜**密钥级别：⛔ 机密**（本体／路径／其余一律先按机密）
 
 ## 四、⚠️ 边界说明（必须说准，不许含糊）
