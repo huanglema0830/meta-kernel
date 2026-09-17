@@ -161,6 +161,31 @@ jobs:
           set -e
           test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
 
+      # ===== 机制 22（D53）：**源一致性**门禁（防止再拿脚手架当底图）=====
+      # 判什么：
+      #   A/B. CHARTER.md 与 MEMORY.md 必须含底图硬指针（`README.md` + `docs/`）
+      #   C.   CHARTER.md 必须声明「与底图冲突时以底图为准」
+      #   D.   核心底图集 6 份在 CHARTER ∪ MEMORY 中全部出现
+      #   E.   README.md「阶段路线（主线）」四阶段与 ROADMAP.md 三阶段必须有**显式映射**声明
+      #        （两套刻度：底图四阶段答「内核能力推进到哪层」，ROADMAP 三阶段答「用户何时能装上」）
+      #   F.   底图哈希基线（`coordination/security/basemap_hashes.txt`）—— 底图被静默改 ⇒ 判红
+      # 为什么：2026-09-18 事故——CHARTER 自称"自包含"、实测提及 `docs/` = 0 次 ⇒ 我按脚手架编了全量汇编，
+      #   被用户当面纠错「好多是你自己加上去的，并不是我们原来设计的」。这条门禁把"读底图"变成**机器事实**。
+      # 为什么 CI 用 --ci：MEMORY.md 在**仓库外**（研发开发/.workbuddy/memory/），CI 上不存在 ⇒ 降级 warn，
+      #   存在性由本机跑（不带 --ci）时校验。
+      # 自检：--selftest 阳性 1 + 阴性 2（抽掉 `docs/` 必红 / 抽掉阶段映射必红）——判据本身也要被验。
+      - name: 机制 22 源一致性门禁 —— CHARTER/MEMORY 底图指针 + 阶段口径映射 + 底图哈希（含判据自检）
+        shell: bash
+        run: |
+          set +e
+          python3 coordination/tools/check_source_of_truth.py --selftest
+          SELFTEST=$?
+          python3 coordination/tools/check_source_of_truth.py --ci
+          CHECK=$?
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (两个都应为 0)"
+          set -e
+          test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
+
       - name: Build NPB cdylib (native)
         run: cargo build -p npb
 
