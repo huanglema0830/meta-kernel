@@ -262,12 +262,16 @@ pub fn self_check() -> u8 {
                 return 34;
             }
         }
-        // 反向：**全黑（仅 0 层）与全白（含 10 层）必须给出不同的特征向量**，
-        //      否则说明算子在"空转"（任何输入都返回同一结果）。
-        let p_black = ontology::Pattern::new(alloc::vec![ontology::Element::new(0, 1.0)]);
-        let p_white = ontology::Pattern::new(alloc::vec![ontology::Element::new(10, 1.0)]);
-        if ontology::analyze(&p_black) == ontology::analyze(&p_white) {
-            return 34; // 正反两侧输出相同 ⇒ 判据失效
+        // 反向：**结构不同的输入必须给出不同的特征向量**，否则说明算子在"空转"。
+        // ⚠️ **不能拿"全黑 vs 全白"当反例** —— 实测（host 镜像测试 `tests/mirror_bare_assertions.rs`）
+        //    二者输出**逐位相同**（`[1,0,0,0,0,0,1,0,0,0,0.2]`）：
+        //    `analyze` 的 11 个分量是**特征轴（结构/关系）**，**不是层级振幅**，
+        //    单元素模式无论挂在哪一层，这些轴上的取值都一样。
+        //    ⇒ 这是我**「按函数名猜语义」**写错的第一版断言（CI 上返回 **134 = 100+34** 才暴露）。
+        //    改用**元素个数/结构不同**的输入作反例（实测确有差异）。
+        let p_single = ontology::Pattern::new(alloc::vec![ontology::Element::new(4, 0.5)]);
+        if ontology::analyze(&p) == ontology::analyze(&p_single) {
+            return 34; // 结构不同却输出相同 ⇒ 判据失效
         }
 
         // ③ `energy`：活力指数在界内 + 决议的**边界语义**（含 `.exp()` 路径）
