@@ -316,6 +316,43 @@ def check_key_levels(root: Path) -> list[str]:
     return bad
 
 
+# ================== [6] 指纹字面量判据（机制 20 / D39 归档 / T-023）==================
+#
+# **规则**：**密钥指纹（🔒）的字面量不得写入仓库** —— 只允许出现在
+# 「本机私记」与「工具输出」中；文档里一律写 `〈本机私记〉` 占位。
+#
+# **为什么**：指纹虽然是单向哈希（不能反推密钥），但它一旦进仓库就**永久留在 git 历史里**，
+# 而它的唯一用途又是"**核对备份**"——把它公开等于把"核对依据"也公开。
+# 本轮（2026-09-17）用户明确收紧：**可拷，但不入仓库**。
+#
+# **怎么判**：一行里同时出现「指纹」与**16 位十六进制字面量** ⇒ 判红。
+# （不做"按值匹配"——值只在本机私记里，脚本不该知道它；**判据不得依赖被保护对象本身**。）
+FP_LINE = re.compile(r"\b[0-9a-fA-F]{16}\b")
+FP_WORDS = ("指纹", "fingerprint")
+
+
+def check_fingerprint_literal(root: Path) -> list[str]:
+    """返回"含指纹字面量"的行（每项一段消息）。"""
+    bad: list[str] = []
+    scanned = 0
+    for p in iter_files(root):
+        if p.name == Path(__file__).name:      # 脚本自身带判据字样，跳过（避免自命中）
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        scanned += 1
+        for i, line in enumerate(text.splitlines(), 1):
+            if any(w in line for w in FP_WORDS) and FP_LINE.search(line):
+                bad.append(
+                    f"{rel(root, p)}:{i} 出现**密钥指纹字面量**（须改为 `〈本机私记〉` 占位；"
+                    f"T-023）｜行：{line.strip()[:70]}"
+                )
+    print(f"[info] [6] 指纹字面量判据：扫描文件 {scanned} 个")
+    return bad
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["syntax", "resolve"], default="syntax")
@@ -366,6 +403,15 @@ def main() -> int:
                 print(f"[FAIL] [5] {e}")
         else:
             print("[PASS] [5] 密钥级别判据：活文件中凡含「密钥」的行**均带级别标识**")
+
+        # —— [6] 指纹字面量判据（T-023：指纹可拷，但**不入仓库**）——
+        fp_bad = check_fingerprint_literal(root)
+        if fp_bad:
+            passed = False
+            for e in fp_bad:
+                print(f"[FAIL] [6] {e}")
+        else:
+            print("[PASS] [6] 指纹字面量判据：仓库内**未出现**密钥指纹字面量（占位符 `〈本机私记〉` 合规）")
 
     if args.mode == "resolve":
         if not args.private_root:

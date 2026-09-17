@@ -329,6 +329,93 @@ pub fn self_check() -> u8 {
         return r4; // 41–45（经 main 的 `100 + n` 映射后，CI 上会读成 141–145）
     }
 
+    // —— ⑧ 段：2.3b 片5（16 模块：源解析／思维链／沙漏／演化／注意力／闸门／自识别／账本…）——
+    let r5 = self_check_shard5();
+    if r5 != 0 {
+        return r5; // 51–55（经 main 的 `100 + n` 映射后，CI 上会读成 151–155）
+    }
+
+    0
+}
+
+// ================== ⑧ 段（2.3b 片5）：三态判定 / 动作账链 / 沙漏瓶颈 ==================
+//
+// **为什么选这三个**：它们各自是**可证伪的契约**，而不是"能算完就行"：
+//   * 三态判定（`l5_compare`）：`dev=|cur/base|` 与黄金阈值比较 ⇒ **三态必须都能被取到**，
+//     否则判据在空转（任何输入都同一结论）。
+//   * 动作账（`l7::ledger`）：链自洽 + **篡改必拒**（反向断言）⇒ 证明"校验"不是摆设。
+//   * 沙漏（`hourglass`）：每 tick **至多放行 1 粒** ⇒ 容量/节流语义为真。
+fn self_check_shard5() -> u8 {
+    use meta_kernel_core_nostd::{hourglass, l5_baseline::BaselineField, l5_compare, l7};
+
+    // ——— 51：三态判定（本底自比必平；2× 必亢；0.5× 必枯）———
+    {
+        let base = BaselineField {
+            earth: 0.7,
+            water: 0.7,
+            fire: 0.7,
+            wind: 0.7,
+            object: "self-check",
+            established: "self-check",
+        };
+        if !l5_compare::compare(&[0.7; 4], &base).iter().all(|b| *b == l5_compare::Band::Ping) {
+            return 51; // 本底自比必须全平（契约）
+        }
+        if !l5_compare::compare(&[1.4; 4], &base).iter().all(|b| *b == l5_compare::Band::Kang) {
+            return 51; // 2.0 倍 > 1.618 ⇒ 全亢
+        }
+        if !l5_compare::compare(&[0.35; 4], &base).iter().all(|b| *b == l5_compare::Band::Ku) {
+            return 51; // 0.5 倍 < 0.618 ⇒ 全枯
+        }
+        // 反向：三态必须互不相同（否则"三态"是假的）
+        let a = l5_compare::compare(&[0.7; 4], &base)[0];
+        let b = l5_compare::compare(&[1.4; 4], &base)[0];
+        let c = l5_compare::compare(&[0.35; 4], &base)[0];
+        if a == b || b == c || a == c {
+            return 51; // 两态重合 ⇒ 判据空转
+        }
+    }
+
+    // ——— 52/53：动作账链（空账自洽 → 追加后链锚改变且仍自洽 → **篡改必拒**）———
+    {
+        let mut l = l7::ledger::ActionLedger::new();
+        if l.len() != 0 || l.head() != l7::ledger::GENESIS || !l.verify() {
+            return 52;
+        }
+        l.append(7, l7::grade::Grade::T0Read, "suggested", "n1");
+        l.append(8, l7::grade::Grade::T2Confirm, "confirmed", "n2");
+        if l.len() != 2 || l.head() == l7::ledger::GENESIS || !l.verify() {
+            return 52;
+        }
+        // 反向断言：篡改一条 ⇒ verify 必须为 false
+        let keep = l.links[0].hash;
+        l.links[0].hash = keep ^ 1;
+        if l.verify() {
+            return 53; // 篡改后仍通过 ⇒ 校验空转
+        }
+        l.links[0].hash = keep;
+        if !l.verify() {
+            return 53; // 复原后必须再次自洽
+        }
+    }
+
+    // ——— 54/55：沙漏瓶颈（每 tick 至多 1 粒；放行值须在 0-1）———
+    {
+        let mut hg = hourglass::BubbleHourglass::with_caps(2, 2, 2, 1);
+        hg.push(0.1);
+        hg.push(0.2);
+        hg.push(0.3); // 上锥容量 2 ⇒ 第三粒必然被丢弃
+        let out = hg.tick(None);
+        if out.len() > 1 {
+            return 54; // 契约：每 tick 至多放行 1 粒
+        }
+        for v in out.iter() {
+            if !(0.0..=1.0).contains(v) {
+                return 55; // 放行的种子必须在 0-1（上游已 clamp01）
+            }
+        }
+    }
+
     0
 }
 

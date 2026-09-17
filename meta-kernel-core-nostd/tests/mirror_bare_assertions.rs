@@ -170,3 +170,61 @@ fn mirror_45_evidence_neutral_point() {
     assert!(up.world_adjust > 0.0 && dn.world_adjust < 0.0, "两端必须异号且非零");
     assert!((0.0..=1.0).contains(&a.final_confidence) && (0.0..=1.0).contains(&up.final_confidence));
 }
+
+// ================= 片5（⑧ 段）的镜像：先在 host 跑出真实值，再编码成裸机断言 =================
+
+#[test]
+fn mirror_shard5_compare_three_bands() {
+    use meta_kernel_core_nostd::{l5_baseline::BaselineField, l5_compare};
+    let base = BaselineField {
+        earth: 0.7, water: 0.7, fire: 0.7, wind: 0.7, object: "s8", established: "e",
+    };
+    let ping = l5_compare::compare(&[0.7; 4], &base);
+    let kang = l5_compare::compare(&[1.4; 4], &base);   // dev = |1.4/0.7| = 2.0 > 1.618 ⇒ 亢
+    let ku = l5_compare::compare(&[0.35; 4], &base);   // dev = |0.35/0.7| = 0.5 < 0.618 ⇒ 枯
+    println!("[诊断] 平={:?}", ping.map(|b| b.code()));
+    println!("[诊断] 亢(2.0x)={:?}", kang.map(|b| b.code()));
+    println!("[诊断] 枯(0.5x)={:?}", ku.map(|b| b.code()));
+    assert!(ping.iter().all(|b| *b == l5_compare::Band::Ping), "本底自比必须全平（契约）");
+    assert!(kang.iter().all(|b| *b == l5_compare::Band::Kang), "2 倍必须全亢");
+    assert!(ku.iter().all(|b| *b == l5_compare::Band::Ku), "半倍必须全枯");
+}
+
+#[test]
+fn mirror_shard5_ledger_chain() {
+    use meta_kernel_core_nostd::l7::grade::Grade;
+    use meta_kernel_core_nostd::l7::ledger::{ActionLedger, GENESIS};
+    let mut l = ActionLedger::new();
+    println!("[诊断] 空账 len={} head={} verify={}", l.len(), l.head(), l.verify());
+    assert_eq!(l.len(), 0);
+    assert_eq!(l.head(), GENESIS, "空账的链锚必须是 GENESIS");
+    assert!(l.verify(), "空账必须自洽");
+    l.append(7, Grade::T0Read, "suggested", "n1");
+    l.append(8, Grade::T2Confirm, "confirmed", "n2");
+    println!("[诊断] 两条 len={} head={:#x} verify={}", l.len(), l.head(), l.verify());
+    assert_eq!(l.len(), 2);
+    assert_ne!(l.head(), GENESIS, "有记录后链锚必须变");
+    assert!(l.verify());
+    // 反向断言：篡改一条 ⇒ verify 必须为 false（否则 verify 是空转）
+    let h = l.links[0].hash;
+    l.links[0].hash = h ^ 1;
+    println!("[诊断] 篡改后 verify={}", l.verify());
+    assert!(!l.verify(), "篡改后仍通过 ⇒ verify 空转，判据失效");
+    l.links[0].hash = h;
+    assert!(l.verify(), "复原后必须再次自洽");
+}
+
+#[test]
+fn mirror_shard5_hourglass() {
+    use meta_kernel_core_nostd::hourglass::BubbleHourglass;
+    let mut hg = BubbleHourglass::with_caps(2, 2, 2, 1);
+    for v in [0.1f32, 0.2, 0.3] {
+        hg.push(v);
+    }
+    let out = hg.tick(None);
+    println!("[诊断] tick 输出粒数={} backlog={}", out.len(), hg.backlog());
+    assert!(out.len() <= 1, "契约：每 tick 至多放行 1 粒");
+    for v in &out {
+        assert!((0.0..=1.0).contains(v), "放行的种子必须在 0-1");
+    }
+}

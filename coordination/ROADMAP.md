@@ -38,7 +38,7 @@
 |---|---|---|---|---|
 | **2.1** | ✅ **已完成**（2026-09-16）：新建 `meta-kernel-core-nostd/`（10 模块 + `quad` 数据契约 + **自实现 7 个超越函数**）；`cargo build --target x86_64-unknown-none` **成功**；原 core **411 项测试全绿且未被改动** | **P3**（已达成） | ✅ | purpleK2/kernel |
 | **2.2** | ✅ **已完成**（2026-09-16，D31 执行）：**能被引导器引导** —— 口径修正为 **`bootloader` 0.11**（GRUB/Limine/ISO 化留 2.7）；产出可引导 `boot-bios.img`；**CI 上 QEMU 真实引导 + 截屏断言通过**（1280×720、25 点全绿）；`kernel/src` **真实 unsafe = 0** | **P3**（已达成） | ✅ | rust-osdev/bootloader |
-**2.3b（alloc 迁移）🚧 片1 ✅｜片2 ✅｜片3 ✅｜片4 ✅**（片4＝**修正版 10 模块 / 3,920 行**：trace／dna_generate／dna_trace／habit／gene_library／l5_context／l1_field_parse／l3_world／l5_quad／l5_evidence）。⭐ **片4 暴露两条「清单未预见」**：① 原清单写的「片4 严格链式（后者依赖前者）」**是错的** —— **Rust 同 crate 内模块可互引、无需拓扑序**，且 gene_library ↔ l5_context **互引成环**；真正的约束是「**迁移集在目标 crate 内封闭**」⇒ 片4 由 5 模块**扩为 10 模块**。② **只剔 `#[cfg(test)]` 依赖算闭包 ⇒ 裸机绿、`cargo test` 红**（l1_field_parse 的测试引用 habit）⇒ 新增工具 `coordination/tools/check_migration_closure.py`（专抓这类缺口）。**裸机断言扩到 ⑦ 段**（含 `l5_evidence::adjust` 的**中性点 m=0.5** —— R7 教训）。**剩余未迁 24 模块 / 6,528 行**（原清单的 4,166 行**少算约 2.5 倍**）。
+**2.3b（alloc 迁移）🚧 片1 ✅｜片2 ✅｜片3 ✅｜片4 ✅｜片5 ✅**（片5＝**脚本产出的 16 模块 / 3,651 行**，⭐ D40「不再手写清单」的首次落地）。**剩余片6–片8 = 7 模块 / 2,887 行**（脚本口径）。⚠️ 片6 已探到 `std::collections::HashMap`（**类型替换类，须单独论证**，同 D37 口径）。**裸机断言已到第 ⑧ 段**（三态判定／动作账链篡改必拒／沙漏每 tick 至多 1 粒）。**可夜间跑 ✅**
 | **2.4** | 实现 DRM/KMS 驱动，**直接输出场域画面** | **P1**（**需决策**：C9 unsafe 白名单要逐条放行，须用户确认） | ⚠️ **部分**（编码/测试可夜间跑；**白名单放行须用户决策**，不可） | rust_embedded_wgpu |
 | **2.5** | `field-render` 作为**第一个用户空间进程** | **P3** | ✅（真机验证环节除外） | 标准内核 |
 | **2.6** | 通过 **ACPI/CPUID** 读取硬件信息（软件层面识别） | **P3** | ✅ | 标准内核 |

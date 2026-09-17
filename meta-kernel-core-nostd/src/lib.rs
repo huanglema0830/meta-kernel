@@ -107,3 +107,21 @@ pub mod l1_field_parse;
 pub mod l3_world;
 pub mod l5_quad;
 pub mod l5_evidence;
+// —— 2.3b 片5（2026-09-17）：**清单由脚本产出**（D40）——
+// 生成命令：`python coordination/tools/check_migration_closure.py --plan`
+// 取「层 1」＝所依赖的未迁模块为空的 16 模块 / 3,651 行（含 `#[cfg(test)]` 依赖一并计入）。
+pub mod l1_source_parse;
+pub mod thinking_chain;
+pub mod hourglass;
+pub mod evolution;
+pub mod l5_attention;
+pub mod gate;
+pub mod self_recognizer;
+pub mod dna_adapt;
+pub mod double_chain;
+pub mod mirror;
+pub mod senses;
+pub mod evo_deconstructor;
+pub mod persist;
+pub mod executor;
+pub mod l5_compare;

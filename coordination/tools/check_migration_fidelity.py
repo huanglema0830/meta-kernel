@@ -41,6 +41,13 @@ ALLOWED_SUBS: dict[str, str] = {
     # ⚠️ 唯一一处**类型替换**（非纯路径改写）：no_std 无 HashSet。
     #    成立前提＝该集合**只用 insert/len、从不迭代** ⇒ 逐位等价（见报告 D37）。
     "std::collections::HashSet": "alloc::collections::BTreeSet",
+    # —— 片5 补登（**判据白名单滞后于迁移**这一族问题的第 2 次，前一次是 R31）——
+    # `VecDeque`：`no_std` 下 `std` 拿不到、也不在 prelude，但 `alloc::collections::VecDeque` 有
+    #   ⇒ **纯路径改写，零语义变化**（片5 首跑漏了这条，4 个文件报 `cannot find module or crate std`）。
+    "std::collections::VecDeque": "alloc::collections::VecDeque",
+    # 预留：片6 已探到 `std::f64::consts::*` 的用法（`l1_mapping`），同属**同一常量**的路径改写。
+    "std::f64::consts::PI": "core::f64::consts::PI",
+    "std::f64::consts::TAU": "core::f64::consts::TAU",
 }
 
 MARKER = "//! 【2.3b"
