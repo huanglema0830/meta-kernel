@@ -74,3 +74,8 @@ pub mod l4;
 pub mod l4_risk;
 
 pub mod l7;
+
+// —— 2.3b 片2（2026-09-17）：三个自包含模块（详见各文件头"迁移说明"） ——
+pub mod fourier;
+pub mod l5_baseline;
+pub mod l5_senses;

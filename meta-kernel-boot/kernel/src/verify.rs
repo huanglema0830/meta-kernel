@@ -153,6 +153,68 @@ pub fn self_check() -> u8 {
         }
     }
 
+    // ⑤ ★ **2.3b 片2 迁移代码在裸机上算对**（`fourier` / `l7::mesh` / `l5_baseline`）
+    //    这三条同时压到三条不同能力上：**浮点超越函数（FloatOps）**、**纯字符串解析**、
+    //    **`alloc` 的 `String` + `format!` 往返**。任一条不成立 ⇒ 红屏并带编号。
+    {
+        use meta_kernel_core_nostd::fourier;
+        use meta_kernel_core_nostd::l5_baseline::BaselineField;
+        use meta_kernel_core_nostd::l7::mesh;
+
+        // ① `fourier`：64 点、**恰好 8 个周期**的正弦 ⇒ 无泄漏 ⇒ 峰值必在 bin 8
+        //    （`dft` 内部用的 `.cos()/.sin()/.sqrt()` 在 no_std 下正是 `FloatOps` 提供的）
+        let mut buf = alloc::vec::Vec::with_capacity(64);
+        for i in 0..64usize {
+            let ph = 2.0 * core::f32::consts::PI * (i as f32) / 8.0;
+            buf.push(fmath::sin(ph));
+        }
+        let sp = fourier::dft(&buf);
+        if sp.magnitudes.len() != 33 {
+            return 14; // n/2+1
+        }
+        if sp.dominant_bin != 8 {
+            return 15;
+        }
+        if !close(sp.dominant_freq, 0.125, 1e-3) {
+            return 16; // 8/64
+        }
+        if !close(sp.energy, 0.5, 1e-2) {
+            return 17; // 单位正弦的均方值
+        }
+
+        // ② `l7::mesh`：版本主号解析（纯字符串、确定性）
+        if mesh::major_of("1.2.3") != 1 || mesh::major_of("12.0") != 12 || mesh::major_of("bad") != 0
+        {
+            return 18;
+        }
+
+        // ③ `l5_baseline`：`learn` 取均值（f64）＋ `to_json`/`from_json` **往返**
+        //    （`to_json` 用 `format!`/`String` ⇒ 真实走一遍 `alloc` 的 fmt 与字符串路径）
+        let samples = [[1.0f64, 2.0, 3.0, 4.0], [3.0, 4.0, 5.0, 6.0]];
+        let bf = BaselineField::learn(&samples, "self-check");
+        if !(bf.earth > 1.999_999_999 && bf.earth < 2.000_000_001) {
+            return 19;
+        }
+        if !(bf.wind > 4.999_999_999 && bf.wind < 5.000_000_001) {
+            return 20;
+        }
+        let js = bf.to_json();
+        match BaselineField::from_json(&js) {
+            Some(rt) => {
+                // ⚠️ **只比数值字段**：`from_json` 对 `object`/`established` **固定回填占位值**
+                //    （`"obj"`/`"loaded"`）⇒ **不回读**。这是**原模块既有行为**（迁移逐字保留），
+                //    不是本次引入；已登记为 **R27「序列化不保真」**（写进去的标识读不回来）。
+                //    ⇒ 断言若拿 `rt.object == bf.object` 去比，**必然失败**（此处曾差点写错）。
+                let eq = |a: f64, b: f64| a > b - 1e-9 && a < b + 1e-9;
+                if !(eq(rt.earth, bf.earth) && eq(rt.water, bf.water) && eq(rt.fire, bf.fire) && eq(rt.wind, bf.wind))
+                {
+                    return 21; // 数值往返不一致
+                }
+            }
+            None => return 21,
+        }
+    }
+
     0
 }
 

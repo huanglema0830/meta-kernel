@@ -370,6 +370,104 @@ pub fn powi(x: f32, n: i32) -> f32 {
     acc as f32
 }
 
+/// 四舍五入到最近整数（**半值远离零**，与 `std` 的 `f32::round` 同口径）。
+///
+/// **为什么需要**：`core` 不提供浮点数学 ⇒ 2.3b 迁移时 `.round()` 无处可去（片3+ 会遇到 4 处）。
+pub fn round(x: f32) -> f32 {
+    if !x.is_finite() {
+        return x; // NaN/±∞ 原样返回（与 std 一致）
+    }
+    // |x| ≥ 2^23 时 f32 已是整数（尾数只有 23 位）⇒ 直接返回，**避免"加 0.5 再截断"的精度陷阱**。
+    if x >= 8_388_608.0 || x <= -8_388_608.0 {
+        return x;
+    }
+    let t = if x >= 0.0 { x + 0.5 } else { x - 0.5 };
+    // x86 上 f32→i64 为**饱和**转换（Rust 1.45+ 语义）
+    t as i64 as f32
+}
+
+/// 以 2 为底的对数（`log2(x) = ln(x) / ln 2`）。
+///
+/// **为什么需要**：同 `round` —— 片3+ 有 1 处 `.log2()`。
+pub fn log2(x: f32) -> f32 {
+    if x <= 0.0 {
+        // 与 std 对齐：log2(0) = -∞；log2(负数) = NaN
+        return if x == 0.0 { f32::NEG_INFINITY } else { f32::NAN };
+    }
+    if !x.is_finite() {
+        return x; // +∞ → +∞；NaN 已在上面按 NaN 处理
+    }
+    ln(x) / core::f32::consts::LN_2
+}
+
+// ============================== `FloatOps`：让迁移"零改调用点" ==============================
+
+/// **`f32` 浮点运算的 `no_std` 替身**（`core` 不提供浮点数学，`std` 用不了）。
+///
+/// **为什么用 trait 而不是逐个改调用点**（2.3b 的关键技术前提）：
+/// - `no_std` 下 `std` 不在场 ⇒ 内在方法不存在 ⇒ `x.abs()` **解析到本 trait**，**调用点一行不改**；
+/// - host 的 `cargo test`（启用 std）下**内在方法优先于 trait 方法** ⇒ 同一份源码**两边都能编**（无歧义冲突）。
+/// ⇒ 迁移动作从「151 处机械改写」降为「**加 1 行 `use`**」。
+///
+/// **⚠️ 使用注意**：在 host 下本 trait 的方法**不会被调用**（内在方法优先），
+/// 因此 `use crate::fmath::FloatOps;` 在 host 编译时可能被判"未使用"⇒ 使用处须加
+/// `#[allow(unused_imports)]`（这不是回避警告，而是这一机制的**必然结果**）。
+pub trait FloatOps {
+    /// 绝对值（`std::f32::abs` 的替身）。
+    fn abs(self) -> f32;
+    /// 平方根。
+    fn sqrt(self) -> f32;
+    /// 自然指数。
+    fn exp(self) -> f32;
+    /// 自然对数。
+    fn ln(self) -> f32;
+    /// 正弦。
+    fn sin(self) -> f32;
+    /// 余弦。
+    fn cos(self) -> f32;
+    /// 反正切（`y.atan2(x)`）。
+    fn atan2(self, other: f32) -> f32;
+    /// 整数次幂。
+    fn powi(self, n: i32) -> f32;
+    /// 四舍五入。
+    fn round(self) -> f32;
+    /// 以 2 为底的对数。
+    fn log2(self) -> f32;
+}
+
+impl FloatOps for f32 {
+    fn abs(self) -> f32 {
+        abs_f32(self)
+    }
+    fn sqrt(self) -> f32 {
+        sqrt(self)
+    }
+    fn exp(self) -> f32 {
+        exp(self)
+    }
+    fn ln(self) -> f32 {
+        ln(self)
+    }
+    fn sin(self) -> f32 {
+        sin(self)
+    }
+    fn cos(self) -> f32 {
+        cos(self)
+    }
+    fn atan2(self, other: f32) -> f32 {
+        atan2(self, other)
+    }
+    fn powi(self, n: i32) -> f32 {
+        powi(self, n)
+    }
+    fn round(self) -> f32 {
+        round(self)
+    }
+    fn log2(self) -> f32 {
+        log2(self)
+    }
+}
+
 // ============================== 精度测试 ==============================
 // 在 `cargo test`（host，启用 std）下与 `std::f32` 逐点对照；`--target x86_64-unknown-none` 时本模块不参与。
 
@@ -569,5 +667,68 @@ mod tests {
                 assert!(u <= 8, "powi({x},{n}) 与 std 差异 ULP={u}");
             }
         }
+    }
+}
+
+// ============================== `round` / `log2` 与 `FloatOps` 的检测 ==============================
+
+#[cfg(test)]
+mod floatops_tests {
+    use super::*;
+
+    /// 与 `std::f32::round` 逐点对照：**要么完全相等，要么同判 NaN**。
+    #[test]
+    fn round_matches_std() {
+        let xs = [
+            0.0f32, 0.4, 0.5, 0.6, 1.5, 2.5, -0.4, -0.5, -0.6, -1.5, -2.5, 3.14159, -3.14159,
+            1e-7, -1e-7, 100.5, -100.5, 8_388_608.0, -8_388_608.0, 1.0e30, -1.0e30, f32::MIN,
+            f32::MAX,
+        ];
+        for &x in &xs {
+            let a = round(x);
+            let b = x.round();
+            assert!(
+                (a.is_nan() && b.is_nan()) || a == b,
+                "round({x}) 我们={a} std={b}"
+            );
+        }
+        // 半值远离零（这是与"银行家舍入"的关键区别）
+        assert_eq!(round(0.5), 1.0);
+        assert_eq!(round(-0.5), -1.0);
+        assert_eq!(round(2.5), 3.0);
+    }
+
+    /// `log2` 与 `std` 对照：取 ULP 判据（2.1 定的口径：≤ 4）。
+    #[test]
+    fn log2_matches_std() {
+        let xs: [f32; 12] = [
+            0.5, 1.0, 1.5, 2.0, 3.0, 10.0, 1024.0, 0.001, 1e6, 1e-6, 7.0, 12345.0,
+        ];
+        for &x in &xs {
+            let a = log2(x);
+            let b = x.log2();
+            let ia = a.to_bits() as i64;
+            let ib = b.to_bits() as i64;
+            let u = (ia - ib).unsigned_abs() as u32;
+            assert!(u <= 4, "log2({x}) 我们={a} std={b} ULP={u}");
+        }
+        // 边界
+        assert_eq!(log2(2.0), 1.0);
+        assert!(log2(0.0).is_infinite() && log2(0.0) < 0.0, "log2(0) 应为 -∞");
+        assert!(log2(-1.0).is_nan(), "log2(负数) 应为 NaN");
+    }
+
+    /// **trait 可用性检测**：用 trait 的**显式调用**（`FloatOps::abs`）验证它真被实现。
+    /// 用显式路径是为了**绕开"内在方法优先"** —— 否则这条断言会**空转**（在 host 上调到 std）。
+    #[test]
+    fn floatops_trait_is_implemented() {
+        assert_eq!(FloatOps::abs(-3.5f32), 3.5);
+        assert_eq!(FloatOps::round(2.5f32), 3.0);
+        assert_eq!(FloatOps::log2(8.0f32), 3.0);
+        assert_eq!(FloatOps::powi(2.0f32, 10), 1024.0);
+        let s = FloatOps::sqrt(9.0f32);
+        assert!((s - 3.0).abs() < 1e-6);
+        let a = FloatOps::atan2(1.0f32, 1.0);
+        assert!((a - core::f32::consts::FRAC_PI_4).abs() < 1e-6);
     }
 }
