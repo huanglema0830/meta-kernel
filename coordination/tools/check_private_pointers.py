@@ -262,6 +262,51 @@ def check_resolve(root: Path, private_root: Path, refs: list[tuple[str, int, str
     return errs
 
 
+# ================== [5] 密钥级别判据（机制 20 / C12 密钥专项级别）==================
+#
+# **为什么需要**：C12 里"密钥/账号/路径/网络细节 = ⛔ 机密"是**整类**规定，
+# 但**密钥有三件东西、级别不一样**（本体 ⛔／指纹 🔒／路径 ⛔）——只靠报告的保密标记行
+# **笼统带过**，读的人**无法判断**"这里出现的密钥指纹能不能拷"。⇒ 必须**行级标注**。
+#
+# **规则**：活文件中**凡出现「密钥」二字，该行必须带级别标识**（⛔／🔐／🔒／🔓）。
+#
+# **范围**：只扫**活文件**（治理层 ＋ `llm/` ＋ `workflows/` ＋ `TERMS.md` ＋ 顶层 `README`）。
+# `reports/`／`instructions/`／`discussions/` 是**历史留痕、不追改**（沿用 D30-b）⇒ **不在范围内**。
+KEY_LEVEL_MARKS = "⛔🔐🔒🔓"
+KEY_LEVEL_SCOPE_TOP = (
+    "coordination/CHARTER.md", "coordination/BASELINE.md", "coordination/CONSTRAINTS.md",
+    "coordination/TEMPLATES.md", "coordination/ROADMAP.md", "coordination/TERMS.md",
+    "coordination/advisor_brief.md", "coordination/ASSETS_INVENTORY.md", "README.md",
+)
+
+
+def check_key_levels(root: Path) -> list[str]:
+    """返回"含密钥却无级别标识"的行（每项一段消息）。"""
+    targets = [root / p for p in KEY_LEVEL_SCOPE_TOP]
+    for sub in ("coordination/llm", "coordination/workflows"):
+        d = root / sub
+        if d.is_dir():
+            targets += sorted(d.glob("*.md"))
+    bad: list[str] = []
+    scanned = 0
+    for p in targets:
+        if not p.exists():
+            continue
+        scanned += 1
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            if "密钥" in line and not any(m in line for m in KEY_LEVEL_MARKS):
+                bad.append(
+                    f"{rel(root, p)}:{i} 出现「密钥」但**无级别标识**（须标 ⛔/🔐/🔒/🔓；"
+                    f"本体与路径=⛔、指纹=🔒）｜行：{line.strip()[:70]}"
+                )
+    print(f"[info] [5] 密钥级别判据：扫描活文件 {scanned} 个")
+    return bad
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["syntax", "resolve"], default="syntax")
@@ -294,6 +339,15 @@ def main() -> int:
             print(f"[info] 可精简基线：{key[0]}｜{key[1]}｜实测 {n} < 基线 {allowed}（建议下调）")
         if not new_leaks:
             print(f"[PASS] 未新增 ⛔ 泄漏（基线项 {len(base)} 条，本次命中 {len(hits)} 条）")
+
+        # —— [5] 密钥级别判据（同时也算"泄漏"侧的一条硬判据）——
+        key_bad = check_key_levels(root)
+        if key_bad:
+            passed = False
+            for e in key_bad:
+                print(f"[FAIL] [5] {e}")
+        else:
+            print("[PASS] [5] 密钥级别判据：活文件中凡含「密钥」的行**均带级别标识**")
 
     if args.mode == "resolve":
         if not args.private_root:

@@ -4,24 +4,20 @@
 #   * 某文件某模式的命中数 **> 基线** ⇒ **判红**（＝新增泄漏，必须修）
 #   * **< 基线** ⇒ 只提示"可精简基线"（＝有人修好了，请下调这里的数字）
 #
-# 为什么要有基线：这些是**已公开的历史内容**（`docs/` 的既有审计/报告），
-#   git 历史撤不回（D30-1），换壳范围**需用户定**；先用基线把"**不再新增**"锁住。
+# 维护纪律（C15）：**只减不增**。修好一条 ⇒ 下调一条；**新增一条 ⇒ 必须先修代码，不是改基线**。
 #
-# ⚠️ 维护纪律（C15）：**只减不增**。修好一条 ⇒ 下调一条；**新增一条 ⇒ 必须先修代码，不是改基线**。
-# 生成时间：2026-09-17（本轮）
+# 📌 **2026-09-17 换壳（D35③ / D36②）**：
+#   * **已换**（9 条 → 0）：`deploy/win64/README.md`（lan_ip）＋ `docs/` **设计说明类** 4 个文件
+#     （`HOST_BUILD.md`／`HOST_UI_DECISION.md`／`SECURITY_TROUBLESHOOTING.md`／`SILA_IMPLEMENTATION.md`）
+#   * **不换**（5 条保留）：`docs/` **历史报告类** —— `FULL_AUDIT_REPORT.md`／
+#     `L5_VALIDATION_REPORT.md`／`PERFORMANCE_REPORT.md`（**历史留痕，不追改**，沿用 D30-b）
+#   * ⚠️ **换壳 ≠ 消除**：**git 历史里仍可检出**；换壳只让"**当前树**"不再新增可读暴露面。
+#
+# 生成时间：2026-09-17（本轮，换壳后重建）
 #
 # 格式：<仓库相对路径>|<模式>|<条数>
-deploy/win64/README.md|lan_ip|1
 docs/FULL_AUDIT_REPORT.md|lan_ip|13
 docs/FULL_AUDIT_REPORT.md|username_literal|3
 docs/FULL_AUDIT_REPORT.md|win_abs_path|3
-docs/HOST_BUILD.md|unix_home_path|1
-docs/HOST_BUILD.md|username_literal|1
-docs/HOST_BUILD.md|win_abs_path|1
-docs/HOST_UI_DECISION.md|lan_ip|1
 docs/L5_VALIDATION_REPORT.md|lan_ip|3
 docs/PERFORMANCE_REPORT.md|lan_ip|1
-docs/SECURITY_TROUBLESHOOTING.md|lan_ip|1
-docs/SECURITY_TROUBLESHOOTING.md|username_literal|2
-docs/SECURITY_TROUBLESHOOTING.md|win_abs_path|1
-docs/SILA_IMPLEMENTATION.md|lan_ip|1

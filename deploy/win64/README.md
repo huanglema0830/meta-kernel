@@ -40,7 +40,7 @@ enable/disable-autoreport.vbs  老笔记本侧的自启开关。
 | 守护启动网关 | ✅ 4 秒内 |
 | 崩溃自动重启 | ✅ 强杀后 8 秒内恢复 |
 | 开机自启注册 | ✅ `HKCU\...\Run\CloudKernelGateway = "...\watchdog.vbs"` |
-| 笔记本自动发现 | ✅ 扫描 `192.168.1.0/24` → 命中网关 → 下载 1382KB → `probe posted` 回传 |
+| 笔记本自动发现 | ✅ 扫描 `<内网网段>/24` → 命中网关 → 下载 1382KB → `probe posted` 回传 |
 | 动态 bat | ✅ 经不同 Host 访问分别生成对应地址 |
 
 ## 注意

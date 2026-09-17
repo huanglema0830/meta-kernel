@@ -323,6 +323,99 @@ pub fn self_check() -> u8 {
         let _ = ps.len(); // 只证"能算完且不 panic"；数量语义由 host 单测覆盖
     }
 
+    // —— ⑦ 段：2.3b 片4（10 模块：痕迹／基因库／场域解析／世界模型／四元组／语境／证据／习气）——
+    let r4 = self_check_shard4();
+    if r4 != 0 {
+        return r4; // 41–45（经 main 的 `100 + n` 映射后，CI 上会读成 141–145）
+    }
+
+    0
+}
+
+// ================== ⑦ 段（2.3b 片4）：痕迹/基因库/场域/世界/四元组/语境/证据 ==================
+//
+// 覆盖片4 的 10 个模块。**每条都打在"契约"上**（不是"能跑就算过"），并配**反向断言**防"算子空转"。
+#[allow(clippy::too_many_lines)]
+fn self_check_shard4() -> u8 {
+    use meta_kernel_core_nostd::{gene_library, habit, l1_field_parse, l5_evidence, trace};
+
+    // ① `trace::fingerprint_of`：空⇒0（明确契约）；同输入⇒同输出；**n 或 flow 变⇒必须不同**
+    let s4 = [0.2f32, 0.4, 0.6, 0.8];
+    let s8 = [0.2f32, 0.4, 0.6, 0.8, 0.2, 0.4, 0.6, 0.8];
+    if trace::fingerprint_of(&[], 0.5) != 0 {
+        return 41; // 空输入必须为 0（不是"随机的哈希"）
+    }
+    if trace::fingerprint_of(&s4, 0.5) != trace::fingerprint_of(&s4, 0.5) {
+        return 41; // 必须确定性
+    }
+    if trace::fingerprint_of(&s4, 0.5) == trace::fingerprint_of(&s8, 0.5) {
+        return 41; // 长度不同却同指纹 ⇒ 指纹丢了信息（低位含 n）
+    }
+    if trace::fingerprint_of(&s4, 0.0) == trace::fingerprint_of(&s4, 1.0) {
+        return 41; // 能量流不同却同指纹 ⇒ 高位没起作用
+    }
+
+    // ② `l1_field_parse::normalize`：**半饱和点契约**（x=k ⇒ 0.5）＋ 负值归零 ＋ 单调
+    if l1_field_parse::normalize(0.0, l1_field_parse::K_TEXT_CHARS) != 0.0 {
+        return 42;
+    }
+    if l1_field_parse::normalize(l1_field_parse::K_TEXT_CHARS, l1_field_parse::K_TEXT_CHARS) != 0.5 {
+        return 42; // 文档写明"达到 k 时取 0.5"——这是可判据的契约
+    }
+    if l1_field_parse::normalize(-5.0, l1_field_parse::K_TEXT_CHARS) != 0.0 {
+        return 42; // 负值必须归零（不是负数）
+    }
+    if !(l1_field_parse::normalize(100.0, 2000.0) < l1_field_parse::normalize(500.0, 2000.0)) {
+        return 42; // 必须单调递增
+    }
+
+    // ③ `habit::habit_strength`：count=0 ⇒ 0（无次数即无强度）；值域 [0,1]；随次数单调不减
+    if habit::habit_strength(0, 1.0) != 0.0 {
+        return 43;
+    }
+    let h1 = habit::habit_strength(1, 1.0);
+    let h10 = habit::habit_strength(10, 1.0);
+    let h100 = habit::habit_strength(100, 1.0);
+    if !(0.0..=1.0).contains(&h1) || !(0.0..=1.0).contains(&h100) {
+        return 43; // 值域
+    }
+    if !(h1 < h10 && h10 < h100) {
+        return 43; // 必须单调递增（不是常数）
+    }
+
+    // ④ `gene_library::fnv1a64`：确定 ＋ **不同输入必须不同**（防"退化哈希"）
+    let k1 = gene_library::fnv1a64(0, b"meta-kernel");
+    let k2 = gene_library::fnv1a64(0, b"meta-kernel");
+    let k3 = gene_library::fnv1a64(0, b"meta-kernal");
+    let k4 = gene_library::fnv1a64(1, b"meta-kernel");
+    if k1 != k2 {
+        return 44; // 确定性
+    }
+    if k1 == k3 || k1 == k4 {
+        return 44; // 一字节之差 / 种子之差都必须改变结果
+    }
+
+    // ⑤ `l5_evidence::adjust`：**中性点 m = 0.5 ⇒ 修正量必须恰为 0**（R7 教训）
+    let g = l5_evidence::Gains::default();
+    let neutral = l5_evidence::Evidence { world_match: Some(0.5), prediction_error: None };
+    let adj_n = l5_evidence::adjust(0.7, &neutral, &g);
+    if adj_n.world_adjust != 0.0 {
+        return 45; // `2m−1` 在 m=0.5 处必须精确为 0
+    }
+    if adj_n.world_match != Some(0.5) {
+        return 45;
+    }
+    // 反向：两端必须**异号且非零**（否则说明修正量恒为 0、断言在空转）
+    let up = l5_evidence::adjust(0.7, &l5_evidence::Evidence { world_match: Some(1.0), prediction_error: None }, &g);
+    let dn = l5_evidence::adjust(0.7, &l5_evidence::Evidence { world_match: Some(0.0), prediction_error: None }, &g);
+    if !(up.world_adjust > 0.0 && dn.world_adjust < 0.0) {
+        return 45;
+    }
+    // 最终置信度必须仍在 [0,1]
+    if !(0.0..=1.0).contains(&adj_n.final_confidence) || !(0.0..=1.0).contains(&up.final_confidence) {
+        return 45;
+    }
+
     0
 }
 

@@ -9,7 +9,7 @@
 **把 llvm-mingw 的 `bin` 前置到 `PATH`**：
 
 ```bash
-export PATH="C:/Users/香忆/WorkBuddy/研发开发/tmp_a45_review/llvm_mingw/llvm-mingw-20260826-ucrt-x86_64/bin:$PATH"
+export PATH="<仓库根的同级目录>/llvm_mingw/llvm-mingw-20260826-ucrt-x86_64/bin:$PATH"   # 原为字面本机绝对路径；2026-09-17 按 D36② 换壳为「仓库根的同级目录」写法
 cd host/field-render
 cargo build --target-dir C:/c/fr-build2      # 短 target-dir，规避 MAX_PATH
 ```

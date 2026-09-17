@@ -229,7 +229,7 @@ pHash 汉明距离（真实上屏纹理间）：文本↔图片 **30**｜文本�
 ### 9.4 老笔记本实测准备（第 4 步，需发起人执行）
 - 把 `field-render.exe`（16.4 MB）放入部署包 **`ui/` 目录**（网关静态服务从 `--ui` 目录读取）。
 - 网关白名单新增 `/field-render.exe`（`UI_ALLOW` 18 项；实测 **HTTP 200**）→
-  **老笔记本可直接下载：`http://192.168.1.4:3000/field-render.exe`**（无需 U 盘、无需 WebView2 Runtime）。
+  **老笔记本可直接下载：`http://<内网IP>:3000/field-render.exe`**（无需 U 盘、无需 WebView2 Runtime）。
 - 步骤：① 打开该地址下载 → ② 放到任意目录 → ③ 双击运行 → ④ 地址栏输入网址（**无外网时取源码会明确报错，属预期**）
   → ⑤ 验无 WebView2 依赖：`llvm-objdump -p field-render.exe | findstr /i webview2`（应无输出）。
 - 起网关请双击部署包内 `一键启动.bat`（会话内启动的进程会随会话回收）。

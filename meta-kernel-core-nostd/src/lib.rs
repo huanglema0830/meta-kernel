@@ -89,3 +89,21 @@ pub mod state;
 pub mod energy;
 pub mod sanitizer;
 pub mod interference;
+
+// —— 2.3b 片4（2026-09-17）：世界/语境/四元组链（**修正版 9 模块**）——
+//   ⚠️ **为什么是 9 个而不是原清单的 5 个**：原清单的 5 模块
+//   （`l1_field_parse`/`l3_world`/`l5_quad`/`l5_context`/`l5_evidence`）**不是封闭集** ——
+//   它们**反向依赖** `trace`/`dna_generate`/`dna_trace`/`gene_library`（且 `gene_library` 与
+//   `l5_context` **互引成环**）。Rust **同 crate 内模块可互引、无需拓扑序**，
+//   真正的约束是「**迁移集必须在 nostd 内封闭**」⇒ 取**最小封闭超集**（9 模块 / 3,681 行）。
+//   详见报告 §三 与 `ROADMAP.md`（分片方案已被修正为「闭包」而非「链式」）。
+pub mod trace;
+pub mod dna_generate;
+pub mod dna_trace;
+pub mod habit;
+pub mod gene_library;
+pub mod l5_context;
+pub mod l1_field_parse;
+pub mod l3_world;
+pub mod l5_quad;
+pub mod l5_evidence;
