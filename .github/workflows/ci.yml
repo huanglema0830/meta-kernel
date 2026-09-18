@@ -202,9 +202,17 @@ jobs:
           echo "  [口径] 基线只覆盖 docs/ 全 35 份 .md；README.md 不在基线内（不触发判据 F）。"
           echo "=============================================================="
           echo "[R60 本次提交触及的 docs/ 文件]"
-          git diff --name-only HEAD~1 HEAD -- docs/ 2>/dev/null || echo "  （无 HEAD~1 或非 git 仓库）"
+          if git rev-parse --verify -q HEAD~1 >/dev/null 2>&1; then
+            git diff --name-only HEAD~1 HEAD -- docs/ | sed 's/^/  /' || true
+          else
+            # R68 修复：CI 为浅克隆（checkout 默认 fetch-depth=1）⇒ 无 HEAD~1。
+            # 此时退化为"与基线比对"，仍能指出需要 --update-baseline 的具体文件（不再是空提示）。
+            echo "  （浅克隆：无 HEAD~1 ⇒ 改用与底图哈希基线比对）"
+            python3 coordination/tools/check_source_of_truth.py --ci 2>&1 | grep -F "底图内容已变" | sed 's/^/  /' || echo "  （与基线一致）"
+          fi
           echo "[R60 本次提交是否同步更新了基线]"
-          if git diff --name-only HEAD~1 HEAD -- coordination/security/basemap_hashes.txt 2>/dev/null | grep -q .; then
+          if git rev-parse --verify -q HEAD~1 >/dev/null 2>&1 && \
+             git diff --name-only HEAD~1 HEAD -- coordination/security/basemap_hashes.txt 2>/dev/null | grep -q .; then
             echo "  OK 基线已同步更新"
           else
             echo "  WARN 基线未在本提交内更新（若上面 docs/ 列表非空 ⇒ 判据 F 将判红）"
