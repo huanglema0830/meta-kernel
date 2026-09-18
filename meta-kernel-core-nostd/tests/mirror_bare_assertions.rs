@@ -228,3 +228,91 @@ fn mirror_shard5_hourglass() {
         assert!((0.0..=1.0).contains(v), "放行的种子必须在 0-1");
     }
 }
+
+// ============ ⑨ 段（2.3b 片6）· 与 `kernel/src/verify.rs::self_check_shard6` **逐条对应** ============
+//
+// ⚠️ 本段的意义：片6 含**本仓唯一的「类型替换」**（`HashMap` → `BTreeMap`）。
+// 下面 92/93 两条**直接证成「换容器后 `get`/`insert` 语义不变」**——
+// 这不是"编译过了就算"，而是**用可证伪的契约**证明**行为等价**。
+
+/// 91：孪生指纹可逆，且永不恒等。
+#[test]
+fn mirror_shard6_91_twin_fingerprint() {
+    use meta_kernel_core_nostd::positive_source::twin_fingerprint;
+    for x in [0u64, 1, 0xDEAD_BEEF_u64, u64::MAX, 0x8000_0000_0000_0000] {
+        let t = twin_fingerprint(x);
+        println!("[诊断] x={x:#018x} twin={t:#018x} twin(twin)={:#018x}", twin_fingerprint(t));
+        assert_eq!(twin_fingerprint(t), x, "twin 必须可逆（twin(twin(x))==x）");
+        assert_ne!(t, x, "twin(x) 不得恒等（否则配对无意义）");
+    }
+}
+
+/// 92/93：孪生索引往返 + 幂等 —— **本片「类型替换」的行为等价证明**。
+#[test]
+fn mirror_shard6_92_93_twin_index_roundtrip() {
+    use meta_kernel_core_nostd::positive_source::{twin_fingerprint, PositiveSource};
+    let mut ps = PositiveSource::new();
+    let fp: u64 = 0x0123_4567_89AB_CDEF;
+
+    ps.entangle(fp, 0.4);
+    println!("[诊断] entangle 后 len={}", ps.entangled_len());
+    assert_eq!(ps.entangled_len(), 1, "首次登记必须入库");
+
+    // 用「孪生键」查得回（走 `twin_index.get`）
+    let got = ps.entanglement_match(twin_fingerprint(fp));
+    println!("[诊断] 用孪生键查 => {:?}", got);
+    assert_eq!(got, Some(0.4), "插入后必须能用孪生键查回");
+
+    // 幂等：同正指纹再登记 ⇒ 条目数不变（`get` 命中分支），但补充增量更新
+    ps.entangle(fp, 0.9);
+    println!("[诊断] 二次 entangle 后 len={} 值={:?}", ps.entangled_len(), ps.entanglement_match(twin_fingerprint(fp)));
+    assert_eq!(ps.entangled_len(), 1, "幂等破 ⇒ `get` 命中逻辑失效（换容器最可能伤到这里）");
+    assert_eq!(ps.entanglement_match(twin_fingerprint(fp)), Some(0.9), "更新必须生效");
+
+    // 反向断言：**未登记**的孪生键必须查不到（否则配对退化成"永远命中"）
+    assert_eq!(ps.entanglement_match(fp), None, "未登记的孪生键竟能命中 ⇒ 配对失效");
+}
+
+/// 94：诊断中性点（输入 = 本底 ⇒ 全场平 ⇒ `advice.calm`；R7 教训）。
+#[test]
+fn mirror_shard6_94_diagnosis_neutral_point() {
+    use meta_kernel_core_nostd::l5_baseline::BaselineField;
+    use meta_kernel_core_nostd::l5_compare::Band;
+    use meta_kernel_core_nostd::l5_diagnosis;
+    let base = BaselineField {
+        earth: 0.6,
+        water: 0.6,
+        fire: 0.6,
+        wind: 0.6,
+        object: "self-check",
+        established: "self-check",
+    };
+    let c = l5_diagnosis::synthesize(&[0.6; 4], &base, &[Band::Ping; 4]);
+    println!("[诊断] key={} text={} conf={}", c.suggestion_key, c.suggestion, c.confidence);
+    assert_eq!(c.suggestion_key, "advice.calm", "中性点必须映射到「维持现状」⇒ 否则任何输入都被报成异常");
+    assert!(!c.suggestion.is_empty(), "默认文本不得为空（`String`/`format!` 路径须真正工作）");
+}
+
+/// 95：动作白名单（在册 id 可取；**不在册必 None**）。
+#[test]
+fn mirror_shard6_95_action_catalog_whitelist() {
+    use meta_kernel_core_nostd::l7::repair;
+    for id in 1u32..=4 {
+        let a = repair::action_by_id(id).unwrap_or_else(|| panic!("id={id} 在册却取不到"));
+        assert_eq!(a.id, id);
+    }
+    for id in [0u32, 5, 99, u32::MAX] {
+        assert!(repair::action_by_id(id).is_none(), "id={id} 不在白名单却取到了 ⇒「不侵」的编译期目录失效");
+    }
+    assert!(repair::action_by_key("clean-temp").is_some(), "稳定键查不到 ⇒ 宿主无法对表执行");
+}
+
+/// 附：L1 视觉映射最小存在性（片6 第四模块）。
+#[test]
+fn mirror_shard6_l1_mapping_finite() {
+    use meta_kernel_core_nostd::l1_mapping;
+    let g = l1_mapping::GaborParams::default();
+    println!("[诊断] Gabor λ={} θ={} σ={} γ={}", g.lambda, g.theta, g.sigma, g.gamma);
+    assert!(g.lambda.is_finite() && g.theta.is_finite() && g.sigma.is_finite() && g.gamma.is_finite());
+    assert!(l1_mapping::GABOR_DEFAULTS.iter().all(|v| v.is_finite()));
+}

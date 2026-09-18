@@ -8,7 +8,7 @@
   A. CHARTER.md  必须出现底图硬指针（同时含 `README.md` 与 `docs/`）
   B. MEMORY.md   必须出现同一硬指针（CI 模式下该文件不在仓库内 ⇒ 降级为 warn）
   C. CHARTER.md  必须声明「与底图冲突时以底图为准」
-  D. 核心底图集（6 份）在 CHARTER ∪ MEMORY 中全部出现
+  D. 核心底图集（7 份）在 CHARTER ∪ MEMORY 中全部出现
   E. README.md 的四阶段（阶段一~四）与 ROADMAP.md 的阶段口径必须有显式映射声明
   F. 底图哈希基线：`--update-baseline` 生成；内容变动或文件消失 ⇒ fail（不得静默改底图）
 
@@ -25,6 +25,11 @@ import pathlib
 import sys
 import tempfile
 
+# 核心底图集（**7 份**）。
+# ⚠️ **R61 口径统一（2026-09-18 裁定）**：本表原为 **6 份**（漏 `LAYER_BASEMAP_L0_L6.md`），
+#    而 `CHARTER.md` 机制 22 行**逐份列了 7 份** ⇒ **同一机制两处口径不符**。
+#    裁定：**统一为 7 份**（以 CHARTER 为准）⇒ 本节补入第 7 份，docstring 同步改 7。
+#    判据 D 从此**也要求** `LAYER_BASEMAP_L0_L6.md` 在 CHARTER ∪ MEMORY 中出现。
 CORE = [
     "README.md",
     "VISION.md",
@@ -32,6 +37,7 @@ CORE = [
     "MATH_SPEC.md",
     "GENE_LIBRARY_DESIGN.md",
     "COSMIC_COMPUTING.md",
+    "LAYER_BASEMAP_L0_L6.md",
 ]
 
 MAP_KEYWORDS = ("阶段路线（主线）", "四阶段", "底图四阶段", "底图阶段")
@@ -133,9 +139,11 @@ def selftest():
             (repo / "docs" / c).write_text("x", encoding="utf-8")
 
         charter = repo / "coordination" / "CHARTER.md"
+        # ⚠️ 夹具必须与 CORE **逐份同步**（R61 口径统一后 CORE 由 6 份升为 7 份）：
+        #    漏一份 ⇒ 阳性对照会假红。这是"**改白名单必须同步夹具**"（R34 精神）在自检上的落点。
         good_charter = ("底图 = README.md + docs/ ；冲突以底图为准；"
                         "VISION.md LAYER_ARCHITECTURE.md MATH_SPEC.md "
-                        "GENE_LIBRARY_DESIGN.md COSMIC_COMPUTING.md")
+                        "GENE_LIBRARY_DESIGN.md COSMIC_COMPUTING.md LAYER_BASEMAP_L0_L6.md")
         charter.write_text(good_charter, encoding="utf-8")
         mem = repo / "MEMORY.md"
         mem.write_text("先读底图 README.md + docs/", encoding="utf-8")

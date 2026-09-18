@@ -111,7 +111,8 @@
 meta-kernel-core/   基因内核 · 内核引擎（Rust lib，零第三方依赖）：三引擎/能量池/物态/化合/
                     痕迹习气自我/三层机制/持久化/基因内核学习（dna_trace/generate/adapt）
 npb/                基因内核 · NPB 桥接器（转录层 RNA；C ABI + wasm32 + 确定性自检摘要）
-npb-gateway/        基因内核 · 应用网关（转录层 RNA；HTTP+SSE：/v1/push|state|events|persist|health）
+npb-gateway/        基因内核 · 应用网关（转录层 RNA；HTTP+SSE；**端点表权威＝
+                    docs/LAYER_ARCHITECTURE.md §4.L3，共 23 路径**；本行原列举的 5 项为历史快照，非权威）
 npb-appkit/         云操作系统 · 应用框架（生命周期状态机/LifecycleEngine、命名 registry、
                     Speaker 语言组织、EventPipe 订阅归一、httpc）
 manifest-journal/   云操作系统 · 参考应用 Manifest Journal（CLI/lib：种子映射、显化会话、验收 e2e）

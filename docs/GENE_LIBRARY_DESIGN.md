@@ -249,7 +249,7 @@ L0 0 锚点（待激发的纯粹存在，能量源）
 | 学习机制闭环 | ✅ 已实现 | 复用 `dna_trace` + `dna_generate` |
 | 语境模块 | ✅ 已实现 | `l5_context.rs` |
 | **与 L4/L5 的接线** | ✅ **已完成（v0.107）** | L4：判据可注入（`check_state_with` / `check_state_from_library`）；L5：本底场走场景公式层 |
-| **持久化** | ✅ **已实现（v0.107）** | `to_text` / `from_text`（单行制、零依赖）+ 网关 `POST/GET /v1/genelib`（宿主存取原文） |
+| **持久化** | ✅ **已实现（v0.107）** | `to_text` / `from_text`（单行制、零依赖）+ 网关 `POST/GET /v1/genelib`（宿主存取原文；**端点表权威＝`docs/LAYER_ARCHITECTURE.md §4.L3`**，本处只述语义、不充当局权威枚举） |
 
 **不做伪能力宣称**：
 - 第 3 层（计算关系）**已入库但尚未被上层读取**——这是"备而可用"，不是"已在使用"。

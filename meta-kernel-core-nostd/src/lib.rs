@@ -125,3 +125,18 @@ pub mod evo_deconstructor;
 pub mod persist;
 pub mod executor;
 pub mod l5_compare;
+// —— 2.3b 片6（2026-09-18）：**清单由脚本产出**（D40），冻结串＝`--emit 1` 的输出 ——
+// 生成命令：`python coordination/tools/check_migration_closure.py --emit 1`
+// ⇒ `l1_mapping l5_diagnosis l7/repair positive_source`（4 模块 / 2,337 行，脚本口径）
+// ⚠️ **本片含两处「替换类」**：
+//   ① 唯一的**类型替换**：`positive_source` 的 `std::collections::HashMap` → `alloc::collections::BTreeMap`
+//      —— 成立前提＝该集合**只用 insert/get、从不迭代**（方法集恰为 {insert, get}；
+//         derive 为 `Debug, Clone, Default`，无 `PartialEq`/`Eq`/`Hash`）⇒ 遍历序不可观测。
+//      ⚠️ 是**行为（内容）等价**，**不是"逐位等价"**（措辞已订正）。
+//   ② **唯一一处「改文字」**：同文件 **3 行 `O(1)` 注释 → `O(log n)`**（行 35／337／409），
+//      因 `BTreeMap::get` 是 `O(log n)`。**已显式登记在 `check_migration_fidelity.py::ALLOWED_SUBS`**
+//      作为**可追溯项**（旧判据只证"没多改字"，**不证"改了的那字对"** ⇒ 这是它的盲区）。
+//      ⚠️ **std 侧 `meta-kernel-core` 保持 `HashMap` 不变** ⇒ 那边 `O(1)` 仍为真，替换是**单向的**。
+pub mod l1_mapping;
+pub mod l5_diagnosis;
+pub mod positive_source;

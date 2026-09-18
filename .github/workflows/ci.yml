@@ -165,7 +165,7 @@ jobs:
       # 判什么：
       #   A/B. CHARTER.md 与 MEMORY.md 必须含底图硬指针（`README.md` + `docs/`）
       #   C.   CHARTER.md 必须声明「与底图冲突时以底图为准」
-      #   D.   核心底图集 6 份在 CHARTER ∪ MEMORY 中全部出现
+      #   D.   核心底图集 7 份在 CHARTER ∪ MEMORY 中全部出现（R61：与 CHARTER 机制 22 及脚本 CORE 统一为 7 份）
       #   E.   README.md「阶段路线（主线）」四阶段与 ROADMAP.md 三阶段必须有**显式映射**声明
       #        （两套刻度：底图四阶段答「内核能力推进到哪层」，ROADMAP 三阶段答「用户何时能装上」）
       #   F.   底图哈希基线（`coordination/security/basemap_hashes.txt`）—— 底图被静默改 ⇒ 判红
@@ -181,6 +181,53 @@ jobs:
           python3 coordination/tools/check_source_of_truth.py --selftest
           SELFTEST=$?
           python3 coordination/tools/check_source_of_truth.py --ci
+          CHECK=$?
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (两个都应为 0)"
+          set -e
+          test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
+
+      # ===== R60 前置提示：改 `docs/` 须先 `--update-baseline`（机制 22 判据 F 的可操作前导）=====
+      # 为什么要单独一步：判据 F 判红时只说「底图内容已变」，操作者容易误读成"底图被篡改"。
+      #   本步骤把**唯一的正确处置**（跑 --update-baseline，并把改动理由写进提交消息 / BASELINE）显式前置。
+      # 口径（R35）：本步骤**只提示、不判红**——硬门禁是下一步「机制 22」的判据 F。
+      - name: R60 前置提示 —— 改 docs/ 须先 --update-baseline（只提示 · 不判红）
+        shell: bash
+        run: |
+          set +e
+          echo "=============================================================="
+          echo "[R60 提示] 任何改动 docs/ 下 .md 的提交，都必须先跑："
+          echo "    python3 coordination/tools/check_source_of_truth.py --update-baseline"
+          echo "  并在提交消息 / BASELINE 中写明【改动理由】。"
+          echo "  不跑 ⇒ 下一步「机制 22 源一致性门禁」的判据 F 必判红（CI 不会绿）。"
+          echo "  [口径] 基线只覆盖 docs/ 全 35 份 .md；README.md 不在基线内（不触发判据 F）。"
+          echo "=============================================================="
+          echo "[R60 本次提交触及的 docs/ 文件]"
+          git diff --name-only HEAD~1 HEAD -- docs/ 2>/dev/null || echo "  （无 HEAD~1 或非 git 仓库）"
+          echo "[R60 本次提交是否同步更新了基线]"
+          if git diff --name-only HEAD~1 HEAD -- coordination/security/basemap_hashes.txt 2>/dev/null | grep -q .; then
+            echo "  OK 基线已同步更新"
+          else
+            echo "  WARN 基线未在本提交内更新（若上面 docs/ 列表非空 ⇒ 判据 F 将判红）"
+          fi
+          exit 0
+
+      # ===== 机制 24（Q14 裁定）：**端点表一致性**门禁（防止「文档跟不上代码」）=====
+      # 判什么：`npb-gateway/src/http.rs` 非测试区 的 `/v1` 路径 与 `docs/LAYER_ARCHITECTURE.md` §4.L3 权威表 的差集。
+      #   [1] 代码有、权威表无 ⇒ **判红**（新端点必须先写进权威表；确属内部/调试端点须登记到 endpoint_whitelist.txt）
+      #   [2] 权威表有、代码无 ⇒ **只提示**（可能是"已设计未实现"或"已下线"，但表里须如实标注状态）
+      # 口径（R35）：**路径口径**（不含 method；method 差异由权威表行内写明）。
+      # 为什么：实测 28 条路由 / 23 个路径，而此前最全的一处口径只覆盖 8 个 ⇒ 差集 15；
+      #   其中 7 个（msg/report/alerts/tasks 族）在 docs/ 35 份中命中 0 ⇒ 新人照旧文档实现会漏掉一整族端点。
+      # 自检：--selftest **五侧**（合规/代码多/表多/仅测试/**真实仓库锚点**）。
+      #   ⚠️ 第 ⑤ 侧是本判据自己的教训：初版锚点常量多写了一个字，而自检夹具与常量**同错** ⇒
+      #   自检全绿、实跑判红。故自检必须**回读真实仓库**，不能只测自造夹具。
+      - name: 机制 24 端点表一致性门禁 —— 代码路由 ⊆ 权威端点表（含判据自检）
+        shell: bash
+        run: |
+          set +e
+          python3 coordination/tools/check_endpoint_table.py --selftest
+          SELFTEST=$?
+          python3 coordination/tools/check_endpoint_table.py
           CHECK=$?
           echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (两个都应为 0)"
           set -e

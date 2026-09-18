@@ -179,11 +179,74 @@
 - 仓库：`npb/src/lib.rs`、`bridge.h`。
 
 #### L3 · 网关·剥离层（npb-gateway）· **转录层（RNA）**
-- 功能：HTTP+SSE 传输接口：`/v1/push|state|events|persist/*|probe|probe/usb|health`；单一写者线程模型。
+- 功能：HTTP+SSE 传输接口；单一写者线程模型。**端点列表见下方 §4.L3 权威表。**
 - 零：L2 输出流（内核读数与指令 JSON）。
 - 扰动：外部请求/SSE 订阅/持久化调用/探针上报。
 - 新增约束：**剥离**——只转语义：不缓存业务态、指令只转发不解释、不空转驱动、快照 schema 版本化。
 - 仓库：`npb-gateway/src/*`。
+
+##### §4.L3 端点表 ★ **全库唯一权威口径**（2026-09-18 裁定 Q12）
+
+> **本条即权威。** 其余文档（`SELF_DIAGNOSIS_REPORT`／`API_GATEWAY_DESIGN`／`README`／`FULL_AUDIT_REPORT`／
+> `GENE_LIBRARY_DESIGN`／`L7_EXECUTION_DESIGN`）**只许指向本表，不得各自列举**——
+> 此前 **7 处口径互不一致**，已裁定收敛到本表。**新增端点必须先改本表**（机器判据见机制 24）。
+
+| # | 方法 | 路径 | 用途 | 层归属（见下方 §4.L3.1） |
+|---|---|---|---|---|
+| 1 | POST | `/v1/push` | 注入种子（外扰入口） | **L3 本体** |
+| 2 | GET | `/v1/state` | 内核读数快照 | **L3 本体** |
+| 3 | GET | `/v1/events` | SSE 订阅（只转发） | **L3 本体** |
+| 4 | POST | `/v1/persist/snapshot` | 取快照（供外部备份） | **L3 本体** |
+| 5 | POST | `/v1/persist/restore` | 恢复快照 | **L3 本体** |
+| 6 | GET | `/v1/health` | 健康检查（含跨平台摘要） | **L3 本体** |
+| 7 | POST | `/v1/probe` | 探针回传（存最新采集） | **L3 本体**（探针链路） |
+| 8 | GET | `/v1/probe` | 读最新采集 | **L3 本体**（探针链路） |
+| 9 | POST | `/v1/probe/usb` | 探针分发（USB 场检测） | **L3 本体**（探针链路） |
+| 10 | GET | `/v1/probe/usb` | 读 USB 场检测结果 | **L3 本体**（探针链路） |
+| 11 | POST | `/v1/genelib` | 基因库原文存取（写） | **借道 L3** ← L1/L4/L5 的持久化面 |
+| 12 | GET | `/v1/genelib` | 基因库原文存取（读） | **借道 L3** ← 同上 |
+| 13 | GET | `/v1/actions` | L7 可选动作清单 | **借道 L3** ← L7 执行闭环 |
+| 14 | GET | `/v1/grants` | 已授权清单 | **借道 L3** ← L7 |
+| 15 | POST | `/v1/grant` | 授权 | **借道 L3** ← L7 |
+| 16 | POST | `/v1/revoke` | 撤销授权 | **借道 L3** ← L7 |
+| 17 | POST | `/v1/execute` | 执行（一次性令牌） | **借道 L3** ← L7 |
+| 18 | POST | `/v1/rollback` | 回滚 | **借道 L3** ← L7 |
+| 19 | GET | `/v1/audit.txt` | 审计哈希链（纯文本） | **借道 L3** ← L7 |
+| 20 | GET | `/v1/report` | 元内核自监控报告（JSON） | **借道 L3** ← **元内核自监控面**（Q13） |
+| 21 | GET | `/v1/report.txt` | 同上（纯文本） | **借道 L3** ← 元内核自监控面 |
+| 22 | GET | `/v1/alerts` | 异常告警 | **借道 L3** ← 元内核自监控面 |
+| 23 | GET | `/v1/tasks`／POST `/v1/tasks` | 任务归属（投递／读取） | **借道 L3** ← 元内核自监控面 |
+| 24 | GET | `/v1/tasks.txt` | 任务归属（纯文本，每行带归属前缀） | **借道 L3** ← 元内核自监控面 |
+| 25 | POST | `/v1/msg`／GET `/v1/msg` | 消息通道（离线自洽，不依赖外部 IM） | **借道 L3** ← **L6/L7 消息收发**（Q13） |
+| 26 | GET | `/v1/msg.txt` | 消息纯文本视图 | **借道 L3** ← L6/L7 消息收发 |
+
+> **口径**：上表按 **method+path** 展开计 **26 行**；**去重路径数 = 23**
+> （`actions, alerts, audit.txt, events, execute, genelib, grant, grants, health, msg, msg.txt,
+> persist/restore, persist/snapshot, probe, probe/usb, push, report, report.txt, revoke, rollback, state, tasks, tasks.txt`）。
+> 两者都在此写明，**报数必须写明口径**（R35）。
+
+##### §4.L3.1 层归属：**L3 本体** vs **借道 L3**（2026-09-18 裁定 Q13）
+
+**裁定结论：Q13 选 P-b** —— 消息／报告／告警／任务族**另有层归属**，**借道 L3 传输**。
+
+**判据（三档）**：
+1. **L3 本体**（同时满足）：① 无业务态；② 指令只转发不解释；③ 语义**仅**为"传输"。
+   ⇒ `/v1/push|state|events|persist/*|health` 与探针链路。
+2. **借道 L3**（**不属 L3，只是经 L3 暴露**）：具备**自有语义与状态**，与 L3 的"剥离"不相称。共三组：
+   - **基因库存取面**（L1/L4/L5 的持久化）：`/v1/genelib`；
+   - **L7 执行闭环**（执行层）：`/v1/actions|grants|grant|revoke|execute|rollback|audit.txt`；
+   - **元内核自监控面**（宿主侧 `npb-gateway/src/selfmon.rs`）：`/v1/report|report.txt|alerts|tasks|tasks.txt`；
+   - **L6/L7 消息通道**（宿主侧 `npb-gateway/src/msg.rs`）：`/v1/msg|msg.txt`。
+3. **不得**把第 2 组的任何路径**当作 L3 的定义**引用——引用时须写明其**实际归属**。
+
+> **证据（可复核）**：`npb-gateway/src/http.rs` 行 467 代码注释逐字
+> ——「**元内核接管（立即移交）：自我监控 / 健康报告 / 异常告警 / 运行日志（含任务归属）**」；
+> `selfmon.rs` 行 1 自陈「**元内核 · 自我监控 / 健康报告 / 异常告警 / 运行日志（含任务归属）**」、
+> 行 3 自陈来由＝**v0.106 发起人指令「元内核系统接管更多任务 · 立即移交」**；
+> **`msg.rs` 行 1 自陈层号「L6/L7 · 消息收发」**（**不是 L3**）。
+>
+> ⚠️ **诚实标注**：本裁定的**层号命名**（"自监控面"）为**本轮依证据归纳**，
+> **底图此前从未给它编号**；若后续要给它一个正式层号（如 L6 的子面），**须另立裁定**。
 
 > **与人类基因库的对比（要点，完整表见 `GENE_LIBRARY_DESIGN.md §7`）**：
 >

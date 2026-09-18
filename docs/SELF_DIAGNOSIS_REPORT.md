@@ -51,7 +51,8 @@
   ├ DNA       dna_trace / dna_generate / dna_adapt（学习能力）
   └ 持久化    persist（快照 / restore_self）
 桥接          npb              947 行（C ABI + wasm32，确定性摘要 4251318995）
-网关          npb-gateway     1149 行（/v1/push|state|events|persist|probe|probe/usb|health）
+网关          npb-gateway     1149 行（**端点表权威口径见 `docs/LAYER_ARCHITECTURE.md §4.L3`，共 23 路径**）
+                                ⚠️ 本行原列举的 7 项为**历史快照，非权威**（2026-09-18 裁定 Q12 收敛）
 应用框架      npb-appkit       885 行 / 19 测试（生命周期状态机 / 命名 / 事件管道）
 参考应用      manifest-journal 802 行 / 16 测试
 界面          manifest-ui      846 行（Rust/WASM，空天浏览器雏形）

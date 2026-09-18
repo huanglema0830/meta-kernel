@@ -335,6 +335,117 @@ pub fn self_check() -> u8 {
         return r5; // 51–55（经 main 的 `100 + n` 映射后，CI 上会读成 151–155）
     }
 
+    // —— ⑨ 段：2.3b 片6（4 模块：L1 视觉映射／L5 诊断／L7 修复建议／正源解构）——
+    let r6 = self_check_shard6();
+    if r6 != 0 {
+        return r6; // 91–95（经 main 的 `100 + n` 映射后，CI 上会读成 191–195）
+    }
+
+    0
+}
+
+// ================== ⑨ 段（2.3b 片6）：孪生配对 / 诊断中性点 / 动作白名单 ==================
+//
+// **为什么选这三个**：它们各自是**可证伪的契约**，且**恰好覆盖本片的两处「替换类」**：
+//   * 孪生配对（`positive_source`）：`twin_index` 是本片**唯一的类型替换**落点
+//     （`HashMap` → `BTreeMap`）。**幂等 + 用孪生键查得回**这两条断言，直接证成
+//     「换容器后 `get`/`insert` 语义不变」——即**行为等价**（不是"编译过了就算"）。
+//   * 诊断中性点（`l5_diagnosis`）：**R7 教训** —— 中性点必须 "输入=本底 ⇒ 结论=平"，
+//     否则任何输入都会被报成异常（判据空转）。
+//   * 动作白名单（`l7::repair`）：**找不到即 None ⇒ 宿主必须拒绝** —— 反向断言证明
+//     "白名单之外的 id 不可执行"，这是 L7「不侵」在编译期目录上的落点。
+#[allow(clippy::too_many_lines)]
+fn self_check_shard6() -> u8 {
+    use meta_kernel_core_nostd::{l5_compare::Band, l5_diagnosis, l1_mapping, l7, positive_source};
+    use meta_kernel_core_nostd::l5_baseline::BaselineField;
+
+    // ——— 91：孪生指纹可逆（`twin(twin(x)) == x`），且永不恒等 ———
+    {
+        for x in [0u64, 1, 0xDEAD_BEEF_u64, u64::MAX, 0x8000_0000_0000_0000] {
+            if positive_source::twin_fingerprint(positive_source::twin_fingerprint(x)) != x {
+                return 91; // 可逆性破 ⇒ "瞬时可逆"是假话
+            }
+            if positive_source::twin_fingerprint(x) == x {
+                return 91; // 恒等 ⇒ 孪生与本体重合，配对无意义
+            }
+        }
+    }
+
+    // ——— 92/93：孪生索引往返（**直接证 `BTreeMap` 换容器行为等价**）———
+    {
+        let mut ps = positive_source::PositiveSource::new();
+        let fp: u64 = 0x0123_4567_89AB_CDEF;
+        ps.entangle(fp, 0.4);
+        if ps.entangled_len() != 1 {
+            return 92;
+        }
+        // 用「孪生键」查得回（走 `twin_index.get`）
+        if ps.entanglement_match(positive_source::twin_fingerprint(fp)) != Some(0.4) {
+            return 92; // 插入后查不回 ⇒ 索引失效
+        }
+        // 幂等：同正指纹再登记 ⇒ **条目数不变**（走 `twin_index.get` 命中分支），但补充增量被更新
+        ps.entangle(fp, 0.9);
+        if ps.entangled_len() != 1 {
+            return 93; // 幂等破 ⇒ `get` 命中逻辑失效（换容器最可能伤到这里）
+        }
+        if ps.entanglement_match(positive_source::twin_fingerprint(fp)) != Some(0.9) {
+            return 93; // 更新未生效
+        }
+        // 反向：**未登记**的孪生键必须查不到（否则"配对"退化成"永远命中"）
+        if ps.entanglement_match(fp) != None {
+            return 93;
+        }
+    }
+
+    // ——— 94：诊断中性点（输入 = 本底 ⇒ 全场平 ⇒ `advice.calm`；R7 教训）———
+    {
+        let base = BaselineField {
+            earth: 0.6,
+            water: 0.6,
+            fire: 0.6,
+            wind: 0.6,
+            object: "self-check",
+            established: "self-check",
+        };
+        let c = l5_diagnosis::synthesize(&[0.6; 4], &base, &[Band::Ping; 4]);
+        // `suggestion_key` 是语言无关键（`String`）——**能取到非空值本身就证成 `format!`/`String` 在 no_std 下可用**
+        if c.suggestion_key != "advice.calm" {
+            return 94; // 中性点未映射到"维持现状" ⇒ 任何输入都会被报成异常
+        }
+        if c.suggestion.is_empty() {
+            return 94; // 默认文本缺失（`String` 路径未真正工作）
+        }
+    }
+
+    // ——— 95：动作白名单（在册 id 可取；**不在册必 None**）———
+    {
+        for id in 1u32..=4 {
+            match l7::repair::action_by_id(id) {
+                Some(a) if a.id == id => {}
+                _ => return 95,
+            }
+        }
+        for id in [0u32, 5, 99, u32::MAX] {
+            if l7::repair::action_by_id(id).is_some() {
+                return 95; // 白名单之外的 id 竟能取到 ⇒「不侵」的编译期目录失效
+            }
+        }
+        if l7::repair::action_by_key("clean-temp").is_none() {
+            return 95; // 稳定键查不到 ⇒ 宿主无法对表执行
+        }
+    }
+
+    // ——— 附：L1 视觉映射可算且值域合法（片6 第四模块的最小存在性断言）———
+    {
+        let g = l1_mapping::GaborParams::default();
+        if !(g.lambda.is_finite() && g.theta.is_finite() && g.sigma.is_finite() && g.gamma.is_finite()) {
+            return 91;
+        }
+        if !l1_mapping::GABOR_DEFAULTS.iter().all(|v| v.is_finite()) {
+            return 91;
+        }
+    }
+
     0
 }
 

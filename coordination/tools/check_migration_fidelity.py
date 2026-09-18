@@ -48,6 +48,25 @@ ALLOWED_SUBS: dict[str, str] = {
     # 预留：片6 已探到 `std::f64::consts::*` 的用法（`l1_mapping`），同属**同一常量**的路径改写。
     "std::f64::consts::PI": "core::f64::consts::PI",
     "std::f64::consts::TAU": "core::f64::consts::TAU",
+    # ===== 片6（2026-09-18）=====
+    # ⚠️ **本片唯一一处「类型替换」**（`no_std` 无 `HashMap`）。
+    #    **成立前提**＝`twin_index` 该集合**只用 `insert`/`get`、从不迭代**
+    #    （独立复核：`twin_index` 上出现的方法集恰为 `{insert, get}`；
+    #      `PositiveSource` derive 为 `Debug, Clone, Default`，**无 `PartialEq`/`Eq`/`Hash`**
+    #      ⇒ 内存布局与遍历序均**不可观测** ⇒ 对外行为等价）。
+    #    ⚠️ **仍非"逐位等价"** —— 是**行为（内容）等价**；"逐位等价"的措辞不成立（见片6 论证报告 §3.1）。
+    "std::collections::HashMap": "alloc::collections::BTreeMap",
+    # ↑ 同一类型替换的**用点**（声明处类型名；与上一条同属一次替换，须成对登记 —— R34 精神）
+    "HashMap<u64, usize>": "BTreeMap<u64, usize>",
+    # ⚠️ **本条是「改文字」而非「改路径」** —— 本判据的白名单里**首次**出现此类。
+    #    **为什么必须登记**：换容器后 `BTreeMap::get` 是 `O(log n)`（`HashMap` 才是均摊 `O(1)`），
+    #    故 `positive_source.rs` 的 **3 行 `O(1)` 注释**成为**不实叙述**；改它则**判据必红**（丢行）。
+    #    ⇒ 登记为**显式替换** ⇒ 从"静默丢行"变成"**可枚举、可复核的可追溯项**"。
+    #    ⚠️ **旧判据的盲区**：保真度判据只证「没多改字」，**不证「改了的那字对」**（缺陷 R62）。
+    #    ⚠️ **源文件（std 侧）保持 `HashMap` 不改** ⇒ 那边 `O(1)` **依然为真**，故替换是**单向**的。
+    "O(1) 直接配对（非遍历）": "O(log n) 直接配对（非遍历）",
+    "（O(1) 直接配对，非遍历）": "（O(log n) 直接配对，非遍历）",
+    "（O(1)，非遍历）": "（O(log n)，非遍历）",
 }
 
 MARKER = "//! 【2.3b"
@@ -200,14 +219,20 @@ def check(orig_path: Path, new_path: Path) -> int:
 
 
 def selftest() -> int:
-    """正反对照：正常迁移应通过；未登记的替换应被抓到。"""
+    """正反对照：正常迁移应通过；未登记的替换应被抓到。
+
+    ⚠️ **样例里的"未登记项"必须真的未登记**：片6（2026-09-18）把
+    `std::collections::HashMap` **登记进了 `ALLOWED_SUBS`**（它是片6 的合法类型替换），
+    故本自检的样例**从 `HashMap` 换成 `LinkedList`**（仍未登记，且**不属片6 迁移集**）。
+    ⇒ 这是**跟随白名单演进**的同步修改，**不是**为了让判据变绿而放松它（对比 R34：新增替换须同步白名单）。
+    """
     print("=== 判据自检（正反两侧）===")
     d = Path(tempfile.mkdtemp(prefix="fid_"))
     src = d / "orig.rs"
     src.write_text(
         "//! 模块说明。\n//!\n//! 提到 std::fs 只是为了说明（注释不算依赖）。\n\n"
         "pub fn f(x: f32) -> f32 { x.abs() }\n"
-        "#[cfg(test)]\nmod t { #[test] fn a() { use std::collections::HashMap; let _ = HashMap::<u8,u8>::new(); } }\n",
+        "#[cfg(test)]\nmod t { #[test] fn a() { use std::collections::LinkedList; let _ = LinkedList::<u8>::new(); } }\n",
         encoding="utf-8",
     )
     good = d / "good.rs"
@@ -218,7 +243,7 @@ def selftest() -> int:
         "#[allow(unused_imports)]\n"
         "use crate::fmath::FloatOps;\n\n"
         "pub fn f(x: f32) -> f32 { x.abs() }\n"
-        "#[cfg(test)]\nmod t { #[test] fn a() { use std::collections::HashMap; let _ = HashMap::<u8,u8>::new(); } }\n",
+        "#[cfg(test)]\nmod t { #[test] fn a() { use std::collections::LinkedList; let _ = LinkedList::<u8>::new(); } }\n",
         encoding="utf-8",
     )
     bad = d / "bad.rs"
@@ -226,12 +251,12 @@ def selftest() -> int:
         "//! 模块说明。\n//!\n//! 提到 std::fs 只是为了说明（注释不算依赖）。\n\n"
         "//! 【2.3b 片X 迁移】同源，仅作适配：\n\n"
         "pub fn f(x: f32) -> f32 { x.abs() }\n"
-        "pub fn g() -> usize { std::collections::HashMap::<u8,u8>::new().len() }\n",
+        "pub fn g() -> usize { std::collections::LinkedList::<u8>::new().len() }\n",
         encoding="utf-8",
     )
     print("\n--- ① 正常迁移（应 ✅ 通过）---")
     r1 = check(src, good)
-    print("\n--- ② 未登记替换 std::collections::HashMap（应 ❌ 被抓）---")
+    print("\n--- ② 未登记替换 std::collections::LinkedList（应 ❌ 被抓）---")
     r2 = check(src, bad)
     print(f"\n自检结论：{'✅ 两侧都符合预期' if (r1 == 0 and r2 == 1) else '❌ 判据失效'}"
           f"（正常={r1} 应为0；异常={r2} 应为1）")
