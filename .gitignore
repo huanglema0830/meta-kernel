@@ -57,3 +57,7 @@ meta-kernel-boot/target/
 boot_build.log
 shot.ppm
 qemu.log
+
+# Python 字节码（判据脚本本地跑产生；R67 修复：v0.200 曾误入库 1 个 .pyc）
+__pycache__/
+*.pyc
