@@ -241,6 +241,32 @@ jobs:
           set -e
           test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
 
+      # ===== 机制 25：**文档一致性**门禁（R69／R72 家族：状态型文档静默过期）=====
+      # 判什么：文档说的状态 与 机器实测的状态 是否一致。三条：
+      #   P1 段号一致性：**逐文件**取「活跃段号陈述」的**最大值**，须 == `verify.rs` 实测最大段号
+      #   P2 收口一致性：机器已收口时，文档不得仍有**活跃**「剩余 N 片」陈述
+      #   P3 文档内部一致性：同一文件不得既称「已收口」又称「剩余 N 片」
+      # 口径（R35）：**逐文件取最大值**而非逐条比对（段号是**单调递增的历史叙事**）；
+      #   含**历史标记词**（修订前/改前/原为/原文/已处置/已修订/订正/引述/当时/历史/~~）的行
+      #   视为**历史留痕**，不参与判断 —— 否则判据会把**它自己的登记表**判红（R73）。
+      # 扫描范围：`coordination/*.md` ＋ `README.md` ＋ `docs/*.md`；
+      #   **排除** `reports/`／`discussions/`（当轮快照，天然落后，纳入会常亮红灯）。
+      # 为什么：R69／R72 —— 「迁移进度」这类状态型文档会静默过期，且**没有任何判据在检查它**
+      #   （属 R62「判据盲区」的**文档侧同族**）。建后**首跑即抓出** advisor_brief 2 处真实过期点。
+      # 自检：--selftest **六侧**（真实仓库锚点／机器事实源／一致夹具／段号落后／收口却说剩余／历史留痕不误伤）。
+      # 浅克隆安全：本判据只读**仓库内**文件（verify.rs ＋ docs/ ＋ coordination/），**不依赖 HEAD~1**（R68）。
+      - name: 机制 25 文档一致性门禁 —— 文档状态 == 机器实测（含判据自检）
+        shell: bash
+        run: |
+          set +e
+          python3 coordination/tools/check_doc_consistency.py --selftest
+          SELFTEST=$?
+          python3 coordination/tools/check_doc_consistency.py
+          CHECK=$?
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (两个都应为 0)"
+          set -e
+          test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
+
       - name: Build NPB cdylib (native)
         run: cargo build -p npb
 
