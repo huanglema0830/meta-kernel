@@ -341,6 +341,12 @@ pub fn self_check() -> u8 {
         return r6; // 91–95（经 main 的 `100 + n` 映射后，CI 上会读成 191–195）
     }
 
+    // —— ⑩ 段：2.3b 片7／片8（3 模块：L5 翻译／L6 脸切换／L5 JSON 路由）——
+    let r7 = self_check_shard7();
+    if r7 != 0 {
+        return r7; // 101–105（经 main 的 `100 + n` 映射后，CI 上会读成 201–205）
+    }
+
     0
 }
 
@@ -443,6 +449,103 @@ fn self_check_shard6() -> u8 {
         }
         if !l1_mapping::GABOR_DEFAULTS.iter().all(|v| v.is_finite()) {
             return 91;
+        }
+    }
+
+    0
+}
+
+// ====== ⑩ 段（2.3b 片7／片8）：翻译回退 / 脸叠层上界 / JSON 结构配平 ======
+//
+// **为什么选这三个**：它们是本片三模块各自**可证伪的契约**，且各压住一条**底图条文**：
+//   * 翻译回退（`l5_translate`）：底图 `L5_TRANSLATION_TABLE` 明定「缺词／未验证 ⇒ 保留场语言原文
+//     ＋ `(待补)` 标记，**不阻断诊断**」⇒ 用**空词表**跑，断言输出**必含 `(待补)`**
+//     （若不含，说明缺词被静默吞掉 ⇒「不妄语」破）。
+//   * 脸叠层（`l6_face`）：底图 `L6_DESIGN`／`FIELD_PRESENTATION_DESIGN` 定「**网页始终可见**」⇒
+//     断言 ① 原版 α 恒 0；② **一切模式 × 一切置信度 α ≤ 0.35**；③ 混合恰为场域之半。
+//   * JSON 路由（`l5_router`）：**手写**序列化 ⇒ 断言**结构首尾 ＋ 引号/反斜杠计数配平**
+//     （转义写坏则配平必破）——这是「零依赖 JSON」在 no_std 下**真正可用**的最小证据。
+#[allow(clippy::too_many_lines)]
+fn self_check_shard7() -> u8 {
+    use meta_kernel_core_nostd::l5_baseline::BaselineField;
+    use meta_kernel_core_nostd::l5_diagnosis::{diagnose, Diagnosis};
+    use meta_kernel_core_nostd::{l5_router, l5_translate, l6_face};
+
+    let base = BaselineField {
+        earth: 0.6,
+        water: 0.6,
+        fire: 0.6,
+        wind: 0.6,
+        object: "self-check",
+        established: "self-check",
+    };
+    // 诊断输入构造（与 `l5_router` 单测同形）；**实测 pattern = Kang,Ping,Ping,Ping**
+    // （**不要假设它全为 Ping** —— 该假设在 host 镜像上已被实测否定）
+    let d: Diagnosis = diagnose(&[0.6, 0.6, 0.6, 0.6, 1.0, 0.5, 1.0], &base, "shard78");
+
+    // ——— 101：缺词必须如实标记 `(待补)`，且**不阻断**（空词表仍能跑出结果）———
+    {
+        let empty: [l5_translate::Term; 0] = [];
+        let s = l5_translate::summarize_for(&empty, "universal", &d);
+        if !s.contains("(待补)") {
+            return 101; // 缺词被静默吞掉 ⇒ 「不妄语」破
+        }
+    }
+
+    // ——— 102：8 语言齐备且逐条非空（证 `Vec<(String,String)>` 在 no_std 下真可用）———
+    {
+        let all = l5_translate::all_summaries(&d);
+        if all.len() != l5_translate::LANGS.len() || all.len() != 8 {
+            return 102;
+        }
+        for (k, v) in all.iter() {
+            if k.is_empty() || v.is_empty() {
+                return 102;
+            }
+        }
+    }
+
+    // ——— 103：原版永不叠加；且**一切模式 α ≤ 0.35**（「网页始终可见」的量化上界）———
+    {
+        use l6_face::FaceMode;
+        if FaceMode::Original.overlay_alpha(1.0) != 0.0 {
+            return 103;
+        }
+        for m in FaceMode::all() {
+            for c in [0.0f64, 0.5, 1.0] {
+                let a = m.overlay_alpha(c);
+                if !(0.0..=0.35).contains(&a) {
+                    return 103; // 上界破 ⇒ 叠层可能遮住内容
+                }
+            }
+        }
+    }
+
+    // ——— 104：混合恰为场域之半；未知输入走**安全缺省**（不叠加）———
+    {
+        use l6_face::FaceMode;
+        let f = FaceMode::Field.overlay_alpha(1.0);
+        let b = FaceMode::Blend.overlay_alpha(1.0);
+        let diff = b * 2.0 - f;
+        if !(diff < 1e-12 && -diff < 1e-12) {
+            return 104; // 「减半」名不符实
+        }
+        if FaceMode::parse("乱码") != FaceMode::Original {
+            return 104; // 未知输入未走安全缺省 ⇒ 可能误叠加
+        }
+    }
+
+    // ——— 105：JSON 结构首尾 ＋ 引号/反斜杠配平（转义写坏必被抓住）———
+    {
+        let j = l5_router::to_json(&d);
+        if !(j.starts_with('{') && j.ends_with('}')) {
+            return 105;
+        }
+        if !j.contains("\"schema\":") || !j.contains("\"universal\":") {
+            return 105;
+        }
+        if j.matches('"').count() % 2 != 0 || j.matches('\\').count() % 2 != 0 {
+            return 105; // 配平破 ⇒ 转义不成立
         }
     }
 

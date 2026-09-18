@@ -316,3 +316,95 @@ fn mirror_shard6_l1_mapping_finite() {
     assert!(g.lambda.is_finite() && g.theta.is_finite() && g.sigma.is_finite() && g.gamma.is_finite());
     assert!(l1_mapping::GABOR_DEFAULTS.iter().all(|v| v.is_finite()));
 }
+
+// ============ ⑩ 段（2.3b 片7／片8）· 与 `kernel/src/verify.rs::self_check_shard7` **逐条对应** ============
+//
+// ⚠️ 本段的意义：片7／片8 是**末片**，且**零「替换类」**⇒ 断言的重点从「行为等价」转为
+//   **业务契约是否真成立**：缺词是否如实标记、叠层是否有上界、手写 JSON 是否结构自洽。
+//   先在这里跑出**真实值**，再把它们编码成裸机断言（避免"期望值算错 ⇒ 裸机假红"）。
+
+fn shard78_diagnosis() -> meta_kernel_core_nostd::l5_diagnosis::Diagnosis {
+    use meta_kernel_core_nostd::l5_baseline::BaselineField;
+    use meta_kernel_core_nostd::l5_diagnosis::diagnose;
+    let base = BaselineField {
+        earth: 0.6,
+        water: 0.6,
+        fire: 0.6,
+        wind: 0.6,
+        object: "self-check",
+        established: "self-check",
+    };
+    diagnose(&[0.6, 0.6, 0.6, 0.6, 1.0, 0.5, 1.0], &base, "shard78")
+}
+
+/// 101：缺词必须如实标记 `(待补)`，且**不阻断**（空词表仍能跑出结果）。
+#[test]
+fn mirror_shard78_101_translate_fallback_marked() {
+    use meta_kernel_core_nostd::l5_translate;
+    let d = shard78_diagnosis();
+    let empty: [l5_translate::Term; 0] = [];
+    let s = l5_translate::summarize_for(&empty, "universal", &d);
+    println!("[诊断] 空词表输出 = {s:?}");
+    assert!(s.contains("(待补)"), "缺词必须如实标记，不得静默吞掉");
+}
+
+/// 102：8 语言齐备且逐条非空（证 `Vec<(String,String)>` 在 no_std 下真可用）。
+#[test]
+fn mirror_shard78_102_all_summaries_complete() {
+    use meta_kernel_core_nostd::l5_translate;
+    let d = shard78_diagnosis();
+    let all = l5_translate::all_summaries(&d);
+    println!("[诊断] 语言数 = {}／{}", all.len(), l5_translate::LANGS.len());
+    for (k, v) in all.iter() {
+        println!("       {k} → {v:?}");
+    }
+    assert_eq!(all.len(), l5_translate::LANGS.len());
+    assert_eq!(all.len(), 8);
+    assert!(all.iter().all(|(k, v)| !k.is_empty() && !v.is_empty()));
+}
+
+/// 103：原版永不叠加；且**一切模式 α ≤ 0.35**（「网页始终可见」的量化上界）。
+#[test]
+fn mirror_shard78_103_face_alpha_bounded() {
+    use meta_kernel_core_nostd::l6_face::FaceMode;
+    println!("[诊断] α(1.0)：原版={} 场域={} 混合={}",
+        FaceMode::Original.overlay_alpha(1.0),
+        FaceMode::Field.overlay_alpha(1.0),
+        FaceMode::Blend.overlay_alpha(1.0));
+    assert_eq!(FaceMode::Original.overlay_alpha(1.0), 0.0, "原版必须不叠加");
+    for m in FaceMode::all() {
+        for c in [0.0f64, 0.5, 1.0] {
+            let a = m.overlay_alpha(c);
+            assert!((0.0..=0.35).contains(&a), "α 越上界：{a}（mode={m:?} c={c}）");
+        }
+    }
+}
+
+/// 104：混合恰为场域之半；未知输入走**安全缺省**（不叠加）。
+#[test]
+fn mirror_shard78_104_face_blend_half_and_default() {
+    use meta_kernel_core_nostd::l6_face::FaceMode;
+    let f = FaceMode::Field.overlay_alpha(1.0);
+    let b = FaceMode::Blend.overlay_alpha(1.0);
+    println!("[诊断] 场域={f} 混合={b} 混合×2−场域={}", b * 2.0 - f);
+    let diff = b * 2.0 - f;
+    assert!(diff < 1e-12 && -diff < 1e-12, "「混合＝场域一半」名不符实");
+    assert_eq!(FaceMode::parse("乱码"), FaceMode::Original, "未知输入必须安全缺省");
+}
+
+/// 105：JSON 结构首尾 ＋ 引号/反斜杠配平（转义写坏必被抓住）。
+#[test]
+fn mirror_shard78_105_router_json_balanced() {
+    use meta_kernel_core_nostd::l5_router;
+    let d = shard78_diagnosis();
+    let j = l5_router::to_json(&d);
+    let (q, bs) = (j.matches('"').count(), j.matches('\\').count());
+    println!("[诊断] JSON 长度={} 引号数={} 反斜杠数={}", j.len(), q, bs);
+    println!("[诊断] JSON 前 140 字 = {}", &j[..j.len().min(140)]);
+    assert!(j.starts_with('{') && j.ends_with('}'), "JSON 首尾不成对");
+    assert!(j.contains("\"schema\":"), "缺 schema 字段");
+    assert!(j.contains("\"universal\":"), "缺 universal 语言键");
+    assert_eq!(q % 2, 0, "引号未配平 ⇒ 转义不成立");
+    assert_eq!(bs % 2, 0, "反斜杠未配平 ⇒ 转义不成立");
+}
+

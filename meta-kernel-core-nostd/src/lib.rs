@@ -8,7 +8,8 @@
 //! - 原 `meta-kernel-core` **完整保留**（宿主 / 网关 / 工作台仍在用 std 版）。
 //! - 本 crate 是它的**子集 + 拆分版**：
 //!   **凡"序列化 / 文件 IO / 基因库读写"的接口一律留在 std 侧**，本层只保留**纯计算**。
-//! - **零第三方依赖**（C1）；**不使用 `alloc`**（本层不出现 `Vec` / `String`）。
+//! - **零第三方依赖**（C1）。⚠️ **`alloc` 属标准分发**（**D34-b**）⇒ 本层**使用** `alloc` 的
+//!   `Vec`/`String`/`BTreeMap` 等**不破 C1**（原句「不使用 `alloc`」是 v2.1 初期的口径，**已订正**）。
 //!
 //! ## 阈值来源抽象（本次拆分的核心）
 //!
@@ -29,21 +30,24 @@
 //! | [`l4`] | 拒绝层：七维场域判据 + 路由（阈值经 `Thresholds` 注入） | 复制 + **拆分** |
 //! | [`l4_risk`] | 四条戒律风险判定（**纯判据**；文本输出留 std） | 复制 + **拆分** |
 //!
-//! **2.3b 迁移进度（2026-09-17 起）**：
+//! ## 2.3b 分片迁移（✅ **已全部完成**，2026-09-17 → 2026-09-18）
 //!
 //! | 片 | 模块 | 状态 |
 //! |---|---|---|
-//! | 第 1 片 | [`l7::grade`] | ✅ **已迁入**（自包含、无 std、无浮点；仅补 1 行 `use alloc::vec::Vec`） |
+//! | 片1–片5 | `l7::grade`/`mesh`/`ledger`、源解析、思维链、沙漏、演化、注意力、闸门、自识别、账本 … | ✅ |
+//! | **片6** | `l1_mapping`、`l5_diagnosis`、`l7::repair`、`positive_source` | ✅ **含本仓唯一的「类型替换」**（`HashMap` → `BTreeMap`） |
+//! | **片7** | `l5_translate`、`l6_face` | ✅ **零「替换类」** |
+//! | **片8** | `l5_router` | ✅ 末片；**零「替换类」** |
 //!
-//! **仍不迁**：`l5_*`（baseline/quad/evidence）、`fourier`/`interference`/`energy`、
-//! `l7::{ledger,mesh,repair}`（共 1,122 行中未迁部分）、
-//! `gene_library`、`ontology`、`sanitizer`、`state`、`trace`、`habit`、`dna_*`、`executor` 等。
+//! **收口口径（**机器判据实测**，非宣称）**：`coordination/tools/check_migration_closure.py`
+//! ⇒ **源 crate 55 模块｜目标 crate 57 模块**，`[1] 封闭性` **PASS**
+//! （目标 crate **未引用任何「源有目标无」的模块**）⇒ **2.3b 已无剩余片**
+//! （`--emit 1` 报「层号越界（共 0 层）」）。
+//! 目标多出的 **2** 个 ＝ [`fmath`]（**自实现**浮点超越函数）＋ [`quad`]（从原实现抽取）——**非**源 crate 模块。
 //!
-//! ⚠️ **2.3b 的真实规模（订正）**：上轮清单写"10 文件 3,098 行"——那**只算了直接文件**。
-//! 实测**非测试代码的依赖闭包 = 22 模块 / 6,853 行**（10 种子 3,098 + 12 个传递依赖 3,755），
-//! 另有 **151 处 `std` 专有浮点方法**需改走 [`fmath`]。**故 2.3b 改为分片执行**，
-//! 每片必须**自包含**（不引入未迁模块），逐片验证。清单见
-//! `coordination/reports/2026-09-17_子任务2.3b_改动清单_订正.md`。
+//! ⚠️ **本清单不手写**（**D40**）：每片清单由 `check_migration_closure.py --emit N` 产出并冻结。
+//! ⚠️ **修订说明**：原段落曾写「仍不迁：`l5_*`／`fourier`／`gene_library`／`state`／`trace`／`dna_*` …」——
+//! 该列表**已被后续片全部迁完**，属**当时的真实、现在的过期**，故整段替换（**不留不实叙述**）。
 //!
 //! **`alloc` 的地位**（**D34-b**）：`alloc` 属**标准分发**（随工具链提供、非第三方 crate），
 //! **使用它不破 C1**；但使用时**不得因此引入任何外部 crate**。
@@ -140,3 +144,14 @@ pub mod l5_compare;
 pub mod l1_mapping;
 pub mod l5_diagnosis;
 pub mod positive_source;
+// —— 2.3b 片7（2026-09-18）：**清单由脚本产出**（D40），冻结串＝`--emit 1` 的输出 ——
+// 生成命令：`python coordination/tools/check_migration_closure.py --emit 1`
+// ⇒ `l5_translate l6_face`（2 模块，脚本口径）
+// ⚠️ **本片零「替换类」**：无 `std::` 路径、无集合、无浮点方法 ⇒ 仅补 `alloc` 的 `use`。
+pub mod l5_translate;
+pub mod l6_face;
+// —— 2.3b 片8（2026-09-18 · 末片）：**清单由脚本产出**（D40），冻结串＝`--emit 2` 的输出 ——
+// 生成命令：`python coordination/tools/check_migration_closure.py --emit 2`
+// ⇒ `l5_router`（1 模块，脚本口径；依赖片7 的 `l5_translate`）
+// ⚠️ **本片零「替换类」**：同上，仅补 `alloc` 的 `use`。
+pub mod l5_router;
