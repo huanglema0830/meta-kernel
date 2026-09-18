@@ -229,10 +229,10 @@
 
 **裁定结论：Q13 选 P-b** —— 消息／报告／告警／任务族**另有层归属**，**借道 L3 传输**。
 
-**判据（三档）**：
+**判据（两档＋一条禁令）**：
 1. **L3 本体**（同时满足）：① 无业务态；② 指令只转发不解释；③ 语义**仅**为"传输"。
    ⇒ `/v1/push|state|events|persist/*|health` 与探针链路。
-2. **借道 L3**（**不属 L3，只是经 L3 暴露**）：具备**自有语义与状态**，与 L3 的"剥离"不相称。共三组：
+2. **借道 L3**（**不属 L3，只是经 L3 暴露**）：具备**自有语义与状态**，与 L3 的"剥离"不相称。共四组：
    - **基因库存取面**（L1/L4/L5 的持久化）：`/v1/genelib`；
    - **L7 执行闭环**（执行层）：`/v1/actions|grants|grant|revoke|execute|rollback|audit.txt`；
    - **元内核自监控面**（宿主侧 `npb-gateway/src/selfmon.rs`）：`/v1/report|report.txt|alerts|tasks|tasks.txt`；
