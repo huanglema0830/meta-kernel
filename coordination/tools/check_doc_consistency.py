@@ -1,0 +1,325 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""机制 25 · 文档一致性判据（check_doc_consistency.py）
+
+【为什么需要它】
+R69／R72 家族：**"迁移进度"这类状态型文档会静默过期，且没有任何判据在检查它**。
+R62 是"判据盲区"（判据只证明没多改字、不证明改了的字对）；本判据补的是它的**文档侧同族**：
+**文档说的状态，与机器实测的状态，是否一致**。
+
+【三条判据】
+P1 · **段号一致性（文档 ↔ 机器）**：逐文件取"活跃段号陈述"的**最大值**，须等于机器实测最大段号。
+     —— 口径说明（R35）：取"每文件最大值"而非"逐条比对"，因为段号是**单调递增的历史叙事**
+     （文档会记录"扩到第 ⑥ 段→⑧→⑩"的过程）；**落后的是"最大值"，不是每一条**。
+P2 · **收口一致性（文档 ↔ 机器）**：机器已收口时，文档不得仍有"剩余 N 片"的**活跃**陈述。
+P3 · **文档内部一致性（同文件自洽）**：同一文件内既有"已收口"又有活跃"剩余 N 片"⇒ 自相矛盾。
+
+【活跃 vs 历史留痕】
+含下列**历史标记词**的行视为**历史留痕**，不参与 P1/P2/P3：
+    修订前（同义：改前） / 原为 / 原文 / 已处置 / 已修订 / 订正 / 引述 / 当时 / 历史 / ~~（删除线）
+理由：登记表本身就是"引述被修订的原文"，若不排除，判据会把自己的**登记**判红。
+
+【扫描范围】
+`coordination/*.md`（顶层治理文件）＋ `README.md` ＋ `docs/*.md`。
+**排除** `coordination/reports/`、`coordination/discussions/`：它们是**当轮快照**（自陈基准版本），
+天然落后于当前机器状态，纳入会造成常亮红灯。
+
+【自检（按 C18：同源 ＋ 回读真实仓库 ＋ 可区分"0"与"解析失败"）】
+① 真实仓库锚点：`docs/` 与 `coordination/` 顶层必须解析到 >0 个文件；
+② 机器事实源：`verify.rs` 必须解析到 >=5 个段标题（否则判据空转）；
+③ 夹具·一致文档 ⇒ 不判红；④ 夹具·段号落后 ⇒ 判红；⑤ 夹具·收口却说剩余 ⇒ 判红。
+
+用法：
+    python coordination/tools/check_doc_consistency.py            # 实跑
+    python coordination/tools/check_doc_consistency.py --selftest # 五侧自检
+    python coordination/tools/check_doc_consistency.py --list     # 只列活跃陈述，不作判
+"""
+import argparse
+import io
+import os
+import re
+import sys
+import tempfile
+from pathlib import Path
+
+# ---------- 常量（唯一权威，自检夹具复用同一份 ⇒ C18 同源）----------
+VERIFY_REL = "meta-kernel-boot/kernel/src/verify.rs"
+SRC_DIR = "meta-kernel-core/src"
+TGT_DIR = "meta-kernel-core-nostd/src"
+
+# 历史标记词：含这些词的行 = 历史留痕，不参与判据
+HISTORY_MARKS = ["修订前", "改前", "原为", "原文", "已处置", "已修订", "订正",
+                 "引述", "当时", "历史", "~~"]
+# 例外：含"原文"但同时是活跃陈述？—— 保守起见，一律按历史留痕处理。
+
+CIRC = [chr(0x2460 + i) for i in range(20)]        # ①..⑳
+CIRC_MAP = {c: i + 1 for i, c in enumerate(CIRC)}
+
+# 段标题：形如 "⑩ 段" / "第 ⑩ 段"
+RE_SEG_TITLE = re.compile(r"([%s])\s*段" % "".join(CIRC))
+# 只是普通段号陈述（P1 用：含"第 N 段"或"N 段"）
+RE_SEG_ANY = RE_SEG_TITLE
+# 剩余片陈述（P2 用）："剩余片6" / "剩余 片6–片8" / "剩余片 6"
+RE_REMAIN = re.compile(r"剩余\s*片\s*[0-9%s]" % "".join(CIRC))
+# 已收口标记（P3 用）——**收窄到与"迁移/分片"相关的表述**，避免把
+# 无关的「D28/D29 已收口」之类误算进来（假阳性 = 判据可信度的杀手）。
+RE_DONE = re.compile(r"(?:(?:迁移|片)[^。\n]{0,20}已收口|已收口[^。\n]{0,20}(?:迁移|片)|无剩余片|逐片收口)")
+
+
+def _active(line: str) -> bool:
+    """该行是否为**活跃**陈述（非历史留痕）。"""
+    return not any(k in line for k in HISTORY_MARKS)
+
+
+def circ_of(line: str):
+    """取一行内出现的段号（可能多个）。"""
+    return [CIRC_MAP[c] for c in RE_SEG_TITLE.findall(line)]
+
+
+def scan_targets(repo: Path):
+    """扫描范围：coordination 顶层 + README.md + docs/*.md（排除 reports/ discussions/）。"""
+    out = []
+    coord = repo / "coordination"
+    if coord.is_dir():
+        for f in sorted(coord.glob("*.md")):
+            out.append(f)
+    rd = repo / "README.md"
+    if rd.is_file():
+        out.append(rd)
+    docs = repo / "docs"
+    if docs.is_dir():
+        for f in sorted(docs.glob("*.md")):
+            out.append(f)
+    return out
+
+
+def machine_max_seg(repo: Path):
+    """机器事实：verify.rs 中段标题的最大段号。返回 (maxseg, count) 或 (None, 0)。"""
+    p = repo / VERIFY_REL
+    if not p.is_file():
+        return None, 0
+    txt = p.read_text(encoding="utf-8", errors="replace")
+    nums = [CIRC_MAP[c] for c in RE_SEG_TITLE.findall(txt)]
+    if not nums:
+        return None, 0
+    return max(nums), len(nums)
+
+
+def machine_is_closed(repo: Path):
+    """机器事实：源模块集是否已被目标模块集覆盖（收口）。返回 (closed, src_n, tgt_n, rest)。"""
+    s = repo / SRC_DIR
+    t = repo / TGT_DIR
+    if not (s.is_dir() and t.is_dir()):
+        return None, 0, 0, None
+    src = {f.stem for f in s.glob("*.rs") if f.name != "lib.rs"}
+    tgt = {f.stem for f in t.glob("*.rs") if f.name != "lib.rs"}
+    rest = sorted(src - tgt)
+    return (len(rest) == 0), len(src), len(tgt), rest
+
+
+def check(repo: Path, verbose=True):
+    """执行三判据。返回 (errors: list[str], stats: dict)。"""
+    errors = []
+    stats = {}
+
+    # ---- 锚点自检（C18 第 ①② 侧）----
+    targets = scan_targets(repo)
+    stats["target_files"] = len(targets)
+    if len(targets) == 0:
+        errors.append("[锚点] 扫描范围解析到 0 个文件 —— 判据空转（区分：这不是 PASS）")
+
+    mx, cnt = machine_max_seg(repo)
+    stats["machine_max_seg"] = mx
+    stats["machine_seg_titles"] = cnt
+    if mx is None:
+        errors.append("[锚点] %s 未解析到任何段标题 —— 机器事实源不可读（判据空转）" % VERIFY_REL)
+    elif cnt < 5:
+        errors.append("[锚点] %s 仅解析到 %d 个段标题（期望 >=5）—— 疑似解析式失效" % (VERIFY_REL, cnt))
+
+    closed, sn, tn, rest = machine_is_closed(repo)
+    stats["src_modules"] = sn
+    stats["tgt_modules"] = tn
+    stats["rest_modules"] = rest
+
+    # ---- 逐文件收集活跃陈述 ----
+    per_file_seg = {}      # file -> [(lineno, seg)]
+    per_file_remain = {}   # file -> [(lineno, text)]
+    per_file_done = {}     # file -> [(lineno, text)]
+    for f in targets:
+        try:
+            lines = io.open(f, encoding="utf-8", errors="replace").read().split("\n")
+        except OSError:
+            continue
+        rel = str(f.relative_to(repo)).replace("\\", "/")
+        for i, l in enumerate(lines, 1):
+            if not _active(l):
+                continue
+            for s in circ_of(l):
+                per_file_seg.setdefault(rel, []).append((i, s))
+            if RE_REMAIN.search(l):
+                per_file_remain.setdefault(rel, []).append((i, l.strip()[:120]))
+            if RE_DONE.search(l):
+                per_file_done.setdefault(rel, []).append((i, l.strip()[:120]))
+
+    stats["active_seg_files"] = {k: sorted(set(v for _, v in vals)) for k, vals in per_file_seg.items()}
+    stats["active_remain"] = per_file_remain
+
+    n_act_seg = sum(len(v) for v in per_file_seg.values())
+    stats["active_seg_count"] = n_act_seg
+    if n_act_seg == 0:
+        errors.append("[锚点] 全库未解析到任何活跃段号陈述 —— 疑似解析式失效（判据空转）")
+
+    # ---- P1：逐文件段号最大值须 == 机器值 ----
+    if mx is not None:
+        for rel, vals in sorted(per_file_seg.items()):
+            fmax = max(s for _, s in vals)
+            if fmax != mx:
+                loc = ", ".join("行%d" % i for i, s in vals if s == fmax)
+                errors.append(
+                    "[P1 段号落后] %s：活跃段号最大值 = 第 %s 段（%s），"
+                    "机器实测 = 第 %s 段 ⇒ 差 %d 段"
+                    % (rel, CIRC[fmax - 1], loc, CIRC[mx - 1], mx - fmax))
+
+    # ---- P2：机器已收口 ⇒ 不得有活跃"剩余 N 片" ----
+    if closed:
+        for rel, vals in sorted(per_file_remain.items()):
+            for i, txt in vals:
+                errors.append("[P2 收口不符] %s 行%d 仍称「剩余 N 片」（机器已收口：源 %d / 目标 %d、剩余 0）\n      %s"
+                              % (rel, i, sn, tn, txt))
+
+    # ---- P3：同文件内部自洽（既有"已收口"又有活跃"剩余 N 片"）----
+    for rel in sorted(set(per_file_done) & set(per_file_remain)):
+        d = per_file_done[rel][0][0]
+        r = per_file_remain[rel][0][0]
+        errors.append("[P3 文档内部矛盾] %s：行%d 称「已收口」，行%d 又称「剩余 N 片」" % (rel, d, r))
+
+    # ---- 输出 ----
+    if verbose:
+        print("=" * 68)
+        print("机制 25 · 文档一致性判据")
+        print("=" * 68)
+        print("扫描范围      ：%d 份（coordination 顶层 + README + docs/*.md）" % stats["target_files"])
+        print("机器·最大段号 ：%s（段标题 %d 条，来源 %s）" % (CIRC[mx - 1] if mx else "解析失败", cnt, VERIFY_REL))
+        print("机器·迁移收口 ：%s（源 %d / 目标 %d / 剩余 %d）"
+              % ("已收口" if closed else "未收口", sn, tn, len(rest) if rest else 0))
+        print("活跃段号陈述  ：%d 条" % n_act_seg)
+        for rel, vals in sorted(per_file_seg.items()):
+            print("    %-32s %s（max=第 %s 段）"
+                  % (rel, [CIRC[s - 1] for s in sorted(set(v for _, v in vals))], CIRC[max(v for _, v in vals) - 1]))
+        print("-" * 68)
+        if errors:
+            print("结果：❌ **判红**（%d 条）" % len(errors))
+            for e in errors:
+                print("  " + e)
+        else:
+            print("结果：✅ 通过（P1 段号一致 / P2 收口一致 / P3 内部自洽）")
+        print("=" * 68)
+
+    return errors, stats
+
+
+# --------------------------- 自检（C18 五侧） ---------------------------
+def selftest() -> int:
+    print("=" * 68)
+    print("机制 25 · 自检（C18：同源 ＋ 回读真实仓库 ＋ 可区分 0 与解析失败）")
+    print("=" * 68)
+    repo = Path(".").resolve()
+    fails = []
+
+    # 侧 ①：真实仓库锚点可解析
+    t = scan_targets(repo)
+    print("\n[侧①] 真实仓库锚点：扫描到 %d 份文件" % len(t))
+    if len(t) < 10:
+        fails.append("侧① 扫描范围过小（%d）" % len(t))
+    else:
+        print("      ✅ >0 且量级合理")
+
+    # 侧 ②：机器事实源可解析
+    mx, cnt = machine_max_seg(repo)
+    print("[侧②] 机器事实源：%s ⇒ 段标题 %d 条、最大 = %s"
+          % (VERIFY_REL, cnt, CIRC[mx - 1] if mx else "解析失败"))
+    if mx is None or cnt < 5:
+        fails.append("侧② 机器事实源解析失败")
+    else:
+        print("      ✅ 可解析")
+
+    # 侧 ③④⑤：夹具（复用被测实现的同一解析式与常量 ⇒ 同源）
+    d = Path(tempfile.mkdtemp(prefix="doc_"))
+    (d / "coordination").mkdir()
+    (d / "docs").mkdir()
+    (d / "meta-kernel-boot" / "kernel" / "src").mkdir(parents=True)
+    (d / "meta-kernel-core" / "src").mkdir(parents=True)
+    (d / "meta-kernel-core-nostd" / "src").mkdir(parents=True)
+
+    # 机器侧夹具：段号到 ⑩，且已收口
+    (d / VERIFY_REL).write_text(
+        "\n".join("// —— %s 段：夹具（%d）——" % (CIRC[i - 1], i) for i in range(6, 11)),
+        encoding="utf-8")
+    (d / SRC_DIR / "a.rs").write_text("// x", encoding="utf-8")
+    (d / TGT_DIR / "a.rs").write_text("// x", encoding="utf-8")
+    (d / "README.md").write_text("# 夹具\n", encoding="utf-8")
+    (d / "docs" / "X.md").write_text("# x\n", encoding="utf-8")
+
+    # 侧 ③：一致文档 ⇒ 不判红
+    (d / "coordination" / "OK.md").write_text(
+        "# 夹具·一致\n\n裸机断言已到第 ⑩ 段。\n3.2 已收口，无剩余片。\n", encoding="utf-8")
+    e3, _ = check(d, verbose=False)
+    print("\n[侧③] 夹具·一致文档 ⇒ %s" % ("❌ 误判红" if e3 else "✅ 未判红"))
+    if e3:
+        fails.append("侧③ 误判红：%s" % e3)
+
+    # 侧 ④：段号落后 ⇒ 判红
+    (d / "coordination" / "OK.md").write_text("# 夹具·落后\n\n裸机断言已到第 ⑧ 段。\n", encoding="utf-8")
+    e4, _ = check(d, verbose=False)
+    print("[侧④] 夹具·段号落后（⑧ vs 机器 ⑩）⇒ %s" % ("✅ 判红" if e4 else "❌ 漏判"))
+    if not e4:
+        fails.append("侧④ 漏判")
+    else:
+        print("      捕获：%s" % e4[0][:96])
+
+    # 侧 ⑤：收口却说"剩余" ⇒ 判红（且命中 P2）
+    (d / "coordination" / "OK.md").write_text("# 夹具·剩余\n\n裸机断言已到第 ⑩ 段。剩余片6–片8 = 7 模块。\n",
+                                              encoding="utf-8")
+    e5, _ = check(d, verbose=False)
+    print("[侧⑤] 夹具·已收口却说「剩余片6–片8」⇒ %s" % ("✅ 判红" if e5 else "❌ 漏判"))
+    if not e5:
+        fails.append("侧⑤ 漏判")
+    else:
+        print("      捕获：%s" % e5[0][:96])
+
+    # 侧 ⑤b（加分）：历史留痕不应被判红（防"把登记表自己判红"）
+    (d / "coordination" / "OK.md").write_text(
+        "# 夹具·历史留痕\n\n裸机断言已到第 ⑩ 段。\n**原文**为「剩余片6–片8」／「第 ⑧ 段」。\n",
+        encoding="utf-8")
+    e6, _ = check(d, verbose=False)
+    print("[侧⑤b] 夹具·历史留痕（含「原文」）⇒ %s" % ("✅ 未判红" if not e6 else "❌ 误判红"))
+    if e6:
+        fails.append("侧⑤b 误判红：%s" % e6)
+
+    print("\n" + "=" * 68)
+    if fails:
+        print("自检结论：❌ 失败 %d 项" % len(fails))
+        for x in fails:
+            print("  - %s" % x)
+        return 1
+    print("自检结论：✅ 六侧全部符合预期")
+    print("=" * 68)
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="机制 25 · 文档一致性判据")
+    ap.add_argument("--selftest", action="store_true", help="自检（六侧）")
+    ap.add_argument("--list", action="store_true", help="只列活跃陈述")
+    ap.add_argument("--repo", default=".", help="仓库根")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    errs, _ = check(Path(a.repo).resolve(), verbose=True)
+    if a.list:
+        return 0
+    return 1 if errs else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
