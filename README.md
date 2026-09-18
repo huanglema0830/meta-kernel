@@ -72,7 +72,7 @@
 | **内核层** | **基因内核**（Gene Kernel） | **量子钟**（Quantum Clock） |
 | **操作系统层** | **云操作系统**（Cloud OS） | **正源操作系统**（Origin OS） |
 | **浏览器层** | **空天浏览器**（Sky Browser） | **正源浏览器**（Origin Browser） |
-| **大模型** | **云海大模型**（CloudSea Model） | **细分粒度模型**（Micro-Granularity Model） |
+| **大模型** | **云海大模型**（CloudSea Model） | **采微大模型**（Caiwei Model） |
 | **输入法** | **彩虹输入法**（Rainbow IME） | **彩虹输入法**（Rainbow IME） |
 
 - **两族同源**：同属「云内核项目」；**电信号版本是当前实现**，量子版本为**设计**（只设计不实现）。
