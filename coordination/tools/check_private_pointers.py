@@ -18,6 +18,12 @@
 用法：
     python3 coordination/tools/check_private_pointers.py --mode=syntax
     python3 coordination/tools/check_private_pointers.py --mode=resolve [--private-root <路径>]
+    python3 coordination/tools/check_private_pointers.py --selftest      # 判据自检（十一侧）
+
+> **2026-09-18 夜间 P3 补齐说明**：本文件曾是 `coordination/tools/` 六个判据里
+> **唯一没有 `--selftest`** 的那个，而它**已被 CI 当硬门禁用**（`ci.yml` 步骤「机制 17 指针门禁」）
+> ⇒ 它是唯一"**没验过自己**"的门禁。R64 的教训是「**自检与实跑口径必须同源**」：
+> 没有正反对照的绿，只是"跑完了"，**不是"判对了"**。故补 `selftest()`（十一侧）。
 
 退出码：0 = 通过；1 = 不合规（有明细输出）。
 """
@@ -160,7 +166,15 @@ def check_pointer_syntax(root: Path) -> tuple[list[str], list[tuple[str, int, st
                 if not clean or not re.search(r"[A-Za-z0-9_\u4e00-\u9fff]", clean):
                     warns.append(f"{r}:{i} 未带具体路径（模板占位符/指代整体，允许）")
                     continue
-                if re.match(r"^[A-Za-z]:", clean) or clean.startswith(".."):
+                # ⚠️ **判据位置修正（2026-09-18 夜间 P3；由本轮新补的 `--selftest` 第 ④ 侧当场抓出）**：
+                #    原判据写在 `clean` 上，而 `clean` 的字符类 `[A-Za-z0-9_./\-]` 里**没有 `:`**
+                #    ⇒ `re.match(r"^[A-Za-z]:", clean)` **恒为 False（死分支，永不触发）**。
+                #    实测后果**不止"少一条判据"**：`{PRIVATE_ASSETS}/D:/abs.md` 既不判红，
+                #    还被**静默降级**成引用 `/D`（`clean` 截断在 `:` 处）——`resolve` 模式下
+                #    这会去查一个**错误的目标**（假红与假绿都可能）。**判据静默失效最危险**。
+                #    ⇒ 盘符判据改到**原串 `raw`** 上（与 `..` 判据同层：涉及"越界/绝对"的判断，
+                #      一律用**未被清洗的原串**，清洗只用于"存在性查找"）。
+                if re.match(r"^[A-Za-z]:", raw) or clean.startswith(".."):
                     errs.append(f"{r}:{i} 引用写成了绝对路径（只允许相对路径）")
                     continue
                 refs.append((r, i, "/" + clean))
@@ -353,11 +367,147 @@ def check_fingerprint_literal(root: Path) -> list[str]:
     return bad
 
 
+# ================== 判据自检（十一侧：正反对照 ∪ 真实仓库锚点）==================
+#
+# **为什么必须补**：机制 18／R64 的教训是「**自检与实跑口径必须同源**」——
+# 判据**自己没被正反对照验过**时，它在 CI 里的绿只说明"**跑完了**"，不说明"**判对了**"。
+# 反例（本仓真实教训）：常量多一字、夹具与常量同错 ⇒ 自检全绿而实跑判红。
+# ⇒ 自检**必须**含 ① 双侧正反样例 ② **一个回读真实仓库的锚点**。
+#
+# **本自检的十条夹具侧 ＋ 一条锚点侧**（编号即输出里的序号）：
+#   ①合规 ②反斜杠 ③`..` 越界 ④绝对路径 ⑤整体指代/占位（**防误报**）
+#   ⑥显式豁免标记 ⑦泄漏正包/掩码负包 ⑧[5] 密钥级别正反 ⑨[6] 指纹正反
+#   ⑩`resolve` 三包（目标存在／目标缺失／**私有根落在仓库内**）
+#   ⑪**真实仓库锚点**：本仓 `--mode=syntax` 实跑 ⇒ 格式错 0 且解析到引用 >0
+#
+# ⚠️ **样本纪律**：夹具在**临时目录**里建，**不落真实仓库**；
+#    ⑪ 对真实仓库**只读**（只解析、不写）。
+# ⚠️ **样本值不得像真值**：⑨ 要求的"16 位十六进制"由 `"0" * 16` **构造**而非写字面量 ——
+#    既是防"样本被误当真实指纹"，也顺带证明本判据**不依赖被保护对象本身**（见 §[6] 设计说明）。
+
+
+def selftest() -> int:
+    """十一侧自检（正反对照 ∪ 真实仓库锚点）。返回 0=判据可信；1=判据失效。"""
+    import shutil
+    import tempfile
+
+    print("=== 判据自检（十一侧）===")
+    res: list[tuple[str, bool, str]] = []
+
+    def rec(label: str, ok: bool, detail: str) -> None:
+        res.append((label, ok, detail))
+        print(f"  {label} ⇒ {detail} {'✅' if ok else '❌'}")
+
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        (repo / "coordination" / "security").mkdir(parents=True)
+
+        def put(name: str, text: str) -> Path:
+            p = repo / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text, encoding="utf-8")
+            return p
+
+        # ① 合规样例 ⇒ 0 错，且**确实解析到 2 处引用**（防"空跑也报绿"）
+        put("coordination/probe.md",
+            "标题\n引用 A {PRIVATE_ASSETS}/0_design/x.md 与 B {PRIVATE_ASSETS}/y.md\n")
+        e, r = check_pointer_syntax(repo)
+        rec("① 合规引用", len(e) == 0 and len(r) == 2,
+            f"错 {len(e)}（期望 0）｜解析引用 {len(r)}（期望 2）")
+
+        # ② 反斜杠写法 ⇒ 判红（R16 同族：初版只认 `/`，反斜杠整类漏报过）
+        put("coordination/probe.md", "{PRIVATE_ASSETS}\\x.md\n")
+        e, _ = check_pointer_syntax(repo)
+        rec("② 反斜杠引用", any("反斜杠" in x for x in e),
+            f"错 {len(e)}（期望 ≥1 且点名「反斜杠」）")
+
+        # ③ `..` 越界 ⇒ 判红
+        put("coordination/probe.md", "{PRIVATE_ASSETS}/../bad.md\n")
+        e, _ = check_pointer_syntax(repo)
+        rec("③ .. 越出私有根", any(".." in x for x in e), f"错 {len(e)}（期望 ≥1）")
+
+        # ④ 写成绝对路径 ⇒ 判红
+        put("coordination/probe.md", "{PRIVATE_ASSETS}/D:/abs.md\n")
+        e, _ = check_pointer_syntax(repo)
+        rec("④ 写成绝对路径", any("绝对路径" in x for x in e), f"错 {len(e)}（期望 ≥1）")
+
+        # ⑤ **防误报**（阴性对照）：指代私有根整体 / 模板占位 ⇒ 合法，且**不计入引用**
+        put("coordination/probe.md",
+            "环境变量 {PRIVATE_ASSETS} 本身合法；模板 {PRIVATE_ASSETS}/... 也合法\n")
+        e, r = check_pointer_syntax(repo)
+        rec("⑤ 整体指代/占位", len(e) == 0 and len(r) == 0,
+            f"错 {len(e)}（期望 0）｜引用 {len(r)}（期望 0，只提示不判错）")
+
+        # ⑥ 行内显式标注（示例/反例）⇒ 放行；**必须显式**才放行（防"加个词就绕过"）
+        put("coordination/probe.md", "反例：{PRIVATE_ASSETS}\\x.md 这种写法曾绕过初版判据\n")
+        e, _ = check_pointer_syntax(repo)
+        rec("⑥ 反例行显式标注", len(e) == 0, f"错 {len(e)}（期望 0）")
+
+        # ⑦ 泄漏判据正反对照：**真名盘符**必须命中；**掩码示例**必须不命中
+        put("coordination/leak_yes.md", "路径 D:/Users/fakeuser01/secret.md\n")
+        put("coordination/leak_no.md", "掩码示例 C:\\Users\\<用户名>\\x.md（占位，非真名）\n")
+        hits = scan_leaks(repo)
+        yes = ("coordination/leak_yes.md", "win_abs_path") in hits
+        no = any(k[0] == "coordination/leak_no.md" for k in hits)
+        rec("⑦ 泄漏真名正/掩码负", yes and not no,
+            f"真名命中={yes}（期望 True）｜掩码命中={no}（期望 False）")
+
+        # ⑧ [5] 密钥级别：**同一次调用里同时验正反两包**（阳性行带 ⛔、阴性行不带）
+        put("coordination/CHARTER.md",
+            "样本 ⛔ 密钥本体与路径＝机密\n样本 密钥（无级别标识，应判红）\n")
+        kb = check_key_levels(repo)
+        rec("⑧ 密钥级别正反对照", len(kb) == 1,
+            f"判红 {len(kb)} 行（期望恰好 1：只该抓「无标识」那行）")
+
+        # ⑨ [6] 指纹字面量：正（16 位十六进制 ＋「指纹」⇒ 判红）／反（占位符 ⇒ 通过）
+        sample_hex = "0" * 16
+        put("coordination/probe.md", f"指纹：{sample_hex}（样本值，非真实指纹）\n")
+        fp = check_fingerprint_literal(repo)
+        rec("⑨a 指纹字面量判红", len(fp) == 1, f"判红 {len(fp)} 行（期望 1）")
+        put("coordination/probe.md", "指纹：〈本机私记〉（占位符合规）\n")
+        fp = check_fingerprint_literal(repo)
+        rec("⑨b 指纹占位符通过", len(fp) == 0, f"判红 {len(fp)} 行（期望 0）")
+
+        # ⑩ `resolve` 侧（**只在本机跑的那一半**，CI 覆盖不到 ⇒ 更需要自检）三包
+        priv_out = Path(td).parent / (Path(td).name + "_priv")
+        shutil.rmtree(priv_out, ignore_errors=True)
+        priv_out.mkdir(parents=True)
+        (priv_out / "exists.md").write_text("x", encoding="utf-8")
+        e_ok = check_resolve(repo, priv_out, [("coordination/probe.md", 1, "/exists.md")])
+        e_miss = check_resolve(repo, priv_out, [("coordination/probe.md", 1, "/missing.md")])
+        priv_in = repo / "private_inside"          # 私有根落在**仓库之内** ⇒ 必须判红
+        priv_in.mkdir()
+        e_iso = check_resolve(repo, priv_in, [])
+        rec("⑩ resolve 正反三包",
+            len(e_ok) == 0 and len(e_miss) == 1 and any("结构性隔离" in x for x in e_iso),
+            f"目标存在={len(e_ok)}（期望 0）｜目标缺失={len(e_miss)}（期望 1）｜"
+            f"根在仓库内={len(e_iso)}（期望 ≥1 且点名「结构性隔离」）")
+        shutil.rmtree(priv_out, ignore_errors=True)
+
+    # ⑪ **真实仓库锚点**（R64：自检必须回读真实仓库，否则"夹具与常量同错"照样全绿）
+    try:
+        real = repo_root()
+        e_real, refs_real = check_pointer_syntax(real)
+        rec("⑪ 真实仓库锚点", len(e_real) == 0 and len(refs_real) > 0,
+            f"格式错 {len(e_real)}（期望 0）｜解析引用 {len(refs_real)}（期望 >0）")
+    except Exception as ex:  # pragma: no cover - 仅在非仓库目录内运行
+        rec("⑪ 真实仓库锚点", False, f"无法解析仓库根（{type(ex).__name__}）⇒ 锚点未验，不得报绿")
+
+    good = all(ok for _, ok, _ in res)
+    print(f"\n自检结论：{'✅ 十一侧均符合预期' if good else '❌ 判据失效'}（通过 "
+          f"{sum(1 for _, ok, _ in res if ok)}/{len(res)} 侧）")
+    return 0 if good else 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["syntax", "resolve"], default="syntax")
     ap.add_argument("--private-root", default=os.environ.get("PRIVATE_ASSETS", ""))
+    ap.add_argument("--selftest", action="store_true", help="判据自检（十一侧正反对照）")
     args = ap.parse_args()
+
+    if args.selftest:
+        return selftest()
 
     root = repo_root()
     print(f"[info] 仓库根已解析（长度 {len(str(root))}）｜模式 = {args.mode}")
