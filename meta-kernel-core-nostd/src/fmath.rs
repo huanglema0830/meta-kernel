@@ -188,8 +188,12 @@ pub fn ln(x: f32) -> f32 {
 /// `sin` / `cos` 的共同实现：**Cody-Waite 三段归约** + 泰勒多项式。
 ///
 /// 归约：`n = round(x/(π/2))`，`r = x − n·π/2`（三段补偿减，段常数取 fdlibm 经典值），
-/// `|r| ≤ π/4 ≈ 0.785`；再用泰勒（`sin` 到 `r¹³`、`cos` 到 `r¹²`，截断误差 < 1e-12），
+/// `|r| ≤ π/4 ≈ 0.785`；再用泰勒（`sin` 到 `r¹³`、`cos` 到 **`r¹⁴`**，截断误差 **< 1e-15**），
 /// 最后按 `n mod 4` 组合象限、取符号。
+///
+/// ⚠️ **2026-09-19（§7.6 补丁稿 · 第 1 步）**：`cos` 原先止于 `r¹²`（截断误差 `≈3.9e-13`），
+/// 已补 `r¹⁴/14!`；**大参数区（`|x| ≳ 1e3`）的归约误差未修**（需 Payne-Hanek，见
+/// `sin_cos_f64_large_argument_report` 的实测数字，**该区段本轮不宣称达标**）。
 fn sin_cos_f64(x: f64) -> (f64, f64) {
     if x.is_nan() || x.is_infinite() {
         return (f64::NAN, f64::NAN);
@@ -214,13 +218,19 @@ fn sin_cos_f64(x: f64) -> (f64, f64) {
                     + r2 * (-1.0 / 5040.0
                         + r2 * (1.0 / 362_880.0
                             + r2 * (-1.0 / 39_916_800.0 + r2 * (1.0 / 6_227_020_800.0)))))));
-    // cos(r) = 1 - r²/2 + r⁴/24 - r⁶/720 + r⁸/40320 - r¹⁰/3628800 + r¹²/479001600
+    // cos(r) = 1 - r²/2 + r⁴/24 - r⁶/720 + r⁸/40320 - r¹⁰/3628800 + r¹²/479001600 - r¹⁴/87178291200
+    // ⚠️ 2026-09-19（§7.6 补丁稿 · 第 1 步）：**补上 `r¹⁴/14!`（`14! = 87_178_291_200`）**。
+    //    改前止于 `r¹²`，在 `|r| = π/4` 处截断误差 ≈ **3.89e-13 ≈ 3500 ULP**（本机实测）；
+    //    改后首项截断降到 `r¹⁶/16! ≈ 1.0e-15`。
+    //    ★ 关键：`n ≡ 1 (mod 4)` 时 `sin(x) = cos(r)` ⇒ **这一项同时决定 `sin` 与 `cos` 的精度**
+    //      （故本补丁对 `sin` 同样有效，实测见 `sin_cos_f64_truncation_bound`）。
     let c = 1.0
         + r2 * (-0.5
             + r2 * (1.0 / 24.0
                 + r2 * (-1.0 / 720.0
                     + r2 * (1.0 / 40_320.0
-                        + r2 * (-1.0 / 3_628_800.0 + r2 * (1.0 / 479_001_600.0))))));
+                        + r2 * (-1.0 / 3_628_800.0
+                            + r2 * (1.0 / 479_001_600.0 + r2 * (-1.0 / 87_178_291_200.0)))))));
 
     let q = {
         let ni = n as i64;
@@ -854,6 +864,253 @@ mod tests {
         xs.extend_from_slice(&[0.0, 1.5707964, 3.1415927, -3.1415927]);
         check("sin", &xs, sin, f32::sin);
         check("cos", &xs, cos, f32::cos);
+    }
+
+    // ============ §7.6 · `f64` 精度审计（2026-09-19 夜间追加，补丁稿"改动 ③"） ============
+    //
+    // **为什么必须单独做 f64 级审计**：上面的 `sin_cos_match_std` 走的是 **`f32` 出口**，
+    // 而 `f32` 的分辨率（`~6e-8`）**远大于** `f64` 级截断误差（`~4e-13`）
+    // ⇒ **缺陷在 f32 出口上完全不可见**（本项目既有教训：**f32 分辨率会掩盖 f64 误差**）。
+    // ⇒ 本组测试**直接测私有 `sin_cos_f64`**，与 `std` 的 `f64` 实现逐点对照。
+
+    /// `f64` ULP 距离（**审计专用**）。
+    ///
+    /// 跨零 / NaN / ∞ ⇒ 返回 `u64::MAX`（＝"不适用"），由调用方跳过并改看绝对误差。
+    /// ⚠️ **本函数是"第二份 ULP 实现"**（第一份是上面的 `ulp_diff(f32)`）——两处口径**不同源**
+    /// （位宽不同、跨零处置不同）是可接受的，但**不得**把二者互相引用当作同一判据（C19 精神）。
+    fn ulp_diff_f64(a: f64, b: f64) -> u64 {
+        if a.is_nan() && b.is_nan() {
+            return 0;
+        }
+        if a.is_infinite() || b.is_infinite() || a.is_nan() || b.is_nan() {
+            return u64::MAX;
+        }
+        if (a < 0.0) != (b < 0.0) {
+            return u64::MAX; // 跨零：ULP 无意义（改看 maxAbs）
+        }
+        (a.to_bits() as i64 - b.to_bits() as i64).unsigned_abs()
+    }
+
+    /// 一条测带上的审计结果。
+    ///
+    /// ⚠️ **两个"最差点"必须分开记**（否则会误读）：`worst_x` 是 **max ULP** 的点，
+    /// `worst_abs_x` 是 **max 绝对误差**的点 —— 二者**通常不是同一个点**。
+    /// 反例（本文件 2026-09-19 实测）：`sin` 在 `x = -2π` 处 `|sin|≈0` ⇒ **ULP 爆表**
+    /// （`1.6e11`）而**绝对误差极小**；真正的绝对误差最大点落在 `|sin|≈1` 处。
+    /// ⇒ **只看 ULP 会得出"sin 比 cos 差 4 个数量级"的错误结论**（R35：报数写口径）。
+    struct F64Stat {
+        max_ulp: u64,
+        worst_x: f64,
+        max_abs: f64,
+        worst_abs_x: f64,
+        n_skipped: usize,
+        all_finite: bool,
+    }
+
+    /// 对 `sin_cos_f64`（**私有**）做 `f64` 级逐点对照。`which_cos = false` 测 `sin`。
+    fn audit_f64(xs: &[f64], which_cos: bool) -> F64Stat {
+        let mut st = F64Stat {
+            max_ulp: 0,
+            worst_x: 0.0,
+            max_abs: 0.0,
+            worst_abs_x: 0.0,
+            n_skipped: 0,
+            all_finite: true,
+        };
+        for &x in xs {
+            let (ms, mc) = sin_cos_f64(x);
+            let mine = if which_cos { mc } else { ms };
+            let theirs = if which_cos { x.cos() } else { x.sin() };
+            if !mine.is_finite() {
+                st.all_finite = false;
+            }
+            let d = (mine - theirs).abs();
+            if !(d <= st.max_abs) {
+                // `!(d <= max)` 而非 `d > max`：让 NaN/inf **一定会覆盖** max（否则 inf 会被静默吞掉）
+                st.max_abs = d;
+                st.worst_abs_x = x;
+            }
+            let u = ulp_diff_f64(mine, theirs);
+            if u == u64::MAX {
+                st.n_skipped += 1;
+            } else if u > st.max_ulp {
+                st.max_ulp = u;
+                st.worst_x = x;
+            }
+        }
+        st
+    }
+
+    fn report_f64(name: &str, xs: &[f64], which_cos: bool) -> F64Stat {
+        let st = audit_f64(xs, which_cos);
+        println!(
+            "[fmath·f64] {name:<20} 样本={:<6} maxULP={:<8} maxAbs={:.3e} ULP点={:<22} 绝对点={:<22} 跳过={} 全有限={}",
+            xs.len(),
+            st.max_ulp,
+            st.max_abs,
+            st.worst_x,
+            st.worst_abs_x,
+            st.n_skipped,
+            st.all_finite
+        );
+        st
+    }
+
+    /// **§7.6 判据 1／2：`f64` 截断误差是否已降到"首项截断"量级。**
+    ///
+    /// **期望值不手写，从被测物本身的数学推导**（D40 精神）：
+    ///   - `sin` 级数在 `r¹³` 截断（`sin(r) = r·Σ…+ r¹²/12!` 的最高次是 `r¹³/13!`）
+    ///     ⇒ **首个被丢掉的项** = `r¹⁵/15!`；
+    ///   - `cos` 级数原来在 `r¹²` 截断（`1/12! = 1/479_001_600`）
+    ///     ⇒ **首个被丢掉的项** = `r¹⁴/14!`（**补丁要补的就是它**）。
+    ///   - 归约后 `|r| ≤ π/4`（Cody-Waite 的经典界）⇒ 取 `rmax = π/4` 代入。
+    /// **判据**：实测 `maxAbs` 应 **≤ 2 ×（首个被丢掉的项）** —— 系数 2 是给"Horner 求值自身的
+    /// 舍入累积"留的余量（同量级，非自由调参）；若实测 **≫** 该界，说明**该补的项没补对**。
+    ///
+    /// ★ **象限交叉（本条是"差点写错期望值"的教训，故写进注释）**：`sin_cos_f64` 末尾按
+    /// `n mod 4` 组合象限 —— **`q` 为奇数时 `sin(x) = ±cos(r)`、`cos(x) = ±sin(r)`（交叉）**。
+    /// ⇒ **两个函数的误差界都必须取"两者较大者"**（即 `r¹⁵/15!`，来自 `sin` 级数），
+    /// 而**不是**"`sin` 只受 `r¹⁵/15!` 约束、`cos` 只受 `r¹⁶/16!` 约束"。
+    /// 初版按后者设界 ⇒ **实测判红**；核对象限表后确认**是期望值写错、不是补丁写错**
+    /// （"断言失败先自查期望值"）⇒ 已改正。
+    ///
+    /// ★ **阳性对照**：**补丁施加前**本测**必须失败**（实测 `cos` 误差 `3.889e-13`，约为该界的 **95 倍**）；
+    /// **施加后**通过（实测 `2.043e-14`，≈ `1.0 ×` 界）。⇒ 两张数字都要进报告（R35：报数写口径）。
+    #[test]
+    fn sin_cos_f64_truncation_bound() {
+        let rmax = core::f64::consts::FRAC_PI_4; // π/4 ≈ 0.7853981633974483
+        let mut p = 1.0f64;
+        let mut last_omitted_sin = 0.0f64; // rmax^15 / 15!
+        let mut last_omitted_cos = 0.0f64; // rmax^16 / 16!
+        for k in 1..=16u32 {
+            p *= rmax;
+            if k == 15 {
+                last_omitted_sin = p / factorial_f64(15);
+            }
+            if k == 16 {
+                last_omitted_cos = p / factorial_f64(16);
+            }
+        }
+        // 象限交叉 ⇒ 两个出口的误差界相同 = max(两项)
+        let bound = 2.0 * last_omitted_sin.max(last_omitted_cos);
+        println!(
+            "[fmath·f64] 理论界：rmax=π/4 | 首个被丢掉项 sin(r¹⁵/15!)={:.4e} cos(r¹⁶/16!)={:.4e} | 统一界(2×max)={:.4e}",
+            last_omitted_sin, last_omitted_cos, bound
+        );
+
+        // 主区间细扫（归约几乎无误差：|n| ≤ 4）＋ π/4 附近加密（截断误差最坏处）
+        let mut xs: Vec<f64> = Vec::with_capacity(30_000);
+        let two_pi = core::f64::consts::PI * 2.0;
+        let n1 = 20_000;
+        for i in 0..n1 {
+            xs.push(-two_pi + two_pi * 2.0 * (i as f64 / (n1 - 1) as f64));
+        }
+        for k in -12..=12i32 {
+            let base = k as f64 * core::f64::consts::FRAC_PI_2 + rmax;
+            for j in -6..=6i32 {
+                xs.push(base + (j as f64) * 1e-3);
+            }
+        }
+
+        let ss = report_f64("sin 主区间 |x|≤2π", &xs, false);
+        let cs = report_f64("cos 主区间 |x|≤2π", &xs, true);
+
+        assert!(
+            ss.max_abs <= bound,
+            "f64 sin 截断误差 {:.4e} 超出界 {:.4e}（=2×max(r¹⁵/15!, r¹⁶/16!)）最差点 {}",
+            ss.max_abs,
+            bound,
+            ss.worst_abs_x
+        );
+        assert!(
+            cs.max_abs <= bound,
+            "f64 cos 截断误差 {:.4e} 超出界 {:.4e}（=2×max(r¹⁵/15!, r¹⁶/16!)）最差点 {}",
+            cs.max_abs,
+            bound,
+            cs.worst_abs_x
+        );
+    }
+
+    fn factorial_f64(n: u32) -> f64 {
+        let mut r = 1.0f64;
+        let mut i = 2u32;
+        while i <= n {
+            r *= f64::from(i);
+            i += 1;
+        }
+        r
+    }
+
+    /// **§7.6 观测带：`f64` 精度现状全景 —— 只登记、不设门线（大参数区）。**
+    ///
+    /// **为什么不给大参数区设门线**：`|x| ≥ 1e3` 的误差主因是 **`n = round(x·2/π)` 的舍入**
+    /// （`x·2/π` 本身在 f64 下就舍入，`x` 越大 `n` 的**绝对**误差越大 ⇒ `r = x − n·π/2`
+    /// **灾难性抵消**；Cody-Waite 三段只补偿 `π/2` 的表示误差，**补不了 `x·2/π` 的舍入**）。
+    /// 治它需要 **Payne-Hanek 归约**（补丁稿"改动 ②"）；**本轮按指令只做第 1 步**。
+    /// ⇒ 该区段**只输出数字**，**不得判绿**（否则就是"把未修的区段报成已修"）。
+    ///
+    /// ★ **本测顺带锁定一处新发现的真实缺陷**（见 `sin_cos_f64_huge_argument_known_defect`）：
+    /// `|x| ≥ 1e100` 时 `r²` 溢出 ⇒ 返回 **`inf`/`NaN`**。
+    #[test]
+    fn sin_cos_f64_large_argument_report() {
+        let mut xs: Vec<f64> = Vec::with_capacity(20_000);
+        let n = 20_000;
+        for i in 0..n {
+            xs.push(10.0 + 990.0 * (i as f64 / (n - 1) as f64));
+        }
+        let a = report_f64("sin 中参数[10,1000]", &xs, false);
+        let b = report_f64("cos 中参数[10,1000]", &xs, true);
+
+        let huge: Vec<f64> = vec![
+            1e3,
+            1e6,
+            1e9,
+            1e12,
+            1e15,
+            1e18,
+            1e30,
+            1e100,
+            1e300,
+            -1e300,
+            0.0,
+            1.0e-300,
+        ];
+        report_f64("sin 大参数点", &huge, false);
+        report_f64("cos 大参数点", &huge, true);
+
+        // —— 只对**中参数区**断言，且只断言"数学上必然为真"的事实（不是门线）——
+        for (st, nm) in [(&a, "sin[10,1000]"), (&b, "cos[10,1000]")] {
+            assert!(st.all_finite, "{nm}: 结果必须全为有限值（`|x|≤1000` 时 `r²` 不会溢出）");
+            assert!(st.max_abs <= 2.0, "{nm}: `|sin|/|cos| ≤ 1` ⇒ 误差必 ≤ 2，实测 {}", st.max_abs);
+        }
+    }
+
+    /// **已知缺陷锁定（characterization test）**：`|x| ≥ 1e100` 时 `sin_cos_f64` 返回**非有限值**。
+    ///
+    /// **根因（本机实测推断）**：归约后 `r = x − n·π/2` 仍与 `x` **同量级**
+    /// （因 `n·π/2` 与 `x` 的有效位几乎全部抵消，而 `x·2/π` 的舍入误差被放大到 `O(x)`）
+    /// ⇒ `r²` 达 `1e160+`，泰勒多项式的 `r²⁷` 级**直接溢出 f64（`inf`）**。
+    /// 同时 `n as i64` 对 `n > i64::MAX` 是**饱和转换** ⇒ `rem_euclid(4)` 的象限也失去意义。
+    ///
+    /// **本测的作用**：把"当前就是坏的"这一事实**钉在测试里**，使**将来任何修好它的改动
+    /// 都会让本测失败**（＝提醒改判据），避免"修好了却没人发现判据还锁着旧行为"。
+    /// **修它的路径**＝ Payne-Hanek 归约（补丁稿 §一 改动 ②，本轮未做）。
+    #[test]
+    fn sin_cos_f64_huge_argument_known_defect() {
+        let huge: Vec<f64> = vec![1e100, 1e300, -1e300];
+        let mut n_bad = 0usize;
+        for &x in &huge {
+            let (s, c) = sin_cos_f64(x);
+            println!("[fmath·f64] 已知缺陷 |x|={:<8} sin={} cos={}", x, s, c);
+            if !s.is_finite() || !c.is_finite() {
+                n_bad += 1;
+            }
+        }
+        assert_eq!(
+            n_bad,
+            huge.len(),
+            "当前 `|x| ≥ 1e100` 应全部非有限（已知缺陷）；若此处失败，说明 Payne-Hanek 已被实现 ⇒ 请更新本判据"
+        );
     }
 
     /// **大参数专项**：Cody-Waite 归约质量（|x| ∈ [10, 1000]）
