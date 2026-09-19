@@ -504,3 +504,131 @@ fn mirror_q11_115_selector_not_modulator() {
     let hi = select_engine(&EnergyPool { flow_in: 1.10, flow_out: 1.0, stored: 1.0 });
     assert_eq!(lo, hi, "115: 0.95 与 1.10 应同引擎（对应 V2「1.05 处差值 0」）");
 }
+
+// ============================================================================
+// ⑫ 段镜像（2026-09-20）：**2.4 边界层接入帧缓冲**（`kernel/src/present.rs`）
+//
+// 为什么必须镜像：boot 层**本机完全不可构建**（无 MSVC 库／`clang`／`lld`，连 `cargo check`
+// 都跑不起来 —— 实测）。⇒ 裸机上那 5 个编号（121–125）**失败一次要等一整轮 CI**。
+// 把 present 的**写入循环与回读比对**在 host 上用**合成 `FbDesc`** 原样跑一遍，
+// 就能把"逻辑错"（期望值／字节序／行距）在本地先筛掉，只把"真·硬件差异"留给 QEMU。
+//
+// ⚠️ **镜像不能替代裸机**：这里用的是**自造的** `FbDesc`；真实 `stride`/`bpp`/`pixel_format`
+// 只能由 bootloader 给出 ⇒ "真实引导"仍**只能由 CI 的 boot-image job 证成**（C5：未验证就标未验证）。
+// ============================================================================
+
+/// 121：**Bgr 24bpp + `stride > width` 的往返**（写入数 == 4，回读逐字节一致，行距填充不被踩）。
+///
+/// 这是 ⑫ 段的主判据。用 `stride=6 > width=4` **刻意制造行间填充**——若偏移算错
+/// （用 `width` 而不是 `stride` 步进），回读与期望就会错位（这正是 `fb.rs` 文件头第一条判据要钉的地方）。
+#[test]
+fn mirror_present_121_roundtrip_bgr_with_padding() {
+    use meta_kernel_core_nostd::fb::{encode, put_pixel, FbDesc, FbFormat, Rgb24};
+    use meta_kernel_core_nostd::project::{project_gray_u8, ProjectSpec};
+
+    let d = FbDesc::new(2, 2, 6, 3, FbFormat::Bgr); // width=2, stride=6px ⇒ 每行右侧 4px 填充
+    let mut buf = vec![0u8; d.min_len().expect("min_len")];
+
+    let spec = ProjectSpec::new(2, 2, 0.0, 1.0).expect("spec");
+    let field = [0.0f32, 1.0 / 3.0, 2.0 / 3.0, 1.0];
+    let gray = project_gray_u8(&field, &spec);
+    assert_eq!(gray.len(), 4, "123 前置：投影出口长度");
+    println!("[诊断] ⑫ 投影灰度 = {:?}", gray);
+    assert_eq!(gray, vec![0u8, 85u8, 170u8, 255u8], "123：投影灰度值");
+
+    // —— 与 `present.rs::present_selfcheck` **同一套循环** ——
+    let mut written = 0usize;
+    for i in 0..4usize {
+        let (x, y) = (i % 2, i / 2);
+        let g = gray[i];
+        if put_pixel(&mut buf, &d, x, y, Rgb24::new(g, g, g)) {
+            written += 1;
+        }
+    }
+    assert_eq!(written, 4, "121：写入像素数（不足 ⇒ 裸机返回 121）");
+
+    // 回读：与 `encode` 的期望字节逐字节比对（**期望值从被测物推导，不手写**，D40/C19）
+    for i in 0..4usize {
+        let (x, y) = (i % 2, i / 2);
+        let g = gray[i];
+        let (bytes, n) = encode(&d, Rgb24::new(g, g, g));
+        assert_eq!(n, 3, "Bgr 应为 3 字节");
+        let off = d.offset_of(x, y).expect("offset");
+        assert_eq!(&buf[off..off + n], &bytes[..n], "122：({},{}) 回读与期望不符", x, y);
+        // 灰色 ⇒ 三通道相等（Bgr 的字节序也一并被验到）
+        assert_eq!(bytes[0], bytes[1]);
+        assert_eq!(bytes[1], bytes[2]);
+    }
+
+    // 行距填充必须**逐字节未被触碰**：每行可视区宽 2px×3B＝6B，行字节数 6px×3B＝18B
+    // ⇒ 每行填充 = [行首+6, 行首+18)，共 12 字节（**区间由 `FbDesc` 现算，不写死魔数**）
+    let row_bytes = d.stride_px * d.bpp; // 18
+    let visible_bytes = d.width * d.bpp; // 6
+    assert_eq!(row_bytes, 18);
+    assert_eq!(visible_bytes, 6);
+    for row in 0..d.height {
+        let pad = &buf[row * row_bytes + visible_bytes..(row + 1) * row_bytes];
+        assert_eq!(pad.len(), 12, "第 {} 行填充宽度", row);
+        assert!(pad.iter().all(|&b| b == 0), "第 {} 行填充被踩 ⇒ 偏移用错了 width", row);
+    }
+}
+
+/// 121／122 的**阳性对照**：故意篡改一个字节 ⇒ 回读比对**必须**发现（防"判据空转"）。
+#[test]
+fn mirror_present_122_mismatch_is_detected() {
+    use meta_kernel_core_nostd::fb::{encode, put_pixel, FbDesc, FbFormat, Rgb24};
+
+    let d = FbDesc::new(1, 1, 1, 3, FbFormat::Rgb);
+    let mut buf = vec![0u8; d.min_len().expect("min_len")];
+    assert!(put_pixel(&mut buf, &d, 0, 0, Rgb24::new(0x11, 0x22, 0x33)));
+    let (bytes, n) = encode(&d, Rgb24::new(0x11, 0x22, 0x33));
+    assert_eq!(&buf[..n], &bytes[..n], "写后应立即一致");
+
+    buf[1] ^= 0xFF; // 篡改
+    assert_ne!(&buf[..n], &bytes[..n], "122：篡改后仍判一致 ⇒ 判据空转（必须检出）");
+}
+
+/// 123：**投影出口非法** ⇒ 空序列（`present_field` 据此返回 0，**不冒充成功**）。
+#[test]
+fn mirror_present_123_project_invalid_yields_empty() {
+    use meta_kernel_core_nostd::project::{project_gray_u8, ProjectSpec};
+
+    let spec = ProjectSpec::new(4, 4, 0.0, 1.0).expect("spec");
+    assert!(project_gray_u8(&[0.5f32; 3], &spec).is_empty(), "123：输入不足须为空");
+    assert!(ProjectSpec::new(4, 4, 1.0, 1.0).is_none(), "123：hi==lo 须被拒");
+}
+
+/// 124：**格式不受支持** ⇒ `encode` 长度 0、`put_pixel` 返回 `false`（**不写任何字节**）。
+#[test]
+fn mirror_present_124_format_unsupported() {
+    use meta_kernel_core_nostd::fb::{encode, put_pixel, FbDesc, FbFormat, Rgb24};
+
+    // `Packed` 起始位 > 24 ⇒ 8 位放不下 ⇒ 不支持（fb.rs 已写死的语义）
+    let bad = FbDesc::new(1, 1, 1, 4, FbFormat::Packed { red: 32, green: 8, blue: 0 });
+    let (_, n) = encode(&bad, Rgb24::WHITE);
+    assert_eq!(n, 0, "124：起始位 > 24 必须判不支持");
+    let mut buf = vec![0xAAu8; 4];
+    assert!(!put_pixel(&mut buf, &bad, 0, 0, Rgb24::WHITE), "124：不得写入");
+    assert!(buf.iter().all(|&b| b == 0xAA), "124：不支持时**一个字节都不许动**");
+
+    // 对照：合法 XRGB8888 必须可用（否则上面的"不支持"没有意义）
+    let ok = FbDesc::new(1, 1, 1, 4, FbFormat::Packed { red: 16, green: 8, blue: 0 });
+    let (b, n) = encode(&ok, Rgb24::new(0x11, 0x22, 0x33));
+    assert_eq!(n, 4, "XRGB8888 应支持");
+    println!("[诊断] XRGB8888 编码 = {:02X?}", b);
+    assert_eq!(b[0], 0x33, "蓝在 bit0（小端首字节）");
+    assert_eq!(b[2], 0x11, "红在 bit16");
+}
+
+/// 125：**`FbDesc` 与真实缓冲自相矛盾**（`min_len` > `buf.len()`）⇒ 必须**先拒后写**。
+#[test]
+fn mirror_present_125_desc_inconsistent_detected() {
+    use meta_kernel_core_nostd::fb::FbDesc;
+
+    let d = FbDesc::new(64, 64, 64, 3, meta_kernel_core_nostd::fb::FbFormat::Bgr);
+    let need = d.min_len().expect("min_len");
+    assert_eq!(need, 64 * 3 * 64);
+    let small = vec![0u8; need - 1];
+    // 与 `present.rs` 的守卫同式：`min_len <= buf.len()` 不成立 ⇒ 判 125（**不写半截**）
+    assert!(need > small.len(), "125：该场景必须落入'缓冲不足'分支");
+}

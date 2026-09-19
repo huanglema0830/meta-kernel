@@ -19,6 +19,8 @@ extern crate alloc;
 
 mod mem;
 mod panic;
+// 2.4 **边界层**：帧缓冲写入（`O-1` 已同意，2026-09-20 开工）。见 `present.rs` 头部的落点判据。
+mod present;
 mod verify;
 
 use bootloader_api::config::{BootloaderConfig, Mapping};
@@ -47,13 +49,25 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 }
 
-/// 自检与门禁。**顺序不可调换**：内存门禁在算法自检之前。
+/// 自检与门禁。**顺序不可调换**：内存门禁在算法自检之前；⑫ 段（帧缓冲写入）在算法自检之前。
 fn run(boot_info: &mut BootInfo) -> Verdict {
     // —— 内存门禁 + 分配往返 + 净零校验（拿不到堆区 ⇒ 黄屏停，不冒充成功） ——
     match mem::selftest(boot_info) {
         Ok(()) => {}
         Err(mem::MemFail::Unavailable) => return Verdict::NoHeap,
         Err(mem::MemFail::Bug(code)) => return Verdict::Fail(code),
+    }
+    // —— ⑫ 段：**2.4 边界层接入帧缓冲**（真实写入 → 回读 → 逐字节比对）——
+    // 为什么放在最后刷屏之前：`verify::render()` 会 `fill()` **整屏** ⇒ 本段写入的 2×2 图案
+    // **必然被覆盖** ⇒ **不改变绿/红判定**（既有门禁的语义零变化），但**写入路径被真实走过一遍**。
+    // 编号：121–125；经下面的 `100 + n` 映射后，CI 上读作 **221–225**（与 ⑪ 段的 211–215 沿用同一约定）。
+    if let Some(fb) = boot_info.framebuffer.as_mut() {
+        let info = fb.info();
+        let buf = fb.buffer_mut();
+        let r = present::present_selfcheck(buf, &info);
+        if r != 0 {
+            return Verdict::Fail(100 + r);
+        }
     }
     // —— 算法自检（2.1 成果：fmath + L4 判据 + 四戒律风险） ——
     match verify::self_check() {
