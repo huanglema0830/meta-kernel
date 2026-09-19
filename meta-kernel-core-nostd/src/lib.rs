@@ -174,3 +174,12 @@ pub mod l5_router;
 // ⇒ `engine_select`（1 模块，**新增于 v0.212 未随分片迁入**）
 // ⚠️ **零「替换类」**：本文件零 `std::`、零 `alloc`、零浮点方法 ⇒ 仅插注释块。
 pub mod engine_select;
+
+// —— 阶段二 **2.4 · 行动路线图 1.2 / 1.3**（2026-09-20）：纯算层新模块（源 crate **无对应物**）——
+//   `predict`（1.2 双向通路：自上而下预测 ＋ 自下而上误差 ⇒ 预测编码的最小可算形态）；
+//   `project`（1.3 二维场投影 `Project(S)`：内核状态 → 像素，**无渲染管线**，D8 裁定）。
+//   两者**只做算**（机制 21）：不碰文件／时钟／外设／硬件帧缓冲。
+//   `project` 的**写入**（把算好的字节落到帧缓冲）属边界行为 ⇒ 在 `meta-kernel-boot/kernel/src/present.rs`。
+//   在 `check_migration_closure.py` 统计里会表现为"**目标 crate 多出的模块**"（与 `fmath`／`quad`／`fb`／`field` 同类）。
+pub mod predict;
+pub mod project;
