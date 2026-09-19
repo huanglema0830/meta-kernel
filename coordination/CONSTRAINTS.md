@@ -404,6 +404,8 @@
 - **与 C18 的关系**：**C18 管「自检 vs 实跑」同源**（判据内部自洽）；**C19 管「判据 vs 判据」同源**（判据之间一致）。
   两者合起来＝**「同源」的完整含义**：**同一事实，从夹具到实跑、从判据到判据，只有一个口径**。
 - **示范（已按此执行）**：`check_doc_consistency.py::machine_is_closed` **改为直接 `import`**
-  `check_migration_closure.py::modules()`（**不再自写枚举**）⇒ 两判据现报**同一组数**（源 56 ／ 目标 58）；
+  `check_migration_closure.py::modules()`（**不再自写枚举**）⇒ 两判据现报**同一组数**
+  （★ **2026-09-20 · D-3：数值不写死**，以 `check_migration_closure.py` 实测为准；
+  **历史快照**（旧文本曾写「源 56／目标 58」，新增纯算层模块后即过期）⇒ 按 R71 改为引路径＋校验命令）；
   机制 25 输出新增 **「枚举口径：与 check_migration_closure.py 同源（递归；R79 修复，C18）」** 行；
   `check_migration_closure.py::mode_check` 新增 **[0] 收口** 行（显式区分**封闭性**与**收口**，并注明「下方 PASS 只代表封闭性」）。

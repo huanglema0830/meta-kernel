@@ -150,7 +150,7 @@
 | WebView2依赖 | 0处 |
 | unsafe | **真实 unsafe 关键字 0 处**（`unsafe_whitelist.txt` 为空 ⇒ 未放行任何条目；机制见 C9，**CI 门禁见验收⑤**）。ℹ️ `meta-kernel-core/src/l4_risk.rs` 里的 `unsafe_q` 是**变量名**（"不安全状态的四元组"），不是 unsafe 语法——C9 门禁首跑曾误报它，见 R16 |
 | 内核测试 | 411项（lib 390 + 集成 21） |
-| **no_std 子集（2.1 ＋ 2.3b 片1–片8 ✅ 已收口）** | ✅ `meta-kernel-core-nostd` **417 项测试全绿**（2.1 时 60；+11＝片1；+27＝片2；+48＝片3；+93＝片4；+93＝片5（238→331）；**+59＝片6（331→390）**；**+17＝片7／片8（390→407）**；**+10＝`engine_select` 补迁（R79，407→417）**）＋ **host 镜像测试 22 项**（裸机断言在 host 原样跑，`--nocapture` 可读诊断值）｜`cargo build --target x86_64-unknown-none` **通过**（**权威判据**）｜**迁移保真度**：**目标 crate 58 模块**（源 **56**；**未迁 0**）**全部通过** `coordination/tools/check_migration_fidelity.py`（**多重集差**判据：源行不丢 + 新增行必须登记；**自带 `--selftest` 正反对照**）｜**2.3b 收口**：★ **口径见 §十六 16.1（全源）**；分片过程实测见 §十二 |
+| **no_std 子集（2.1 ＋ 2.3b 片1–片8 ✅ 已收口）** | ✅ `meta-kernel-core-nostd` **417 项测试全绿**（2.1 时 60；+11＝片1；+27＝片2；+48＝片3；+93＝片4；+93＝片5（238→331）；**+59＝片6（331→390）**；**+17＝片7／片8（390→407）**；**+10＝`engine_select` 补迁（R79，407→417）**）＋ **host 镜像测试 22 项**（裸机断言在 host 原样跑，`--nocapture` 可读诊断值）｜`cargo build --target x86_64-unknown-none` **通过**（**权威判据**）｜**迁移保真度**：**未迁 0**（★ **2026-09-20 · D-3：源／目标模块数不再写死** —— 以 `coordination/tools/check_migration_closure.py` 实测为准〔**同源递归枚举**〕；复核：`python coordination/tools/check_migration_closure.py --mode=check`。**理由**：该类数值已连续三次静默过期（57→58→63），写死即过期，R71／R72）**全部通过** `coordination/tools/check_migration_fidelity.py`（**多重集差**判据：源行不丢 + 新增行必须登记；**自带 `--selftest` 正反对照**）｜**2.3b 收口**：★ **口径见 §十六 16.1（全源）**；分片过程实测见 §十二 |
 | **alloc 迁移（2.3b）** | **片1 ✅｜片2 ✅｜片3 ✅｜片4 ✅｜片5 ✅**（`ontology` 429＋`state` 325＋`energy` 377＋`sanitizer` 235＋`interference` 319 = **1,685 行**）。<br>⚠️ **片3 执行中发现两处「清单未预见」的硬障碍**：① **`HashSet` 在 `no_std` 不存在**（编译级证据）⇒ `ontology` 两处换 `BTreeSet`（**只用 insert/len、从不迭代 ⇒ 逐位等价**，见 **D37**）；② **`FloatOps` 初版只实现 `f32`**，而片3 用到 **f64 的 `round`/`sqrt`/`log2`** ⇒ `fmath` 补 **f64 全套**（含 **Cody-Waite 两段 ln2**、`atan` 泰勒 10→16 项、`powi` 改「最后取倒数」、新增 `rem_euclid`）。**f64 精度实测（vs `std`）**：`sqrt` **1 ULP**／`log2` **1**／`ln` **1**／`exp` **2**／`powi` **≤4**／`round`、`rem_euclid` **完全相等**。<br>**裸机断言扩到第 ⑥ 段**（片3 五模块：sanitizer 钳位／ontology 特征向量＋**正反两侧不同**／energy 决议边界／state 熵→物态／interference 相位差）⇒ 一条绿屏同时证成 **2.1＋片1＋片2＋片3＋`alloc`**。<br>**片4（修正版 10 模块／3,920 行）**：`trace`／`dna_generate`／`dna_trace`／`habit`／`gene_library`／`l5_context`／`l1_field_parse`／`l3_world`／`l5_quad`／`l5_evidence`（原订 5 模块**不封闭** ⇒ 扩为 10）。**片5（16 模块／3,651 行，清单由脚本产出）**：`l1_source_parse`／`thinking_chain`／`hourglass`／`evolution`／`l5_attention`／`gate`／`self_recognizer`／`l7/ledger`／`dna_adapt`／`double_chain`／`mirror`／`senses`／`evo_deconstructor`／`persist`／`executor`／`l5_compare`。<br>⚠️ **片5 又暴露一条「清单未预见」的硬障碍**：**`std::collections::VecDeque`** —— `no_std` 下 `std` 拿不到、也不在 prelude，但 `alloc::collections::VecDeque` 有（**纯路径改写**）；首跑漏登 ⇒ 4 个文件报 `cannot find module or crate std`（**编译器抓到**）。⇒ 迁移脚本**新增硬判据：代码区不得残留 `std::`**（把这类问题拦在编译器之前）。<br>**裸机断言扩到第 ⑪ 段**（⑧＝51–55 三态判定**三态齐备且互不相同**／动作账链**篡改必拒**／沙漏**每 tick 至多 1 粒**；⑨＝片6 四模块；⑩＝片7–片8 三模块；**⑪＝Q11 物态→引擎选择五条**）⇒ 一条绿屏同时证成 **2.1＋片1–片8＋`alloc`＋Q11**。<br>**片6–片8 ✅ 已完成**（脚本口径 7 模块：`l1_mapping`／`positive_source`／`l5_diagnosis`／`l7/repair`／`l5_translate`／`l6_face`／`l5_router`）—— 片6 的 **`std::collections::HashMap`** 已按「方式 A」换 `BTreeMap`（「类型替换」类，**已单独论证**）；分片过程实测见本文件 **§十二**。<br>★ **片9 · 补迁（2026-09-19 · R79 处置）**：**`engine_select`**（v0.212 新增、**未随分片迁入** ⇒ `closure` 判 **PASS**、机制 25 报 **「未收口 剩余 1」**）**已迁入**（**零「替换类」**，纯插入 9 行说明块）；补迁后**未迁 0 ⇒ 全源收口**，两判据口径统一。**收口定义见 §十六 16.1** |
 | **机制 20（术语映射 · 机制 17 第三实例）** | ✅ **升级为三层 + AES-256-GCM**（2026-09-17，**D38**）：**公开层** `coordination/TERMS.md`（编号＋**英文名**＋中文功能说明＋指针，**不加密**）｜**索引层** `{PRIVATE_ASSETS}/terms/INDEX.md.enc`（编号＋英文名＋**代码代号**＋指针；**不含全拼/原名**）｜**内容层** `{PRIVATE_ASSETS}/terms/TERM-001.md.enc`（**全拼＋原名**＋原始内容＋**真实代码路径**）——后两层**仓库外、已加密**。<br>**加密机器判据 4 条**（`tools/terms_crypt.py verify`）：密钥**在仓库外** ✅｜仓库内**含密钥文件 0 个** ✅｜6 个密文**全部可解且原名 0 处** ✅｜**错密钥被拒**（`InvalidTag`）✅。<br>**指针门禁**：`check_private_pointers.py` **syntax + resolve 双 PASS**（`.md.enc` 可直接解析）。<br>⚠️ **边界（不许含糊）**：**换壳 ≠ 消除**（仓库内**仍有 298 处原名**可检出：`docs/` 270／`reports/` 15／`discussions/` 7／`instructions/` 6 ⇒ 待 **D35/D36**）；**加密 ≠ 挡住仓库内存量**；**代码代号不是强边界**（源码本身公开）。| ｜**密钥级别：⛔ 机密**（本体／路径／其余一律先按机密）<br>**2026-09-17 补全**：**密钥 C12 级别**写入 `CONSTRAINTS.md` **C12「密钥专项级别」**＋ `TEMPLATES.md` **§十二**（本体 ⛔／指纹 🔒／路径 ⛔）；检查器新增 **[5] 密钥级别判据**（活文件中凡含「密钥」的行必须带级别标识；**已纳入 CI 的 syntax 模式**，阴阳两侧自检通过）。<br>**换壳（D35③＋D36②）**：`deploy/` 1 条 ＋ `docs/` 设计说明类 4 文件 8 条 **已掩码** ⇒ 泄漏基线 **14 → 5 条** |
 | **机制 17 第二实例（大模型接入骨架）** | ✅ 公开层 `coordination/llm/`（4 文件：任务分级／降级规则／成本记录 三接口 ＋ 总览，**只写"做什么"**）｜实现层 `{PRIVATE_ASSETS}/llm/`（4 文件，⛔；**合同已定、取值待填**，未编造）｜**机器校验**：`coordination/tools/check_private_pointers.py`（`--mode=syntax` **已入 CI**／`--mode=resolve` 仅本机）＋ 泄漏基线 `coordination/security/leak_baseline.txt` |
@@ -420,7 +420,7 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
 | **片8** | `l5_router`（L5 零依赖 JSON 路由）——**零「替换类」**（末片） |
 | **清单口径** | `check_migration_closure.py` 的 `--emit 1／2` 产出（**D40：不手写**） |
 | **保真度** | **多重集差 3/3 通过**：替换 **0**／丢失 **0**／未登记新增 **0** ⇒ **纯插入**（仅补 `alloc` 的 `use` ＋ 迁移说明块） |
-| **闭包判据** | **PASS**；源 crate **55** ｜ 目标 crate **57** 模块；**非测试 ＋ 测试依赖双侧封闭** |
+| **闭包判据** | **PASS**；**当时实测（历史快照，不追改）**：源 crate **55** ｜ 目标 crate **57** 模块；**现值以 `check_migration_closure.py` 实测为准**（R71）｜**非测试 ＋ 测试依赖双侧封闭** |
 | **裸机编译** | **0 error**（权威判据；仅 2 个既有 warning，非本片引入） |
 | **单测** | lib **407 passed**（390 → 407）｜host 镜像 **22 passed**（17 → 22） |
 | **裸机断言** | `verify.rs` **第 ⑪ 段**（⑩ 码 101–105 ／ **⑪ 码 111–115**；CI 读作 201–205 ／ **211–215**）＋ host 镜像 **10 条** |
@@ -644,7 +644,7 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
 | **C3 不破坏既有** | ✅ **全量测试 411 → 421**（+10 ＝ 本模块判据） |
 | **C9 无新增 unsafe** | ✅ 本模块不含 `unsafe` |
 | **D1–D9 实跑** | ✅ **10 passed / 0 failed** |
-| **闭包判据** | ✅ **PASS**（源 **56** ／ 目标 **57**；新增模块**未破坏** `no_std` 迁移闭包） |
+| **闭包判据** | ✅ **PASS**（**当时实测**，历史快照：源 **56** ／ 目标 **57**；现值以 `check_migration_closure.py` 实测为准（R71）｜新增模块**未破坏** `no_std` 迁移闭包） |
 
 **仍未做（如实标注）**：**L3 集成层**（`verify.rs` 裸机断言 ＋ host 镜像）**尚未接入** —— 判据目前只在 **L2（`cargo test`）** 实跑；本判据**未入 CI**。
 
@@ -691,8 +691,8 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
 
 | 判据 | 口径 | 结论 |
 |---|---|---|
-| `coordination/tools/check_migration_closure.py` | **模块依赖闭包**（**含 `l7/` 子目录**） | ✅ **PASS**（源 **56** ／ 目标 **57**） |
-| `coordination/tools/check_doc_consistency.py` 的 `machine_is_closed` | **顶层 `src/*.rs` 文件差集** | ⚠️ **「未收口（源 47 / 目标 48 / 剩余 1）」** |
+| `coordination/tools/check_migration_closure.py` | **模块依赖闭包**（**含 `l7/` 子目录**） | ✅ **PASS**（**R79 事故当时的读数**，历史快照：源 **56** ／ 目标 **57**；现值以本判据实测为准，R71） |
+| `coordination/tools/check_doc_consistency.py` 的 `machine_is_closed` | **顶层 `src/*.rs` 文件差集**（**旧口径，已废**） | ⚠️ **「未收口（源 47 / 目标 48 / 剩余 1）」** —— **R79 事故当时的错误读数**（历史快照；现口径已改为 **同源 import** closure 的 `modules()`） |
 
 - **差 1 ＝ 本轮（v0.212）新增的 `meta-kernel-core/src/engine_select.rs`** —— **已加进源 crate，但未迁 `nostd`**。
 - **后果（两条，均需正视）**：
@@ -714,7 +714,7 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
 | 处置项 | 落地 |
 |---|---|
 | **① 迁 `engine_select`** | 迁入 `meta-kernel-core-nostd/src/engine_select.rs`（**零「替换类」**：零 `std::`、零 `alloc`、零浮点方法 ⇒ **纯插入** 9 行迁移说明块）；保真度多重集差 **0 替换／0 丢失／0 未登记新增**；`lib.rs` 登记 `pub mod engine_select;` |
-| **② 恢复「源 ⊆ 目标」** | ✅ **未迁 0**（源 **56** / 目标 **58**；目标独有 2 ＝ `fmath`／`quad`，nostd 专有，非源模块） |
+| **② 恢复「源 ⊆ 目标」** | ✅ **未迁 0**（**R79 处置当时的实测**，历史快照：源 **56** / 目标 **58**；目标独有 2 ＝ `fmath`／`quad`，nostd 专有，非源模块；**现值以 `check_migration_closure.py` 实测为准**，R71） |
 | **③ 统一两判据口径** | 机制 25 的 `machine_is_closed` **改为直接 import** `check_migration_closure.py::modules()`（**同源**）；两判据现报**同一组数**。**根因**：机制 25 原用顶层 `glob("*.rs")`、closure 用递归 `os.walk` ⇒ 差 **9** 个模块（漏 `l4/*`＋`l7/*` 共 8 个 ＋ `lib` 归一差异） |
 | **④ closure 分离两个概念** | `mode_check` 新增 **[0] 收口** 行，显式标注「下方 PASS 只代表**封闭性**，**不代表已收口**」—— **封闭性**（目标无悬空引用）≠ **收口**（源 ⊆ 目标），**这正是 R79 的误读源头** |
 | **⑤ 机制 25 P2 补双侧** | **P2a**（已收口却说剩余，原有）＋ **P2b**（**未收口却说已收口**，新增）；自检由五侧扩为 **六侧**（第 ⑥ 侧专测 P2b 反向，实测命中） |
@@ -734,7 +734,7 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
 |---|---|
 | **口径（新）** | **全源收口** ＝ **源 crate（`meta-kernel-core/src`）的全部模块 ⊆ 目标 crate（`meta-kernel-core-nostd/src`）**，即 **未迁 = 0** |
 | **枚举规则** | **递归**遍历 `.rs`（`os.walk`），子目录 `mod` 归一，**含 `lib.rs`**；**与 `check_migration_closure.py::modules()` 同源** |
-| **当前实测** | **未迁 0**；源 **56** ／ 目标 **58**（目标独有 **2** ＝ `fmath`／`quad`，**nostd 专有、非源模块**） |
+| **当前实测** | **未迁 0** ⇒ **收口成立**。★ **2026-09-20 · D-3：源／目标模块数不再写死** —— 一律以 `coordination/tools/check_migration_closure.py --mode=check` 的 **[0] 收口** 行实测为准（**同源递归枚举**；目标独有模块＝**nostd 专有**，其数量亦以实测为准）。**理由**：该类数值已连续三次静默过期（**57 → 58 → 63**），写死即过期（R71／R72）；历次快照见 §十二 |
 | **旧口径（已废）** | 「片1–片8 覆盖的 **55 模块**」—— 只算**分片范围**，**不含后新增模块**；R79 暴露其**不可持续**（新增模块一落地就"收口为假"） |
 | **不变式** | 此后**任何新增源模块**都须**同时**决定"迁不迁"：**迁** ⇒ 收口继续成立；**不迁** ⇒ **收口不成立**且机制 25 P2b 会判红 |
 | **判据出处** | `coordination/tools/check_migration_closure.py`（**[0] 收口** 行）＋ `coordination/tools/check_doc_consistency.py`（**P2a／P2b 双侧**） |
@@ -753,7 +753,7 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
 | **迁移** | `meta-kernel-core/src/engine_select.rs` → `meta-kernel-core-nostd/src/engine_select.rs` |
 | **替换类** | **零** —— 本文件**零 `std::`、零 `alloc`、零浮点方法**（仅 `f32` 类型） ⇒ **纯插入** |
 | **保真度** | **多重集差通过**：替换 **0** ／ 丢失 **0** ／ 未登记新增 **0**（登记插入 **9 行**迁移说明块） |
-| **闭包** | **PASS**；**未迁 0**（源 56 ／ 目标 58） ⇒ **源 ⊆ 目标 恢复** |
+| **闭包** | **PASS**；**未迁 0** ⇒ **源 ⊆ 目标 恢复**（★ **源／目标模块数以 `check_migration_closure.py` 实测为准**，本处不写死，R71） |
 | **单测** | nostd lib **407 → 417**（+10 ＝ Q11 的 `contract_tests` 亦在 nostd 侧跑） |
 | **模块登记** | `meta-kernel-core-nostd/src/lib.rs` 加 `pub mod engine_select;` |
 
