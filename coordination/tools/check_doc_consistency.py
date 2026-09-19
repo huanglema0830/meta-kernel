@@ -85,6 +85,16 @@ RE_REMAIN = re.compile(r"剩余\s*片\s*[0-9%s]" % "".join(CIRC))
 # 无关的「D28/D29 已收口」之类误算进来（假阳性 = 判据可信度的杀手）。
 RE_DONE = re.compile(r"(?:(?:迁移|片)[^。\n]{0,20}已收口|已收口[^。\n]{0,20}(?:迁移|片)|无剩余片|逐片收口)")
 
+# ---- 模块数陈述（P4 用 · R80-1 落地 2026-09-19）----------------------------------
+# 口径（R80-1/R80-3/R80-4）：**只做「模块数」一类**判据。
+#   · **不做**：测试计数（10 行）／行数（21 行）／条目计数（53 行）—— 误报率高（R73 教训），
+#     且「分片增量写法」如「+59＝片6」会被误伤（**R80-3 明确留痕：不做**）。
+#   · **豁免**：版本锚 `v0.xxx`／`HEAD <hash>` —— 快照天然落后 1–N 个 commit，**判红必误**
+#     （**R80-4 明确豁免**；并已含在 `HISTORY_MARKS` 的"当时/历史"豁免精神内）。
+# 检索式**刻意收窄**为两种明确写法（源 N／目标 M ＋ 目标 crate N 模块），避免把无关数字误算。
+RE_MOD_SRC = re.compile(r"源\s*(?:crate\s*)?(\d{1,3})\s*[／/]\s*目标\s*(?:crate\s*)?(\d{1,3})")
+RE_MOD_TGT = re.compile(r"目标\s*crate\s*(\d{1,3})\s*模块")
+
 
 def _active(line: str) -> bool:
     """该行是否为**活跃**陈述（非历史留痕）。"""
@@ -172,6 +182,7 @@ def check(repo: Path, verbose=True):
     per_file_seg = {}      # file -> [(lineno, seg)]
     per_file_remain = {}   # file -> [(lineno, text)]
     per_file_done = {}     # file -> [(lineno, text)]
+    per_file_mod = {}      # file -> [(lineno, kind, value)]  （P4 用）
     for f in targets:
         try:
             lines = io.open(f, encoding="utf-8", errors="replace").read().split("\n")
@@ -187,6 +198,13 @@ def check(repo: Path, verbose=True):
                 per_file_remain.setdefault(rel, []).append((i, l.strip()[:120]))
             if RE_DONE.search(l):
                 per_file_done.setdefault(rel, []).append((i, l.strip()[:120]))
+            for mm in RE_MOD_SRC.finditer(l):
+                per_file_mod.setdefault(rel, []).append((i, "源", int(mm.group(1))))
+                per_file_mod.setdefault(rel, []).append((i, "目标", int(mm.group(2))))
+            for mm in RE_MOD_TGT.finditer(l):
+                per_file_mod.setdefault(rel, []).append((i, "目标", int(mm.group(1))))
+
+    stats["active_mod_claims"] = sum(len(v) for v in per_file_mod.values())
 
     stats["active_seg_files"] = {k: sorted(set(v for _, v in vals)) for k, vals in per_file_seg.items()}
     stats["active_remain"] = per_file_remain
@@ -228,6 +246,29 @@ def check(repo: Path, verbose=True):
         r = per_file_remain[rel][0][0]
         errors.append("[P3 文档内部矛盾] %s：行%d 称「已收口」，行%d 又称「剩余 N 片」" % (rel, d, r))
 
+    # ---- P4（R80-1 落地 · 2026-09-19）：活跃「模块数」陈述须 == 机器值 ----
+    # 机器值来自 `machine_is_closed()`（**内部 import `check_migration_closure.py::modules()`** ⇒ C19 同源）。
+    # 口径：**只比"模块数"**；其余数值型（测试计数/行数/条目数）**不做**（R80-3）；版本锚**豁免**（R80-4）。
+    #
+    # ★ **首轮只提示、不判红（R60 先例）** —— 首跑实测（2026-09-19）：
+    #   · **误报 3 项**：`BASELINE.md:695`（记录 R79 **前**旧口径的历史数字）／`:884`（「**修订前**」列的
+    #     前值）—— 二者**语义上是历史快照**，只是行内没有历史标记词 ⇒ `_active()` 认不出。
+    #   · **漏报 1 项**：`BASELINE.md:694` `✅ PASS（源 **56** ／ 目标 **57**）` —— 机器实测**目标 58**；
+    #     漏报根因＝markdown `**` 粗体夹在「源/目标」与数字之间，**阻断正则**。
+    #   ⇒ 判据**既误报又漏报**，**不足以判红**；依 R60 先例降为提示。
+    #   ⇒ **转判红的前置（缺一不可）**：① 裁定 694／695／884 三处如何处置；
+    #     ② 修掉「粗体阻断」缺陷（让正则容忍 `*`/`_` 强调符）；③ 表格级历史豁免（表头含历史标记词
+    #        ⇒ 整表视为历史留痕）。**在此之前：不判红，也不放宽检索式**（不调参）。
+    p4_obs = []
+    for rel, vals in sorted(per_file_mod.items()):
+        for i, kind, v in vals:
+            want = sn if kind == "源" else tn
+            if want and v != want:
+                p4_obs.append(
+                    "[P4 提示·待裁] %s 行%d 称「%s %d」，机器实测「%s %d」（closure 同源）"
+                    % (rel, i, kind, v, kind, want))
+    stats["p4_observations"] = p4_obs
+
     # ---- 输出 ----
     if verbose:
         print("=" * 68)
@@ -240,6 +281,7 @@ def check(repo: Path, verbose=True):
                  ("：%s" % rest) if rest else ""))
         print("枚举口径      ：与 check_migration_closure.py **同源**（递归；R79 修复，C18）")
         print("活跃段号陈述  ：%d 条" % n_act_seg)
+        print("活跃模块数陈述：%d 条（P4 · R80-1）" % stats.get("active_mod_claims", 0))
         for rel, vals in sorted(per_file_seg.items()):
             print("    %-32s %s（max=第 %s 段）"
                   % (rel, [CIRC[s - 1] for s in sorted(set(v for _, v in vals))], CIRC[max(v for _, v in vals) - 1]))
@@ -250,12 +292,18 @@ def check(repo: Path, verbose=True):
                 print("  " + e)
         else:
             print("结果：✅ 通过（P1 段号一致 / P2 收口一致〔双侧 P2a＋P2b〕 / P3 内部自洽）")
+        if stats.get("p4_observations"):
+            print("⚠️  P4 模块数（**首轮提示 · 不判红**，R60 先例）：%d 条待裁"
+                  % len(stats["p4_observations"]))
+            for x in stats["p4_observations"]:
+                print("  " + x)
+            print("    （口径：只做「模块数」一类；测试计数/行数/条目数不做〔R80-3〕；版本锚豁免〔R80-4〕）")
         print("=" * 68)
 
     return errors, stats
 
 
-# --------------------------- 自检（C18 五侧） ---------------------------
+# --------------------------- 自检（C18 七侧） ---------------------------
 def selftest() -> int:
     print("=" * 68)
     print("机制 25 · 自检（C18：同源 ＋ 回读真实仓库 ＋ 可区分 0 与解析失败）")
@@ -348,20 +396,42 @@ def selftest() -> int:
     # 复原（删掉未迁模块，避免影响后续）
     os.remove(str(d / SRC_DIR / "b.rs"))
 
+    # 侧 ⑦（R80-1 落地 · 新增）：模块数陈述 == 机器值；过期 ⇒ 判红（**双向**）
+    #   夹具机器值：源 1 / 目标 1（各一个 a.rs）。
+    (d / "coordination" / "OK.md").write_text(
+        "# 夹具·模块数一致\n\n裸机断言已到第 ⑩ 段。\n收口：源 1 ／ 目标 1。\n", encoding="utf-8")
+    e8, s8 = check(d, verbose=False)
+    obs8 = s8.get("p4_observations") or []
+    print("[侧⑦a] 夹具·模块数一致（源 1／目标 1）⇒ %s"
+          % ("❌ 误报" if obs8 else "✅ 未误报（也无判红）"))
+    if obs8 or e8:
+        fails.append("侧⑦a P4 误报/误判红：obs=%s errs=%s" % (obs8, e8))
+    (d / "coordination" / "OK.md").write_text(
+        "# 夹具·模块数过期\n\n裸机断言已到第 ⑩ 段。\n收口：源 55 ／ 目标 57。\n", encoding="utf-8")
+    e9, s9 = check(d, verbose=False)
+    obs9 = s9.get("p4_observations") or []
+    hit9 = any("源 55" in x for x in obs9)
+    print("[侧⑦b] 夹具·模块数过期（源 55／目标 57 vs 机器 1／1）⇒ %s"
+          % ("✅ 命中 P4 提示（且**不判红**）" if (hit9 and not e9) else "❌ 漏判或误判红"))
+    if not hit9 or e9:
+        fails.append("侧⑦b P4 未按预期提示/误判红：errs=%s obs=%s" % (e9, obs9))
+    else:
+        print("      捕获：%s" % obs9[0][:100])
+
     print("\n" + "=" * 68)
     if fails:
         print("自检结论：❌ 失败 %d 项" % len(fails))
         for x in fails:
             print("  - %s" % x)
         return 1
-    print("自检结论：✅ 六侧全部符合预期")
+    print("自检结论：✅ 七侧全部符合预期")
     print("=" * 68)
     return 0
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="机制 25 · 文档一致性判据")
-    ap.add_argument("--selftest", action="store_true", help="自检（六侧）")
+    ap.add_argument("--selftest", action="store_true", help="自检（七侧）")
     ap.add_argument("--list", action="store_true", help="只列活跃陈述")
     ap.add_argument("--repo", default=".", help="仓库根")
     a = ap.parse_args()

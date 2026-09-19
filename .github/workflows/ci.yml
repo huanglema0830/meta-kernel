@@ -290,6 +290,24 @@ jobs:
           set -e
           test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
 
+      # ===== 机制 18 / C13：「顾问阅读指令」形态门禁（2026-09-19 建立 · 丁案）=====
+      # 为什么：C13 要求「任何输出的字面第 0 行」放固定文本；此前**只有人工纪律、没有判据**
+      #   ⇒ 实测 59 份报告里**仅 18 份**（位置＋逐字）合规（R25 教训：声明与事实不符）。
+      # 口径：**历史豁免名单**（security/reading_directive_exempt.txt）里的既有报告**不回填**；
+      #   名单**只减不增**（新增条目＝判红）。期望值**从 TEMPLATES.md 抽取**（不手写，D40/C19）。
+      # 浅克隆安全：本判据只读仓库内文件（TEMPLATES.md ＋ reports/ ＋ security/），**不依赖 HEAD~1**（R68）。
+      - name: 机制 18 顾问阅读指令门禁 —— 字面第 0 行 == 固定文本（含判据自检）
+        shell: bash
+        run: |
+          set +e
+          python3 coordination/tools/check_reading_instruction.py --selftest
+          SELFTEST=$?
+          python3 coordination/tools/check_reading_instruction.py
+          CHECK=$?
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (两个都应为 0)"
+          set -e
+          test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
+
       - name: Build NPB cdylib (native)
         run: cargo build -p npb
 

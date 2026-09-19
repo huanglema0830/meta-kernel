@@ -90,9 +90,12 @@ def _check(repo, memory_path, ci=False):
         errs.append("[ROADMAP.md] 未声明与底图（README）阶段口径的映射")
 
     # F 哈希基线
+    # ★ 2026-09-19 扩项（帧缓冲稿 Q1 落地）：**纳入根 `README.md`** ⇒ 基线 35 → **36 份**。
+    #   动机：底图定义＝「根 `README.md` ＋ `docs/`」；只哈希 `docs/` ⇒ **改 README 无人拦**
+    #   （v0.217 实证：README 2 处修订不受任何机器判据保护，而 docs/ 2 份当场判红）。
     base = repo / "coordination" / "security" / "basemap_hashes.txt"
-    docs = sorted((repo / "docs").glob("*.md"))
-    hashes = {d.name: hashlib.sha256(d.read_bytes()).hexdigest() for d in docs}
+    targets = [repo / "README.md"] + sorted((repo / "docs").glob("*.md"))
+    hashes = {t.name: hashlib.sha256(t.read_bytes()).hexdigest() for t in targets}
     if not base.exists():
         warns.append("底图哈希基线不存在（%s），用 --update-baseline 生成" % base.name)
     else:
@@ -185,7 +188,28 @@ def selftest():
         print("  阴性对照3 PASS（CI 场景：CHARTER 无核心底图名单 ⇒ 判红）")
         charter.write_text(good_charter, encoding="utf-8")
 
-    print("selftest: PASS（阳性 2 ＋ 阴性 3）")
+        # 阴性 4（**2026-09-19 扩项：判据 F 纳入根 `README.md`**）
+        # 为什么必须有：先前 F 只哈希 `docs/*.md` ⇒ **改 README 无人拦**；
+        #   本对照证明**扩项真的生效**（不是"改了作用域却没起作用"）。
+        bpath = repo / "coordination" / "security" / "basemap_hashes.txt"
+        targets = [repo / "README.md"] + sorted((repo / "docs").glob("*.md"))
+        bpath.write_text(
+            "# b\n\n" + "\n".join(
+                "%s  %s" % (hashlib.sha256(p.read_bytes()).hexdigest(), p.name) for p in targets
+            ) + "\n",
+            encoding="utf-8",
+        )
+        e5, _, _ = _check(repo, mem)
+        assert not e5, "扩项后基线应与当前一致（阳性），实际：%s" % e5
+        (repo / "README.md").write_text("阶段一 阶段二 阶段三 阶段四 已改", encoding="utf-8")
+        e6, _, _ = _check(repo, mem)
+        assert any("README.md" in x for x in e6), \
+            "改根 README.md 应被判据 F 判红（扩项生效），实际：%s" % e6
+        (repo / "README.md").write_text("阶段一 阶段二 阶段三 阶段四", encoding="utf-8")
+        bpath.unlink()
+        print("  阳性/阴性对照4 PASS（判据 F 已覆盖根 README.md：改它 ⇒ 判红）")
+
+    print("selftest: PASS（阳性 3 ＋ 阴性 4）")
 
 
 def main():
