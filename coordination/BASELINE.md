@@ -150,8 +150,8 @@
 | WebView2依赖 | 0处 |
 | unsafe | **真实 unsafe 关键字 0 处**（`unsafe_whitelist.txt` 为空 ⇒ 未放行任何条目；机制见 C9，**CI 门禁见验收⑤**）。ℹ️ `meta-kernel-core/src/l4_risk.rs` 里的 `unsafe_q` 是**变量名**（"不安全状态的四元组"），不是 unsafe 语法——C9 门禁首跑曾误报它，见 R16 |
 | 内核测试 | 411项（lib 390 + 集成 21） |
-| **no_std 子集（2.1 ＋ 2.3b 片1–片8 ✅ 已收口）** | ✅ `meta-kernel-core-nostd` **407 项测试全绿**（2.1 时 60；+11＝片1；+27＝片2；+48＝片3；+93＝片4；+93＝片5（238→331）；**+59＝片6（331→390）**；**+17＝片7／片8（390→407）**）＋ **host 镜像测试 22 项**（裸机断言在 host 原样跑，`--nocapture` 可读诊断值）｜`cargo build --target x86_64-unknown-none` **通过**（**权威判据**）｜**迁移保真度**：**目标 crate 57 模块**（源 55）**全部通过** `coordination/tools/check_migration_fidelity.py`（**多重集差**判据：源行不丢 + 新增行必须登记；**自带 `--selftest` 正反对照**）｜**2.3b 收口实测见 §十二** |
-| **alloc 迁移（2.3b）** | **片1 ✅｜片2 ✅｜片3 ✅｜片4 ✅｜片5 ✅**（`ontology` 429＋`state` 325＋`energy` 377＋`sanitizer` 235＋`interference` 319 = **1,685 行**）。<br>⚠️ **片3 执行中发现两处「清单未预见」的硬障碍**：① **`HashSet` 在 `no_std` 不存在**（编译级证据）⇒ `ontology` 两处换 `BTreeSet`（**只用 insert/len、从不迭代 ⇒ 逐位等价**，见 **D37**）；② **`FloatOps` 初版只实现 `f32`**，而片3 用到 **f64 的 `round`/`sqrt`/`log2`** ⇒ `fmath` 补 **f64 全套**（含 **Cody-Waite 两段 ln2**、`atan` 泰勒 10→16 项、`powi` 改「最后取倒数」、新增 `rem_euclid`）。**f64 精度实测（vs `std`）**：`sqrt` **1 ULP**／`log2` **1**／`ln` **1**／`exp` **2**／`powi` **≤4**／`round`、`rem_euclid` **完全相等**。<br>**裸机断言扩到第 ⑥ 段**（片3 五模块：sanitizer 钳位／ontology 特征向量＋**正反两侧不同**／energy 决议边界／state 熵→物态／interference 相位差）⇒ 一条绿屏同时证成 **2.1＋片1＋片2＋片3＋`alloc`**。<br>**片4（修正版 10 模块／3,920 行）**：`trace`／`dna_generate`／`dna_trace`／`habit`／`gene_library`／`l5_context`／`l1_field_parse`／`l3_world`／`l5_quad`／`l5_evidence`（原订 5 模块**不封闭** ⇒ 扩为 10）。**片5（16 模块／3,651 行，清单由脚本产出）**：`l1_source_parse`／`thinking_chain`／`hourglass`／`evolution`／`l5_attention`／`gate`／`self_recognizer`／`l7/ledger`／`dna_adapt`／`double_chain`／`mirror`／`senses`／`evo_deconstructor`／`persist`／`executor`／`l5_compare`。<br>⚠️ **片5 又暴露一条「清单未预见」的硬障碍**：**`std::collections::VecDeque`** —— `no_std` 下 `std` 拿不到、也不在 prelude，但 `alloc::collections::VecDeque` 有（**纯路径改写**）；首跑漏登 ⇒ 4 个文件报 `cannot find module or crate std`（**编译器抓到**）。⇒ 迁移脚本**新增硬判据：代码区不得残留 `std::`**（把这类问题拦在编译器之前）。<br>**裸机断言扩到第 ⑩ 段**（⑧＝51–55 三态判定**三态齐备且互不相同**／动作账链**篡改必拒**／沙漏**每 tick 至多 1 粒**；⑨＝片6 四模块；⑩＝片7–片8 三模块）⇒ 一条绿屏同时证成 **2.1＋片1–片8＋`alloc`**。<br>**片6–片8 ✅ 已收口**（脚本口径 7 模块：`l1_mapping`／`positive_source`／`l5_diagnosis`／`l7/repair`／`l5_translate`／`l6_face`／`l5_router`）—— 片6 的 **`std::collections::HashMap`** 已按「方式 A」换 `BTreeMap`（「类型替换」类，**已单独论证**）；收口实测见本文件 **§十二** |
+| **no_std 子集（2.1 ＋ 2.3b 片1–片8 ✅ 已收口）** | ✅ `meta-kernel-core-nostd` **417 项测试全绿**（2.1 时 60；+11＝片1；+27＝片2；+48＝片3；+93＝片4；+93＝片5（238→331）；**+59＝片6（331→390）**；**+17＝片7／片8（390→407）**；**+10＝`engine_select` 补迁（R79，407→417）**）＋ **host 镜像测试 22 项**（裸机断言在 host 原样跑，`--nocapture` 可读诊断值）｜`cargo build --target x86_64-unknown-none` **通过**（**权威判据**）｜**迁移保真度**：**目标 crate 58 模块**（源 **56**；**未迁 0**）**全部通过** `coordination/tools/check_migration_fidelity.py`（**多重集差**判据：源行不丢 + 新增行必须登记；**自带 `--selftest` 正反对照**）｜**2.3b 收口**：★ **口径见 §十六 16.1（全源）**；分片过程实测见 §十二 |
+| **alloc 迁移（2.3b）** | **片1 ✅｜片2 ✅｜片3 ✅｜片4 ✅｜片5 ✅**（`ontology` 429＋`state` 325＋`energy` 377＋`sanitizer` 235＋`interference` 319 = **1,685 行**）。<br>⚠️ **片3 执行中发现两处「清单未预见」的硬障碍**：① **`HashSet` 在 `no_std` 不存在**（编译级证据）⇒ `ontology` 两处换 `BTreeSet`（**只用 insert/len、从不迭代 ⇒ 逐位等价**，见 **D37**）；② **`FloatOps` 初版只实现 `f32`**，而片3 用到 **f64 的 `round`/`sqrt`/`log2`** ⇒ `fmath` 补 **f64 全套**（含 **Cody-Waite 两段 ln2**、`atan` 泰勒 10→16 项、`powi` 改「最后取倒数」、新增 `rem_euclid`）。**f64 精度实测（vs `std`）**：`sqrt` **1 ULP**／`log2` **1**／`ln` **1**／`exp` **2**／`powi` **≤4**／`round`、`rem_euclid` **完全相等**。<br>**裸机断言扩到第 ⑥ 段**（片3 五模块：sanitizer 钳位／ontology 特征向量＋**正反两侧不同**／energy 决议边界／state 熵→物态／interference 相位差）⇒ 一条绿屏同时证成 **2.1＋片1＋片2＋片3＋`alloc`**。<br>**片4（修正版 10 模块／3,920 行）**：`trace`／`dna_generate`／`dna_trace`／`habit`／`gene_library`／`l5_context`／`l1_field_parse`／`l3_world`／`l5_quad`／`l5_evidence`（原订 5 模块**不封闭** ⇒ 扩为 10）。**片5（16 模块／3,651 行，清单由脚本产出）**：`l1_source_parse`／`thinking_chain`／`hourglass`／`evolution`／`l5_attention`／`gate`／`self_recognizer`／`l7/ledger`／`dna_adapt`／`double_chain`／`mirror`／`senses`／`evo_deconstructor`／`persist`／`executor`／`l5_compare`。<br>⚠️ **片5 又暴露一条「清单未预见」的硬障碍**：**`std::collections::VecDeque`** —— `no_std` 下 `std` 拿不到、也不在 prelude，但 `alloc::collections::VecDeque` 有（**纯路径改写**）；首跑漏登 ⇒ 4 个文件报 `cannot find module or crate std`（**编译器抓到**）。⇒ 迁移脚本**新增硬判据：代码区不得残留 `std::`**（把这类问题拦在编译器之前）。<br>**裸机断言扩到第 ⑪ 段**（⑧＝51–55 三态判定**三态齐备且互不相同**／动作账链**篡改必拒**／沙漏**每 tick 至多 1 粒**；⑨＝片6 四模块；⑩＝片7–片8 三模块；**⑪＝Q11 物态→引擎选择五条**）⇒ 一条绿屏同时证成 **2.1＋片1–片8＋`alloc`＋Q11**。<br>**片6–片8 ✅ 已完成**（脚本口径 7 模块：`l1_mapping`／`positive_source`／`l5_diagnosis`／`l7/repair`／`l5_translate`／`l6_face`／`l5_router`）—— 片6 的 **`std::collections::HashMap`** 已按「方式 A」换 `BTreeMap`（「类型替换」类，**已单独论证**）；分片过程实测见本文件 **§十二**。<br>★ **片9 · 补迁（2026-09-19 · R79 处置）**：**`engine_select`**（v0.212 新增、**未随分片迁入** ⇒ `closure` 判 **PASS**、机制 25 报 **「未收口 剩余 1」**）**已迁入**（**零「替换类」**，纯插入 9 行说明块）；补迁后**未迁 0 ⇒ 全源收口**，两判据口径统一。**收口定义见 §十六 16.1** |
 | **机制 20（术语映射 · 机制 17 第三实例）** | ✅ **升级为三层 + AES-256-GCM**（2026-09-17，**D38**）：**公开层** `coordination/TERMS.md`（编号＋**英文名**＋中文功能说明＋指针，**不加密**）｜**索引层** `{PRIVATE_ASSETS}/terms/INDEX.md.enc`（编号＋英文名＋**代码代号**＋指针；**不含全拼/原名**）｜**内容层** `{PRIVATE_ASSETS}/terms/TERM-001.md.enc`（**全拼＋原名**＋原始内容＋**真实代码路径**）——后两层**仓库外、已加密**。<br>**加密机器判据 4 条**（`tools/terms_crypt.py verify`）：密钥**在仓库外** ✅｜仓库内**含密钥文件 0 个** ✅｜6 个密文**全部可解且原名 0 处** ✅｜**错密钥被拒**（`InvalidTag`）✅。<br>**指针门禁**：`check_private_pointers.py` **syntax + resolve 双 PASS**（`.md.enc` 可直接解析）。<br>⚠️ **边界（不许含糊）**：**换壳 ≠ 消除**（仓库内**仍有 298 处原名**可检出：`docs/` 270／`reports/` 15／`discussions/` 7／`instructions/` 6 ⇒ 待 **D35/D36**）；**加密 ≠ 挡住仓库内存量**；**代码代号不是强边界**（源码本身公开）。| ｜**密钥级别：⛔ 机密**（本体／路径／其余一律先按机密）<br>**2026-09-17 补全**：**密钥 C12 级别**写入 `CONSTRAINTS.md` **C12「密钥专项级别」**＋ `TEMPLATES.md` **§十二**（本体 ⛔／指纹 🔒／路径 ⛔）；检查器新增 **[5] 密钥级别判据**（活文件中凡含「密钥」的行必须带级别标识；**已纳入 CI 的 syntax 模式**，阴阳两侧自检通过）。<br>**换壳（D35③＋D36②）**：`deploy/` 1 条 ＋ `docs/` 设计说明类 4 文件 8 条 **已掩码** ⇒ 泄漏基线 **14 → 5 条** |
 | **机制 17 第二实例（大模型接入骨架）** | ✅ 公开层 `coordination/llm/`（4 文件：任务分级／降级规则／成本记录 三接口 ＋ 总览，**只写"做什么"**）｜实现层 `{PRIVATE_ASSETS}/llm/`（4 文件，⛔；**合同已定、取值待填**，未编造）｜**机器校验**：`coordination/tools/check_private_pointers.py`（`--mode=syntax` **已入 CI**／`--mode=resolve` 仅本机）＋ 泄漏基线 `coordination/security/leak_baseline.txt` |
 | **内存管理（2.3）** | ✅ `meta-kernel-mem`（纯逻辑层）**25 项 host 测试全绿**；`#![forbid(unsafe_code)]`（**零 unsafe 结构性保证**）｜boot 层 `mem/` 可建堆并完成**经真实 `GlobalAlloc` 的往返**（分配→写入→读回→释放→**再分配复用**＋帧路径对齐）；**判定升级三色**（绿=全过／**黄=拿不到堆区就停**／红=失败）<br>**C9 门禁**：真实 unsafe **仅 1 个文件**（21 处／`// SAFETY:` 22 条／`transmute` **0**）；白名单**首次登记 1 条**；**扫描范围已扩到阶段二新增目录**（原先不含 ⇒ 会让门禁空转） |
@@ -423,7 +423,7 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
 | **闭包判据** | **PASS**；源 crate **55** ｜ 目标 crate **57** 模块；**非测试 ＋ 测试依赖双侧封闭** |
 | **裸机编译** | **0 error**（权威判据；仅 2 个既有 warning，非本片引入） |
 | **单测** | lib **407 passed**（390 → 407）｜host 镜像 **22 passed**（17 → 22） |
-| **裸机断言** | `verify.rs` **第 ⑩ 段**（码 101–105，CI 读作 201–205）＋ host 镜像 5 条 |
+| **裸机断言** | `verify.rs` **第 ⑪ 段**（⑩ 码 101–105 ／ **⑪ 码 111–115**；CI 读作 201–205 ／ **211–215**）＋ host 镜像 **10 条** |
 | **收口信号** | `--emit 1` ⇒ 「**层号越界（共 0 层）**」⇒ **2.3b 无剩余片** |
 
 ### 12.1 R69（本轮新增）
@@ -543,7 +543,7 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
 
 **三条判据（逐条可证伪）**：
 - **P1 段号一致性**（文档 ↔ 机器）：**逐文件**取"活跃段号陈述"的**最大值**，须 == `verify.rs` 实测最大段号。
-- **P2 收口一致性**（文档 ↔ 机器）：机器已收口时，文档不得仍有**活跃**"剩余 N 片"陈述。
+- **P2 收口一致性（★ R79 起为双侧）**（文档 ↔ 机器）：**P2a** 机器已收口 ⇒ 不得有活跃"剩余 N 片"陈述；**P2b** 机器**未收口** ⇒ 不得称"已收口"（反向，R79 前缺失该侧 ⇒ 单侧盲区）。
 - **P3 文档内部一致性**（同文件自洽）：同一文件不得既称"已收口"又称"剩余 N 片"。
 
 **防误伤的两条设计（关键）**：
@@ -708,3 +708,85 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
   **②** **明确「迁移范围冻结在 v0.211 的 55 模块」**，并让**两个判据采用同一口径**（含「新模块不在迁移范围」的判定规则）。
 - **教训**：**同一机器事实若被两个判据以不同口径计算，就会产生二义性结论** ——
   与 **C18（自检与实跑同源）** 同族：**「同源」不仅要求「自检 vs 实跑」，也要求「判据 vs 判据」。**
+
+#### 15.6.1 ★ **R79 已处置（2026-09-19 · 裁定＝选 A：迁入 nostd）**
+
+| 处置项 | 落地 |
+|---|---|
+| **① 迁 `engine_select`** | 迁入 `meta-kernel-core-nostd/src/engine_select.rs`（**零「替换类」**：零 `std::`、零 `alloc`、零浮点方法 ⇒ **纯插入** 9 行迁移说明块）；保真度多重集差 **0 替换／0 丢失／0 未登记新增**；`lib.rs` 登记 `pub mod engine_select;` |
+| **② 恢复「源 ⊆ 目标」** | ✅ **未迁 0**（源 **56** / 目标 **58**；目标独有 2 ＝ `fmath`／`quad`，nostd 专有，非源模块） |
+| **③ 统一两判据口径** | 机制 25 的 `machine_is_closed` **改为直接 import** `check_migration_closure.py::modules()`（**同源**）；两判据现报**同一组数**。**根因**：机制 25 原用顶层 `glob("*.rs")`、closure 用递归 `os.walk` ⇒ 差 **9** 个模块（漏 `l4/*`＋`l7/*` 共 8 个 ＋ `lib` 归一差异） |
+| **④ closure 分离两个概念** | `mode_check` 新增 **[0] 收口** 行，显式标注「下方 PASS 只代表**封闭性**，**不代表已收口**」—— **封闭性**（目标无悬空引用）≠ **收口**（源 ⊆ 目标），**这正是 R79 的误读源头** |
+| **⑤ 机制 25 P2 补双侧** | **P2a**（已收口却说剩余，原有）＋ **P2b**（**未收口却说已收口**，新增）；自检由五侧扩为 **六侧**（第 ⑥ 侧专测 P2b 反向，实测命中） |
+| **⑥ 重新定义「2.3b 已收口」** | 见 **§十六 16.1**（**全源口径**） |
+---
+
+## 十六、2026-09-19 · R79 裁定 ＋ Q11 L3 补全 ＋ 汇编全文合订（三项决策落地）
+
+> **来源**：发起人 2026-09-19 指令（基准 v0.213）｜**性质**：裁定落地 ＋ 收口定义修订
+> **一句话**：**「2.3b 已收口」的口径由「分片范围 55 模块」改为「全源 ⊆ 目标、未迁 0」**，
+> 并**统一了 closure 与机制 25 两个判据的枚举口径**（R79），**补全 Q11 的 L3 集成层并并入 CI**，
+> **产出汇编全文合订本**。
+
+### 16.1 ★ 「2.3b ✅ 已收口」的**新定义**（R79 后）
+
+| 项 | 内容 |
+|---|---|
+| **口径（新）** | **全源收口** ＝ **源 crate（`meta-kernel-core/src`）的全部模块 ⊆ 目标 crate（`meta-kernel-core-nostd/src`）**，即 **未迁 = 0** |
+| **枚举规则** | **递归**遍历 `.rs`（`os.walk`），子目录 `mod` 归一，**含 `lib.rs`**；**与 `check_migration_closure.py::modules()` 同源** |
+| **当前实测** | **未迁 0**；源 **56** ／ 目标 **58**（目标独有 **2** ＝ `fmath`／`quad`，**nostd 专有、非源模块**） |
+| **旧口径（已废）** | 「片1–片8 覆盖的 **55 模块**」—— 只算**分片范围**，**不含后新增模块**；R79 暴露其**不可持续**（新增模块一落地就"收口为假"） |
+| **不变式** | 此后**任何新增源模块**都须**同时**决定"迁不迁"：**迁** ⇒ 收口继续成立；**不迁** ⇒ **收口不成立**且机制 25 P2b 会判红 |
+| **判据出处** | `coordination/tools/check_migration_closure.py`（**[0] 收口** 行）＋ `coordination/tools/check_doc_consistency.py`（**P2a／P2b 双侧**） |
+
+### 16.2 R79 处置（六项，详见 §15.6.1；此处只记**收口定义**与**口径统一**）
+
+- **根因（三层）**：① 机制 25 用**顶层 `glob("*.rs")`**、closure 用**递归 `os.walk`** ⇒ 源计数 **47 vs 56**（差 9 ＝ 漏 `l4/*` ＋ `l7/*` 共 8 个 ＋ `lib` 归一差异）；
+  ② **closure 的 `PASS` 是「封闭性」PASS**（目标无悬空引用），**不是「已收口」** —— **术语混用是误读源头**；
+  ③ **机制 25 P2 单侧**（只抓"机器已收口 ∧ 文档说剩余"）。
+- **处置**：见 §15.6.1 六项；**收口定义**见 §16.1。
+
+### 16.3 决策 1 · `engine_select` 补迁（片9）
+
+| 项 | 实测 |
+|---|---|
+| **迁移** | `meta-kernel-core/src/engine_select.rs` → `meta-kernel-core-nostd/src/engine_select.rs` |
+| **替换类** | **零** —— 本文件**零 `std::`、零 `alloc`、零浮点方法**（仅 `f32` 类型） ⇒ **纯插入** |
+| **保真度** | **多重集差通过**：替换 **0** ／ 丢失 **0** ／ 未登记新增 **0**（登记插入 **9 行**迁移说明块） |
+| **闭包** | **PASS**；**未迁 0**（源 56 ／ 目标 58） ⇒ **源 ⊆ 目标 恢复** |
+| **单测** | nostd lib **407 → 417**（+10 ＝ Q11 的 `contract_tests` 亦在 nostd 侧跑） |
+| **模块登记** | `meta-kernel-core-nostd/src/lib.rs` 加 `pub mod engine_select;` |
+
+### 16.4 决策 2 · Q11 L3 集成层补全 ＋ 判据入 CI
+
+| 项 | 落地 |
+|---|---|
+| **裸机断言** | `meta-kernel-boot/kernel/src/verify.rs` **第 ⑪ 段**（`self_check_q11_engine_select`，**码 111–115**；经 `100 + n` 映射 ⇒ CI 读 **211–215**） |
+| **五条契约** | **111** 选择表四档唯一映射｜**112** `1.05` 处**物态切换、引擎不切换**（0.8／1.2 才是真切换点）｜**113** U1＝乙 **预算封顶**（枯竭拉向更固者、充足不降级）｜**114** U2＝丙 **双面一致 ＋ 可复现**｜**115** Q10 前问 **选择器不调制输入**（同引擎、不同比值 ⇒ 结果面逐位相同） |
+| **host 镜像** | `meta-kernel-core-nostd/tests/mirror_bare_assertions.rs` **+5 条**（`mirror_q11_111..115`，与裸机**逐条对应**）；镜像总数 **22 → 27** |
+| **本机实测** | **⑪ 段镜像 5/5 通过**；关键诊断值：`1.05±ε ⇒ 物态 Liquid/Gas、引擎 Fibonacci/Fibonacci`（不切换）；**枯竭池 `ratio=9` 仍被封顶为 `Linear`**；同引擎两池结果面皆 `0.5`（**逐位相同**） |
+| **入 CI** | `.github/workflows/ci.yml` test job **第 5 步**（紧随 no_std 构建门禁）＝ **Q11 引擎选择契约（host 镜像 111–115 ＋ ⑪ 段接线断言）**：跑镜像并**机器断言**「函数存在 ＋ self_check 真调它 ＋ 111–115 五码齐备」⇒ **防"绿屏但其实 ⑪ 段没接线"的空转** |
+| **三处同源** | ① 内核单测 `contract_tests`（D1–D9，`cargo test --workspace` 覆盖）② **host 镜像**（CI 第 5 步显式跑）③ **裸机 ⑪ 段**（boot job 由"整屏绿"证成） |
+| **连带** | 加 ⑪ 段使**机器最大段号 ⑩ → ⑪** ⇒ 同步更新 `ROADMAP`／`advisor_brief`／`BASELINE` 的活跃段号陈述（否则机制 25 **P1 判红** —— 判据**按设计工作**） |
+
+### 16.5 决策 3 · 汇编全文合订
+
+| 项 | 落地 |
+|---|---|
+| **产出** | `coordination/discussions/2026-09-19_汇编合订本.md` |
+| **构成** | 一 扉页/防漂移基线/使用说明（**结构稿逐字**）＋ 二 主体骨架篇结构总表（**结构稿逐字**）＋ 三 正文**四批逐字** ＋ 四 附录 A／B／C（**结构稿逐字**）＋ 五 自检与装配说明 |
+| **装配方式** | **脚本逐字装配**（读入各源原样拼接，**不手抄**）；**按标题标记切分**，**不硬编码行号**（R76 教训） |
+| **逐字保真** | **反向自检通过**：结构稿**三段** ＋ **四批正文**（第1 1844／第2 1389／第3 1221／第4 1644 行）**逐一为合订本子串** |
+| **泄漏掩码** | **继承 R77 处置**（第 4 批的掩码行原样带入） |
+| **R71** | 合订本**自写行 47 行**：**长哈希 0 ／ 本机绝对路径 0** ⇒ **通过**（只引路径 ＋ 命令） |
+
+### 16.6 R77 ／ R78 ／ R79 处置记录（汇总）
+
+| 编号 | 内容 | 处置 |
+|---|---|---|
+| **R77** | **汇编收录会复制底图的既存泄漏项**（第 4 批被 `syntax` 判红两次：`win_abs_path`／`lan_ip`） | ✅ **已生效**：收录行**统一掩码**，掩码正则**直接 import 判据**（`LEAK_PATTERNS`，**同源 C18**），逐节登记。本轮合订本**继承**该掩码 |
+| **R78** | **汇编副本随底图变更而静默过期** | ✅ **已生效**：`verify_asm.py`（逐字比对**当前**源）**本身就是"汇编 ↔ 底图同步判据"**；本回合订本另附**反向自检脚本**（同口径） |
+| **R79** | **同一事实两个判据给出相反结论**（口径不一致） | ✅ **本轮修复**（六项，见 §15.6.1 ＋ §16.1／16.2）：**枚举同源** ＋ **概念分离** ＋ **P2 双侧** ＋ **收口定义重写** |
+
+### 16.7 本轮改动清单（`docs/` **零改动** ⇒ 判据 F 不触发）
+`.github/workflows/ci.yml`（+1 步）｜`coordination/BASELINE.md`（§15.6.1 ＋ §十六）｜`coordination/CHARTER.md`（机制 25 P2 双侧 ＋ 口径同源）｜`coordination/ROADMAP.md`（收口口径 ＋ 段号 ⑪）｜`coordination/TEMPLATES.md`（T-032）｜`coordination/advisor_brief.md`（收口口径 ＋ 段号 ⑪）｜`coordination/tools/check_doc_consistency.py`（同源 ＋ P2 双侧 ＋ 六侧）｜`coordination/tools/check_migration_closure.py`（[0] 收口行）｜`meta-kernel-boot/kernel/src/verify.rs`（⑪ 段）｜`meta-kernel-core-nostd/src/{lib.rs, engine_select.rs}`｜`meta-kernel-core-nostd/tests/mirror_bare_assertions.rs`（+5 镜像）｜**新增** `coordination/discussions/2026-09-19_汇编合订本.md`

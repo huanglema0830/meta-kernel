@@ -36,6 +36,29 @@ jobs:
             || { echo "::error::no_std 构建产物缺失（疑似未真正编译）"; exit 1; }
           echo "NOSTD_BUILD_OK"
 
+      # ===== Q11 判据并入 no_std 验收（决策2 · 2026-09-19）=====
+      # Q11「物态→引擎选择」的可测契约在**三处同源**执行：
+      #   ① 内核单测 `engine_select::contract_tests`（D1–D9）—— 由上面的 `cargo test --workspace` 覆盖；
+      #   ② **host 镜像**（本机即可跑，本步骤显式跑出来）；
+      #   ③ **裸机 ⑪ 段**（boot job 由"整屏绿"证成）。
+      # ⚠️ 若无本步骤，绿屏只能说明"⑪ 段没报错"，**不能证明 ⑪ 段真被接线**（漏挂 = 静默空转）。
+      - name: 验收 Q11 引擎选择契约（host 镜像 111–115 ＋ ⑪ 段接线断言）
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test -p meta-kernel-core-nostd --test mirror_bare_assertions mirror_q11 -- --nocapture 2>&1 | tee q11-mirror.log
+          grep -q "5 passed" q11-mirror.log || { echo "::error::Q11 host 镜像未全过（期望 5 passed）"; exit 1; }
+          # 机器断言：裸机 ⑪ 段必须**接线**（函数存在 ＋ self_check 真的调它 ＋ 五码齐备）
+          grep -q "fn self_check_q11_engine_select" meta-kernel-boot/kernel/src/verify.rs \
+            || { echo "::error::⑪ 段实现缺失"; exit 1; }
+          grep -q "self_check_q11_engine_select()" meta-kernel-boot/kernel/src/verify.rs \
+            || { echo "::error::⑪ 段未挂进 self_check（等于没跑）"; exit 1; }
+          for c in 111 112 113 114 115; do
+            grep -q "return $c;" meta-kernel-boot/kernel/src/verify.rs \
+              || { echo "::error::⑪ 段缺码 $c"; exit 1; }
+          done
+          echo "Q11_MIRROR_AND_WIRING_OK"
+
       - name: Run npb-gateway tests (single-thread, nocapture, 120s watchdog)
         shell: bash
         run: |

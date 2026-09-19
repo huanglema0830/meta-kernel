@@ -408,3 +408,99 @@ fn mirror_shard78_105_router_json_balanced() {
     assert_eq!(bs % 2, 0, "反斜杠未配平 ⇒ 转义不成立");
 }
 
+
+// ====== ⑪ 段（Q11）· 与 `kernel/src/verify.rs::self_check_q11_engine_select` **逐条对应** ======
+//
+// 说明：本机**无法构建 boot 层**（缺 `dlltool`／`link.exe`／`clang`）⇒ ⑪ 段的**权威执行**在 CI 的
+// boot job；本镜像在 host 上**跑同一批断言的语义**（同源数据、同源口径），使**本机可复现**。
+const Q11_EPS: f32 = 1e-6;
+
+/// 111：选择表（Q8）四档唯一映射。
+#[test]
+fn mirror_q11_111_selection_table() {
+    use meta_kernel_core_nostd::engine_select::{engine_for_state, Engine};
+    use meta_kernel_core_nostd::state::{state_of_flow_ratio, State};
+    let cases = [
+        (0.4_f32, State::Solid, Engine::Linear),
+        (0.9, State::Liquid, Engine::Fibonacci),
+        (1.1, State::Gas, Engine::Fibonacci),
+        (1.5, State::Energy, Engine::Expo),
+    ];
+    for (r, ws, we) in cases {
+        let s = state_of_flow_ratio(r);
+        println!("[诊断] r={} 物态={:?} 引擎={:?}", r, s, engine_for_state(s));
+        assert_eq!(s, ws, "111: r={} 物态错", r);
+        assert_eq!(engine_for_state(s), we, "111: r={} 引擎错", r);
+    }
+}
+
+/// 112：1.05 处「物态切换、引擎不切换」；0.8／1.2 才是真切换点。
+#[test]
+fn mirror_q11_112_no_switch_at_1_05() {
+    use meta_kernel_core_nostd::engine_select::{engine_for_state, Engine};
+    use meta_kernel_core_nostd::state::state_of_flow_ratio;
+    let s_lo = state_of_flow_ratio(1.05 - Q11_EPS);
+    let s_hi = state_of_flow_ratio(1.05 + Q11_EPS);
+    println!("[诊断] 1.05±ε ⇒ 物态 {:?} / {:?}，引擎 {:?} / {:?}", s_lo, s_hi,
+             engine_for_state(s_lo), engine_for_state(s_hi));
+    assert_ne!(s_lo, s_hi, "112: 1.05 两侧物态应切换");
+    assert_eq!(engine_for_state(s_lo), engine_for_state(s_hi), "112: 引擎不得切换");
+    assert_eq!(engine_for_state(s_lo), Engine::Fibonacci, "112: 液态应走斐波那契");
+    assert_ne!(engine_for_state(state_of_flow_ratio(0.8 - Q11_EPS)),
+               engine_for_state(state_of_flow_ratio(0.8 + Q11_EPS)), "112: 0.8 应切换");
+    assert_ne!(engine_for_state(state_of_flow_ratio(1.2 - Q11_EPS)),
+               engine_for_state(state_of_flow_ratio(1.2 + Q11_EPS)), "112: 1.2 应切换");
+}
+
+/// 113：U1＝乙 · 预算封顶（储备枯竭拉向更固者；充足时不无故降级）。
+#[test]
+fn mirror_q11_113_budget_cap() {
+    use meta_kernel_core_nostd::energy::EnergyPool;
+    use meta_kernel_core_nostd::engine_select::{select_engine, Engine};
+    let starved = EnergyPool { flow_in: 1.0, flow_out: 0.0, stored: 0.0 };
+    let rich = EnergyPool { flow_in: 1.0, flow_out: 0.0, stored: 1.0 };
+    println!("[诊断] 枯竭池 ratio={} ⇒ {:?}；充足池 ratio={} ⇒ {:?}",
+             starved.ratio(), select_engine(&starved), rich.ratio(), select_engine(&rich));
+    assert_eq!(select_engine(&starved), Engine::Linear, "113: 枯竭应封顶到固态→线性");
+    assert_eq!(select_engine(&rich), Engine::Expo, "113: 充足不得无故降级");
+}
+
+/// 114：U2＝丙 · 双面一致 ＋ 结果面可复现。
+#[test]
+fn mirror_q11_114_two_faces_consistent() {
+    use meta_kernel_core_nostd::energy::EnergyPool;
+    use meta_kernel_core_nostd::engine_select::{select_and_step, select_engine, step_with};
+    let pools = [
+        EnergyPool { flow_in: 0.4, flow_out: 1.0, stored: 1.0 },
+        EnergyPool { flow_in: 0.9, flow_out: 1.0, stored: 1.0 },
+        EnergyPool { flow_in: 1.15, flow_out: 1.0, stored: 1.0 },
+        EnergyPool { flow_in: 1.0, flow_out: 0.0, stored: 1.0 },
+    ];
+    for p in pools {
+        let (e, y) = select_and_step(&p, 0.5);
+        println!("[诊断] ratio={:.4} ⇒ 引擎={:?} 输出={}", p.ratio(), e, y);
+        assert_eq!(e, select_engine(&p), "114: 标签面与选择不一致");
+        assert_eq!(y.to_bits(), step_with(e, 0.5).to_bits(), "114: 结果面与标签不一致");
+        assert_eq!(y.to_bits(), select_and_step(&p, 0.5).1.to_bits(), "114: 不可复现");
+    }
+}
+
+/// 115：Q10 前问 · 选择器不调制输入（同引擎、不同比值 ⇒ 结果面逐位相同）。
+#[test]
+fn mirror_q11_115_selector_not_modulator() {
+    use meta_kernel_core_nostd::energy::EnergyPool;
+    use meta_kernel_core_nostd::engine_select::{select_engine, step_with, Engine};
+    let liquid = EnergyPool { flow_in: 0.9, flow_out: 1.0, stored: 1.0 };
+    let gas = EnergyPool { flow_in: 1.15, flow_out: 1.0, stored: 1.0 };
+    let e_liq = select_engine(&liquid);
+    let e_gas = select_engine(&gas);
+    println!("[诊断] liquid ratio={:.4} ⇒ {:?}；gas ratio={:.4} ⇒ {:?}",
+             liquid.ratio(), e_liq, gas.ratio(), e_gas);
+    assert_eq!(e_liq, e_gas, "115: 两池应同选斐波那契（前提）");
+    assert_eq!(e_liq, Engine::Fibonacci, "115: 应为斐波那契");
+    assert_eq!(step_with(e_liq, 0.5).to_bits(), step_with(e_gas, 0.5).to_bits(),
+               "115: 同引擎结果面不同 ⇒ 输入被调制（Q10 前问破）");
+    let lo = select_engine(&EnergyPool { flow_in: 0.95, flow_out: 1.0, stored: 1.0 });
+    let hi = select_engine(&EnergyPool { flow_in: 1.10, flow_out: 1.0, stored: 1.0 });
+    assert_eq!(lo, hi, "115: 0.95 与 1.10 应同引擎（对应 V2「1.05 处差值 0」）");
+}

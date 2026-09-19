@@ -155,3 +155,8 @@ pub mod l6_face;
 // ⇒ `l5_router`（1 模块，脚本口径；依赖片7 的 `l5_translate`）
 // ⚠️ **本片零「替换类」**：同上，仅补 `alloc` 的 `use`。
 pub mod l5_router;
+// —— 2.3b 片9 · 补迁（2026-09-19 · R79 修复）：**清单由脚本产出**（D40） ——
+// 生成命令：`python coordination/tools/check_migration_closure.py`（源有目标无 = 未迁清单）
+// ⇒ `engine_select`（1 模块，**新增于 v0.212 未随分片迁入**）
+// ⚠️ **零「替换类」**：本文件零 `std::`、零 `alloc`、零浮点方法 ⇒ 仅插注释块。
+pub mod engine_select;

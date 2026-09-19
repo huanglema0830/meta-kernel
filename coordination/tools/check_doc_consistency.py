@@ -11,7 +11,9 @@ R62 是"判据盲区"（判据只证明没多改字、不证明改了的字对�
 P1 · **段号一致性（文档 ↔ 机器）**：逐文件取"活跃段号陈述"的**最大值**，须等于机器实测最大段号。
      —— 口径说明（R35）：取"每文件最大值"而非"逐条比对"，因为段号是**单调递增的历史叙事**
      （文档会记录"扩到第 ⑥ 段→⑧→⑩"的过程）；**落后的是"最大值"，不是每一条**。
-P2 · **收口一致性（文档 ↔ 机器）**：机器已收口时，文档不得仍有"剩余 N 片"的**活跃**陈述。
+P2 · **收口一致性（文档 ↔ 机器 · ★ R79 起为「双侧」）**：
+     ① **P2a**：机器**已收口** ⇒ 文档不得仍有"剩余 N 片"的**活跃**陈述；
+     ② **P2b**：机器**未收口** ⇒ 文档不得称"已收口"（**反向**，R79 前缺失该侧 ⇒ 单侧盲区）。
 P3 · **文档内部一致性（同文件自洽）**：同一文件内既有"已收口"又有活跃"剩余 N 片"⇒ 自相矛盾。
 
 【活跃 vs 历史留痕】
@@ -27,11 +29,17 @@ P3 · **文档内部一致性（同文件自洽）**：同一文件内既有"已
 【自检（按 C18：同源 ＋ 回读真实仓库 ＋ 可区分"0"与"解析失败"）】
 ① 真实仓库锚点：`docs/` 与 `coordination/` 顶层必须解析到 >0 个文件；
 ② 机器事实源：`verify.rs` 必须解析到 >=5 个段标题（否则判据空转）；
-③ 夹具·一致文档 ⇒ 不判红；④ 夹具·段号落后 ⇒ 判红；⑤ 夹具·收口却说剩余 ⇒ 判红。
+③ 夹具·一致文档 ⇒ 不判红；④ 夹具·段号落后 ⇒ 判红；⑤ 夹具·收口却说剩余 ⇒ 判红；
+⑥ 夹具·未收口却说已收口 ⇒ 判红（P2b 反向侧）。
+
+【★ 口径同源（C18 · R79 修复）】
+本判据的"机器事实·迁移收口"**直接 import** `check_migration_closure.py::modules()`，
+**不另写第二份枚举**。此前用 `glob("*.rs")`（**仅顶层**）⇒ 与 closure 的递归口径差 **9 个模块**
+（源 47 vs 56：漏 `l4/*`＋`l7/*` 共 8 个 + `lib` 归一差异），且**同一事实两个数** ⇒ 二义性。
 
 用法：
     python coordination/tools/check_doc_consistency.py            # 实跑
-    python coordination/tools/check_doc_consistency.py --selftest # 五侧自检
+    python coordination/tools/check_doc_consistency.py --selftest # 六侧自检
     python coordination/tools/check_doc_consistency.py --list     # 只列活跃陈述，不作判
 """
 import argparse
@@ -41,6 +49,18 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+
+# ---------- ★ 口径同源（C18 · R79）：机器事实的枚举**直接复用 closure 的实现** ----------
+# 不另写第二份枚举 —— 否则「同一事实两个数」（R79 的根因）。
+_TOOLS_DIR = Path(__file__).resolve().parent
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+try:
+    from check_migration_closure import modules as _closure_modules  # noqa: E402
+    _CLOSURE_OK = True
+except Exception:  # pragma: no cover - 仅在工具缺失时退化
+    _closure_modules = None
+    _CLOSURE_OK = False
 
 # ---------- 常量（唯一权威，自检夹具复用同一份 ⇒ C18 同源）----------
 VERIFY_REL = "meta-kernel-boot/kernel/src/verify.rs"
@@ -106,13 +126,20 @@ def machine_max_seg(repo: Path):
 
 
 def machine_is_closed(repo: Path):
-    """机器事实：源模块集是否已被目标模块集覆盖（收口）。返回 (closed, src_n, tgt_n, rest)。"""
+    """机器事实：源模块集是否已被目标模块集覆盖（收口）。返回 (closed, src_n, tgt_n, rest)。
+
+    ★ R79 修复（2026-09-19）：枚举**与 `check_migration_closure.py::modules()` 同源**
+    （直接 import 其实现，见文件头 C18 注）。此前用 `s.glob("*.rs")`（**仅顶层**，且排除 `lib.rs`）
+    ⇒ 与 closure 的**递归**口径不同 ⇒ 源 47 vs 56（差 9）。**同一事实必须只有一个数。**
+    """
     s = repo / SRC_DIR
     t = repo / TGT_DIR
     if not (s.is_dir() and t.is_dir()):
         return None, 0, 0, None
-    src = {f.stem for f in s.glob("*.rs") if f.name != "lib.rs"}
-    tgt = {f.stem for f in t.glob("*.rs") if f.name != "lib.rs"}
+    if _closure_modules is None:
+        return None, 0, 0, None
+    src = set(_closure_modules(s))
+    tgt = set(_closure_modules(t))
     rest = sorted(src - tgt)
     return (len(rest) == 0), len(src), len(tgt), rest
 
@@ -180,12 +207,20 @@ def check(repo: Path, verbose=True):
                     "机器实测 = 第 %s 段 ⇒ 差 %d 段"
                     % (rel, CIRC[fmax - 1], loc, CIRC[mx - 1], mx - fmax))
 
-    # ---- P2：机器已收口 ⇒ 不得有活跃"剩余 N 片" ----
+    # ---- P2a：机器**已收口** ⇒ 不得有活跃"剩余 N 片" ----
     if closed:
         for rel, vals in sorted(per_file_remain.items()):
             for i, txt in vals:
-                errors.append("[P2 收口不符] %s 行%d 仍称「剩余 N 片」（机器已收口：源 %d / 目标 %d、剩余 0）\n      %s"
+                errors.append("[P2a 收口不符] %s 行%d 仍称「剩余 N 片」（机器已收口：源 %d / 目标 %d、剩余 0）\n      %s"
                               % (rel, i, sn, tn, txt))
+
+    # ---- P2b（R79 双侧 · 新增）：机器**未收口** ⇒ 文档不得称"已收口" ----
+    if closed is False and rest:
+        for rel, vals in sorted(per_file_done.items()):
+            for i, txt in vals:
+                errors.append("[P2b 收口不符（反向）] %s 行%d 称「已收口」，但机器**未收口**"
+                              "（源 %d / 目标 %d、剩余 %d：%s）\n      %s"
+                              % (rel, i, sn, tn, len(rest), rest[:6], txt))
 
     # ---- P3：同文件内部自洽（既有"已收口"又有活跃"剩余 N 片"）----
     for rel in sorted(set(per_file_done) & set(per_file_remain)):
@@ -200,8 +235,10 @@ def check(repo: Path, verbose=True):
         print("=" * 68)
         print("扫描范围      ：%d 份（coordination 顶层 + README + docs/*.md）" % stats["target_files"])
         print("机器·最大段号 ：%s（段标题 %d 条，来源 %s）" % (CIRC[mx - 1] if mx else "解析失败", cnt, VERIFY_REL))
-        print("机器·迁移收口 ：%s（源 %d / 目标 %d / 剩余 %d）"
-              % ("已收口" if closed else "未收口", sn, tn, len(rest) if rest else 0))
+        print("机器·迁移收口 ：%s（源 %d / 目标 %d / 剩余 %d）%s"
+              % ("已收口" if closed else "未收口", sn, tn, len(rest) if rest else 0,
+                 ("：%s" % rest) if rest else ""))
+        print("枚举口径      ：与 check_migration_closure.py **同源**（递归；R79 修复，C18）")
         print("活跃段号陈述  ：%d 条" % n_act_seg)
         for rel, vals in sorted(per_file_seg.items()):
             print("    %-32s %s（max=第 %s 段）"
@@ -212,7 +249,7 @@ def check(repo: Path, verbose=True):
             for e in errors:
                 print("  " + e)
         else:
-            print("结果：✅ 通过（P1 段号一致 / P2 收口一致 / P3 内部自洽）")
+            print("结果：✅ 通过（P1 段号一致 / P2 收口一致〔双侧 P2a＋P2b〕 / P3 内部自洽）")
         print("=" * 68)
 
     return errors, stats
@@ -295,6 +332,21 @@ def selftest() -> int:
     print("[侧⑤b] 夹具·历史留痕（含「原文」）⇒ %s" % ("✅ 未判红" if not e6 else "❌ 误判红"))
     if e6:
         fails.append("侧⑤b 误判红：%s" % e6)
+
+    # 侧 ⑥（R79 双侧 · 新增）：机器**未收口** 却说"已收口" ⇒ 判红（命中 P2b）
+    (d / SRC_DIR / "b.rs").write_text("// 只存在于源 crate（未迁）", encoding="utf-8")
+    (d / "coordination" / "OK.md").write_text(
+        "# 夹具·未收口却说已收口\n\n裸机断言已到第 ⑩ 段。\n3.2 已收口，无剩余片。\n", encoding="utf-8")
+    e7, s7 = check(d, verbose=False)
+    hit_p2b = any("P2b" in x for x in e7)
+    print("[侧⑥] 夹具·机器未收口（源多 1 个 `b.rs`）却说「已收口」⇒ %s（命中 P2b=%s）"
+          % ("✅ 判红" if e7 else "❌ 漏判", "✅" if hit_p2b else "❌"))
+    if not e7 or not hit_p2b:
+        fails.append("侧⑥ 漏判或未命中 P2b：%s" % e7)
+    else:
+        print("      捕获：%s" % e7[0][:100])
+    # 复原（删掉未迁模块，避免影响后续）
+    os.remove(str(d / SRC_DIR / "b.rs"))
 
     print("\n" + "=" * 68)
     if fails:

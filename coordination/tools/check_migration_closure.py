@@ -159,6 +159,19 @@ def mode_check(src: dict[str, Path], dst: dict[str, Path]) -> int:
             if all_ref - nt_ref:
                 test_only[m] = all_ref - nt_ref
 
+    # —— [0] 收口（源 ⊆ 目标）：**与「封闭性」是两个不同的问题** ——
+    # 封闭性 = "目标 crate 内部无悬空引用"；收口 = "源模块集是否已被目标覆盖"。
+    # 二者**不等价**：源里多 1 个**未被引用**的模块时，封闭性仍 PASS、而收口为 ❌
+    # —— 这正是 **R79** 的成因（`engine_select` 未被引用 ⇒ closure 报 PASS、机制 25 报未收口）。
+    _rest = sorted(set(src) - set(dst))
+    if _rest:
+        print("[info] [0] 收口：❌ 未收口（源 %d / 目标 %d，未迁 %d：%s）"
+              % (len(src), len(dst), len(_rest), _rest))
+        print("      ⚠️ 下方的 PASS 只代表**封闭性**，**不代表已收口**。")
+    else:
+        print("[info] [0] 收口：✅ 源 ⊆ 目标（未迁 0 模块；目标独有 %d 个：%s）"
+              % (len(set(dst) - set(src)), sorted(set(dst) - set(src))))
+
     if not gaps:
         print("[PASS] [1] 封闭性：目标 crate 未引用任何「源 crate 有、目标 crate 无」的模块")
     else:

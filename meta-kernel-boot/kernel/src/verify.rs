@@ -347,6 +347,12 @@ pub fn self_check() -> u8 {
         return r7; // 101–105（经 main 的 `100 + n` 映射后，CI 上会读成 201–205）
     }
 
+    // —— ⑪ 段：Q11 物态→引擎选择（`engine_select`：选择表／1.05 不切换／预算封顶／双面一致／不调制）——
+    let r8 = self_check_q11_engine_select();
+    if r8 != 0 {
+        return r8; // 111–115（经 main 的 `100 + n` 映射后，CI 上会读成 211–215）
+    }
+
     0
 }
 
@@ -546,6 +552,135 @@ fn self_check_shard7() -> u8 {
         }
         if j.matches('"').count() % 2 != 0 || j.matches('\\').count() % 2 != 0 {
             return 105; // 配平破 ⇒ 转义不成立
+        }
+    }
+
+    0
+}
+
+// ====== ⑪ 段（Q11）：物态→引擎选择 —— 选择表 / 1.05 不切换 / 预算封顶 / 双面一致 / 不调制 ======
+//
+// **为什么选这五条**：它们是 Q11 可测契约的**可证伪面**，每条各压住一条**裁定**：
+//   * **选择表**（`engine_for_state`）：Q8 裁定「固态→线性／液态→斐波那契／气态→斐波那契／能量态→指数」。
+//     纯映射、无浮点 ⇒ 期望值**唯一可判**（不"能算完就行"）。
+//   * **1.05 不切换**：`GENE_LIBRARY_DESIGN §2.1 行61` 用**严格不等式** ＋ Q10 **丙案**（阈值处不切换）
+//     ⇒ **实际只有 2 个引擎切换点（0.8／1.2）**。与 V2 实测「`1.05` 处差值 0」吻合。
+//   * **预算封顶**：U1 裁定＝**乙**（物态取 `state_of_energy_budget`）⇒ **储备枯竭必须把物态拉向更固者**，
+//     即使瞬时比值偏高。**反向**：储备充足时不得无故降级。
+//   * **双面一致**：U2 裁定＝**丙**（标签面 ＋ 结果面各出一个可测面）⇒ 两面必须**自洽**
+//     （把"选择"与"结果"对不上的实现抓出来）。
+//   * **不调制**：Q10 前问＝**选择器**（不是调制量）⇒ 输入是原种子 A1 原样；
+//     故"**选同一引擎的两个不同比值池**"的结果面必须**逐位相同**
+//     （若实现把 `r` 混进输入 ⇒ 此断言必破）。
+#[allow(clippy::too_many_lines)]
+fn self_check_q11_engine_select() -> u8 {
+    use meta_kernel_core_nostd::energy::EnergyPool;
+    use meta_kernel_core_nostd::engine_select::{
+        engine_for_state, select_and_step, select_engine, step_with, Engine,
+    };
+    use meta_kernel_core_nostd::state::{state_of_flow_ratio, State};
+
+    /// ε 口径（R35）：`f32` 在 `1.05` 附近 ULP ≈ `1.19e-7`；取 `1e-6`（可表示、显著大于 ULP）。
+    const EPS: f32 = 1e-6;
+
+    // ——— 111：选择表（Q8）四档唯一映射 ———
+    {
+        let cases = [
+            (0.4_f32, State::Solid, Engine::Linear),
+            (0.9, State::Liquid, Engine::Fibonacci),
+            (1.1, State::Gas, Engine::Fibonacci),
+            (1.5, State::Energy, Engine::Expo),
+        ];
+        for (r, want_state, want_eng) in cases {
+            let s = state_of_flow_ratio(r);
+            if s != want_state {
+                return 111; // 物态错 ⇒ 阈值/不等号写错
+            }
+            if engine_for_state(s) != want_eng {
+                return 111; // 映射错 ⇒ Q8 选择表被改坏
+            }
+        }
+    }
+
+    // ——— 112：1.05 处「物态切换、引擎不切换」；0.8／1.2 才是真切换点 ———
+    {
+        let s_lo = state_of_flow_ratio(1.05 - EPS);
+        let s_hi = state_of_flow_ratio(1.05 + EPS);
+        if s_lo == s_hi {
+            return 112; // 物态应切换（严格不等式）
+        }
+        if engine_for_state(s_lo) != engine_for_state(s_hi) {
+            return 112; // 引擎**不得**切换（丙案核心）
+        }
+        if engine_for_state(s_lo) != Engine::Fibonacci {
+            return 112; // 液态／气态应共用斐波那契
+        }
+        if engine_for_state(state_of_flow_ratio(0.8 - EPS))
+            == engine_for_state(state_of_flow_ratio(0.8 + EPS))
+        {
+            return 112; // 0.8 应是真切换点
+        }
+        if engine_for_state(state_of_flow_ratio(1.2 - EPS))
+            == engine_for_state(state_of_flow_ratio(1.2 + EPS))
+        {
+            return 112; // 1.2 应是真切换点
+        }
+    }
+
+    // ——— 113：U1＝乙 · 预算封顶（储备枯竭拉向更固者；充足时不无故降级）———
+    {
+        // 比值态 = Energy（flow_out=0 ⇒ ratio 落上界 9.0），但储备枯竭 ⇒ 预算态 = Solid
+        let starved = EnergyPool { flow_in: 1.0, flow_out: 0.0, stored: 0.0 };
+        if select_engine(&starved) != Engine::Linear {
+            return 113; // 未被预算封顶 ⇒ U1 的"取更固者"失效
+        }
+        // 储备充足 ⇒ 不受约束，回到 Expo
+        let rich = EnergyPool { flow_in: 1.0, flow_out: 0.0, stored: 1.0 };
+        if select_engine(&rich) != Engine::Expo {
+            return 113; // 无故降级 ⇒ 预算约束写反
+        }
+    }
+
+    // ——— 114：U2＝丙 · 双面一致（选择面 ↔ 结果面）＋ 结果面可复现 ———
+    {
+        let pools = [
+            EnergyPool { flow_in: 0.4, flow_out: 1.0, stored: 1.0 },  // Solid → Linear
+            EnergyPool { flow_in: 0.9, flow_out: 1.0, stored: 1.0 },  // Liquid → Fibonacci
+            EnergyPool { flow_in: 1.15, flow_out: 1.0, stored: 1.0 }, // Gas → Fibonacci
+            EnergyPool { flow_in: 1.0, flow_out: 0.0, stored: 1.0 },  // Energy → Expo
+        ];
+        for p in pools {
+            let (e, y) = select_and_step(&p, 0.5);
+            if e != select_engine(&p) {
+                return 114; // 标签面与选择不一致
+            }
+            if y.to_bits() != step_with(e, 0.5).to_bits() {
+                return 114; // 结果面与"按标签走一步"不一致 ⇒ 双面不自洽
+            }
+            if y.to_bits() != select_and_step(&p, 0.5).1.to_bits() {
+                return 114; // 不可复现 ⇒ 跨调用累积了状态
+            }
+        }
+    }
+
+    // ——— 115：Q10 前问 · 选择器**不调制输入**（同一引擎、不同比值 ⇒ 结果面逐位相同）———
+    {
+        // 两个池：比值分属「液态」(≈0.90) 与「气态」(≈1.15)，**引擎同为斐波那契**
+        let liquid = EnergyPool { flow_in: 0.9, flow_out: 1.0, stored: 1.0 };
+        let gas = EnergyPool { flow_in: 1.15, flow_out: 1.0, stored: 1.0 };
+        let e_liq = select_engine(&liquid);
+        let e_gas = select_engine(&gas);
+        if e_liq != e_gas || e_liq != Engine::Fibonacci {
+            return 115; // 前提不成立（两池未同选斐波那契）
+        }
+        if step_with(e_liq, 0.5).to_bits() != step_with(e_gas, 0.5).to_bits() {
+            return 115; // 同引擎结果面不同 ⇒ 输入被调制（Q10 前问破）
+        }
+        // 1.05 两侧同引擎 ⇒ 结果面亦须逐位相同（对应 V2 实测"1.05 处差值 0"）
+        let lo = select_engine(&EnergyPool { flow_in: 0.95, flow_out: 1.0, stored: 1.0 });
+        let hi = select_engine(&EnergyPool { flow_in: 1.10, flow_out: 1.0, stored: 1.0 });
+        if lo != hi {
+            return 115; // 0.95(Liquid) 与 1.10(Gas) 应同引擎
         }
     }
 
