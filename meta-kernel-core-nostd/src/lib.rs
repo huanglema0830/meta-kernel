@@ -77,6 +77,13 @@ pub mod quad;
 //   —— 与 `fmath`／`quad` 同类（**自实现**，非从源 crate 迁来）。
 pub mod fb;
 
+// —— 阶段二 **2.4** 前置（2026-09-19 夜间）：**场方程求解器纯算层** ——
+//   `field`：`∇²V = ρ` 的多重网格解（A1）＋ NCA 局部规则与投影（B）＋ SDF ＋ 复值场 ＋ 节律钩子。
+//   技术路径＝用户裁定的 **A1 ＋ B 并行**，两者**共用同一核心**＝本模块。
+//   边界（boot 层）**未实现**：本模块只到 `&mut [u8]` 为止（写入属边界行为，见 `field.rs` 文件头）。
+//   与既有模块的关系**全部是 `import`**（`engine_select`／`interference`／`fmath`）⇒ 不触 C19。
+pub mod field;
+
 pub mod expo;
 pub mod fib;
 pub mod linear;
