@@ -70,6 +70,13 @@ pub mod math;
 pub mod fmath;
 pub mod quad;
 
+// —— 阶段二 **2.4** 前置（2026-09-19 夜间）：纯算层新模块（源 crate **无对应物**）——
+//   `fb`：帧缓冲抽象层纯算半（描述/编码/绘图原语/上采样/`Surface` 接口）。
+//   落点判据见 `fb.rs` 文件头（C1 ＋ 机制 21 ＋ C9 三铁律推出"纯算进 nostd"）。
+//   它在 `check_migration_closure.py` 的统计里会表现为"**目标 crate 多出的模块**"
+//   —— 与 `fmath`／`quad` 同类（**自实现**，非从源 crate 迁来）。
+pub mod fb;
+
 pub mod expo;
 pub mod fib;
 pub mod linear;
