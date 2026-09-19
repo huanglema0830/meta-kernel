@@ -75,7 +75,7 @@
 
 | 产品形态 | 组成（层） | 落点 | 说明 |
 |---|---|---|---|
-| **基因内核** Gene Kernel | L1–L3 | `meta-kernel-core/` + `npb/` + `npb-gateway/` | 心脏 / 大脑：跨平台意识内核（电信号版本的内核层） |
+| **基因内核** Gene Kernel | L1–L3 | `meta-kernel-core/` + `npb/` + `npb-gateway/` | 心 → 大脑：跨平台意识内核（电信号版本的内核层） |
 | **云操作系统** Cloud OS | L4–L5（场域链）+ **应用框架** + **参考应用** | `meta-kernel-core/src/l4/`、`l5_*.rs`、`npb-appkit/`、`manifest-journal/` | 神经网络 / 血液循环：把判定与诊断组织成可用能力 |
 | **空天浏览器** Sky Browser | L6（**与外界交互层**）的**呈现**子功能 | `manifest-ui/` | 眼睛 / 耳朵 / 手 —— L6 的**产品形态名**，**不占层号** |
 
