@@ -92,13 +92,57 @@ RE_DONE = re.compile(r"(?:(?:迁移|片)[^。\n]{0,20}已收口|已收口[^。\n
 #   · **豁免**：版本锚 `v0.xxx`／`HEAD <hash>` —— 快照天然落后 1–N 个 commit，**判红必误**
 #     （**R80-4 明确豁免**；并已含在 `HISTORY_MARKS` 的"当时/历史"豁免精神内）。
 # 检索式**刻意收窄**为两种明确写法（源 N／目标 M ＋ 目标 crate N 模块），避免把无关数字误算。
-RE_MOD_SRC = re.compile(r"源\s*(?:crate\s*)?(\d{1,3})\s*[／/]\s*目标\s*(?:crate\s*)?(\d{1,3})")
-RE_MOD_TGT = re.compile(r"目标\s*crate\s*(\d{1,3})\s*模块")
+# ★ **2026-09-19 加固（修「粗体阻断」漏报）**：原检索式不容忍 markdown 强调符 ⇒
+#   `✅ PASS（源 **56** ／ 目标 **57**）` **整条漏检**（实测就漏了这一条）。
+#   现插入 `_EM = \s*[*_]{0,2}\s*`，容忍 `**`/`*`/`__` 与空白 ⇒ 强调不再阻断。
+_EM = r"\s*[*_]{0,2}\s*"
+RE_MOD_SRC = re.compile(
+    r"源" + _EM + r"(?:crate" + _EM + r")?(\d{1,3})" + _EM + r"[／/]" + _EM
+    + r"目标" + _EM + r"(?:crate" + _EM + r")?(\d{1,3})")
+RE_MOD_TGT = re.compile(r"目标" + _EM + r"crate" + _EM + r"(\d{1,3})" + _EM + r"模块")
+
+# ★ 2026-09-19 加固（②）：**表格级历史豁免** —— 表头（`| … | … |` 后紧跟 `|---|` 分隔行）含
+#   任一 `HISTORY_MARKS` ⇒ **整表**视为历史留痕（"修订前 / 修订后"这类对照表的前值列不再误报）。
+RE_TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
+RE_TABLE_SEP = re.compile(r"^\s*\|[-\s:|]+\|\s*$")
+
+
+def history_table_lines(lines):
+    """返回「位于历史表内」的行号集合（1-based）。表头含 HISTORY_MARKS ⇒ 整表为历史。"""
+    out = set()
+    n = len(lines)
+    i = 0
+    while i < n:
+        # 表头在第 i 行、分隔行在第 i+1 行、且第 i+1 行是表格分隔符 ⇒ 成表
+        # 成表条件：第 i 行是表格行、第 i+1 行是 `|---|---|` 分隔行（分隔行本身也匹配表格行正则）
+        if RE_TABLE_ROW.match(lines[i]) and i + 1 < n and RE_TABLE_SEP.match(lines[i + 1]):
+            header = lines[i]
+            if any(k in header for k in HISTORY_MARKS):
+                out.add(i + 1)                      # 表头行本身
+                out.add(i + 2)                      # 分隔行
+                j = i + 2
+                while j < n and RE_TABLE_ROW.match(lines[j]):
+                    out.add(j + 1)
+                    j += 1
+                i = j
+                continue
+        i += 1
+    return out
 
 
 def _active(line: str) -> bool:
     """该行是否为**活跃**陈述（非历史留痕）。"""
     return not any(k in line for k in HISTORY_MARKS)
+
+
+_HIST_LINES = set()  # 当前文件内「历史表」行号（★ 表格级历史豁免；由 check() 逐文件刷新）
+
+
+def _active_at(lines, lineno: int) -> bool:
+    """行号版活跃判定：**行内历史标记词** 或 **该行属于历史表** 任一成立 ⇒ 非活跃。"""
+    if not _active(lines[lineno - 1]):
+        return False
+    return lineno not in _HIST_LINES
 
 
 def circ_of(line: str):
@@ -183,14 +227,17 @@ def check(repo: Path, verbose=True):
     per_file_remain = {}   # file -> [(lineno, text)]
     per_file_done = {}     # file -> [(lineno, text)]
     per_file_mod = {}      # file -> [(lineno, kind, value)]  （P4 用）
+
     for f in targets:
         try:
             lines = io.open(f, encoding="utf-8", errors="replace").read().split("\n")
         except OSError:
             continue
         rel = str(f.relative_to(repo)).replace("\\", "/")
+        _HIST_LINES.clear()
+        _HIST_LINES.update(history_table_lines(lines))   # ★ 表格级历史豁免（逐文件重算）
         for i, l in enumerate(lines, 1):
-            if not _active(l):
+            if not _active_at(lines, i):
                 continue
             for s in circ_of(l):
                 per_file_seg.setdefault(rel, []).append((i, s))
