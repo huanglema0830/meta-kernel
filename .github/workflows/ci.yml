@@ -704,7 +704,22 @@ jobs:
           VER=20260908
           URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${VER}/llvm-mingw-${VER}-ucrt-x86_64.zip"
           TMPU="$(cygpath -u "$RUNNER_TEMP")"
-          curl -sSL "$URL" -o "$TMPU/llvm-mingw.zip"
+          # ---- 网络重试加固（2026-09-20 · R88）：本下载会**偶发**失败 ----
+          # 实测失败形态：`curl: (35) schannel: ... CRYPT_E_REVOCATION_OFFLINE`
+          # （Windows 证书吊销服务器离线）。⚠️ curl 自带的「重试」开关只重试**瞬时**错误，
+          # **不覆盖 TLS/吊销类错误** ⇒ 只加那个开关等于**空转**（R83 家族：空转必须与生效取不同值）。
+          # 故改用 **shell 循环重试**（与 curl 版本无关、可本地模拟）：**1 次首试 ＋ 最多 3 次重试、间隔 5s**。
+          # ⚠️ **不**采用「跳过证书吊销检查」的开关 —— 那会放宽吊销校验、**降级 TLS 安全**。
+          retry=0
+          until curl -sSL "$URL" -o "$TMPU/llvm-mingw.zip"; do
+            retry=$((retry + 1))
+            if [ "$retry" -gt 3 ]; then
+              echo "::error::llvm-mingw 下载失败：1 次首试 ＋ 3 次重试后仍失败（网络/证书吊销服务持续不可用）"
+              exit 1
+            fi
+            echo "::warning::llvm-mingw 下载失败（第 ${retry} 次重试，共 3 次），5s 后重试"
+            sleep 5
+          done
           unzip -q "$TMPU/llvm-mingw.zip" -d "$TMPU/lm"
           LMROOT="$TMPU/lm/llvm-mingw-${VER}-ucrt-x86_64"
           BIN_M="$(cygpath -m "$LMROOT/bin")"
