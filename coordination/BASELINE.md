@@ -2471,6 +2471,50 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 ③ **H-1／H-2 两处待核**是否本轮取证（**推荐：下一轮**）。
 ④ **`advisor_brief` 复扫**是否再跑（本轮**未跑** —— 6.1/5.3 已连续两轮无新增 ⇒ **推荐：暂缓**，改为触发式）。
 
+---
+
+## §三十四 · v0.279 轮次：push v0.274–v0.278 ＋ 4 项裁定落地 ＋ 夜间持续任务（2026-09-21）
+
+### 34.0 §〇 Push 放行（**先 push、后改文件**）
+- `git push origin main` ⇒ `cdb4db3..db4d37f`（exit 0）；ahead 5 → 0；`origin/main` 与 HEAD 同为 `db4d37f`。
+- **CI**：run／sha／逐 job 结论**只记当日 `2026-09-21.md`**（C20）—— 仓库侧不入库。
+
+### 34.1 裁定 2：`docs/` 第六批 **8 项（12 处）加锚**（改底图·获授权；**只加锚、不改原句**，C19）
+| # | 文件 | 行 | 加锚要点 |
+|---|---|---|---|
+| F-1 | `GENE_LIBRARY_DESIGN.md` | L65／L91／L102 | §2 落点 ↔ §8 边界**三处自相矛盾**；锚指向代码实证（`threshold::from_library` 调用点 `l4_gate.rs:66`／`host/field-render/src/main.rs:1373`；`add_relation` L400／`relation_formula` L459 **无外部调用点**；`ChainLink{prev_hash}` L253／`chain` L310／持久化 L525–594） |
+| F-2 | `L7_EXECUTION_DESIGN.md` | L40 | 与同文件 §0.1（✅ v0.109）**冲突**；锚统一为 §0.1 口径 |
+| F-3 | `LAYER_BASEMAP_L0_L6.md` | L346 | 「L7 未实现」**已过期** |
+| F-4 | `LAYER_BASEMAP_L0_L6.md` | L668／L685 | 「未做：汇编重做」**已过期**（汇编已重做） |
+| F-5 | `WORK_CONSOLE_PLAN.md` | L94 | 「L7 ⏳ 下一阶段」**已过期** |
+| F-6 | `FIELD_PRESENTATION_DESIGN.md` | L57 | 「多内核互联 ⏳ 待接」⇒ 锚「`l7/mesh.rs` **已实现**；**接线待核**」 |
+| F-7 | `FIELD_RENDER_SOURCELESS_DESIGN.md` | L82 | 「第二阶段实现时编译验证」**已过期**（另见 34.3 回填） |
+| F-8 | `SELF_DIAGNOSIS_REPORT.md` | 头部后记／L358 | **扩后记**（覆盖 L300／L308／L341／L358）＋ L358 **补锚** |
+- **判据 F**：`FAIL（点名 7 份）` → `--update-baseline`（**diff 7 行**）→ `PASS`。
+- **汇编**：第1批 3／第2批 4／第3批 3／第4批 2／合订本 12 行（＝本次 12 处）；**反向自检 PASS**。
+- **C15**：全 **±0**。
+
+### 34.2 裁定 3（H-1）· `docs/HOST_UI_DECISION.md` **待核取证**（只出稿）
+- **结论：「未交付窗口宿主」类陈述已过期** —— 过期 **6 处**：L4 头部结论｜§4 表 L69／L70／L71／L72｜§6.4。
+- **实证**：`host/field-render/src/window.rs`（`ApplicationHandler` L177／`Tab` L74／`NewTab`·`CloseTab` L252–253／`fetch_source` L151／`download()` L729 写 `field.json`＋`frame.ppm`）；`Cargo.toml`：`egui 0.30`＋`egui-wgpu`＋`egui-winit`；`downloads/` **真实产物**；`ci.yml` **L1016 验收④「真实开窗 + URL 取源码 + 上屏回读」＝硬门禁**（已去 `continue-on-error`）。
+- **同文件矛盾（C19）**：§4（v1.0 口径「未交付」）↔ §6（v1.1「窗口宿主已完成、上屏自检通过」）。
+- **维持**：§4 L73（帧率 ✅）／L74（无 WebView2 ✅）／§8.5「仍未做」（老笔记本实测、地址栏依赖系统 `curl`）。
+- **建议**：加锚（口径＝「至 v0.279 已交付：窗口＋egui＋地址栏取源码＋多标签＋下载，CI 验收④硬门禁」），**原句不改**；**待授权**。
+
+### 34.3 裁定 3（H-2）· **两 wgsl 接入取证**（只出稿）＋ **F-7 锚回填**
+- **结论：两文件**（`host/sky-browser/shaders/{preprocess,render}.wgsl`）**均已接入** `host/field-render`。
+- **铁证**：`host/field-render/src/main.rs` **L317／L325** `include_str!("../../sky-browser/shaders/preprocess.wgsl")`／`render.wgsl` ＋ `create_shader_module`（L315／L323）；`record_field_passes`（preprocess→双调排序→渲染，L585／L615）；CI 验收①／②／④覆盖。
+- **★ F-7 锚回填**：裁定 2 的 F-7 锚内「现仅 `shaders/sort.wgsl`／待核」系**执笔方本轮新引入的事实错误** ⇒ 按 C19 在**同一授权位置**订正为「已接入」（**原句仍未改**）。判据 F：FAIL(1)→update（diff **1 行**）→PASS；汇编 第2批 1／合订本 1；反向自检 PASS。
+- **F-6 不变**：「用于场域同步」接线**仍待核**。
+- 报告：`coordination/reports/2026-09-21_H-1H-2取证稿.md`。
+
+### 34.4 裁定 4 · `advisor_brief` 复扫**改为触发式**（登记；无 `docs/` 改动）
+- **逐字对照**：
+  - **前（旧口径）**：把 `advisor_brief` 复扫列为**每轮固定的夜间项** —— 逐字引自本台账条目名：`### 31.5 夜间持续任务 5.1／5.2 · docs/ 第四批 ＋ advisor_brief 复扫（只出稿）`、`### 32.6 夜间 5.1／5.3 · docs/ 第五批定向深核 ＋ advisor_brief 复扫（只出稿）`、`### 33.6 ・ 4.1 docs 第六批 ……`（同族）。
+  - **后（新口径，逐字）**：`advisor_brief 复扫 ＝ 触发式；不再每轮固定执行。触发条件：① advisor_brief.md 有改动（判据 F 显示其哈希变化）；② 或重大状态变化（版本 / 阶段 / 机制编号变更）。`
+- **落点说明（实证）**：`TEMPLATES.md §11.3 夜间任务清单（P3）` 系**通用类别表**（调研／文档／测试／重构／修复／清理／基准维护／CI优化），**不含** "advisor_brief 复扫"固定项 ⇒ 该做法原属**当轮指令／夜间提示词层面**，仓库内**无规则条文可改** ⇒ 依用户 §三 落点为 **BASELINE（本节）**。
+- **待裁**：是否将本策略**固化进 `TEMPLATES.md §11.3`**（治理文件）—— **推荐：下一轮单独授权**（须走 `TEMPLATES §7.2` 变更程序）。
+
 
 
 
