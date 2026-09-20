@@ -2406,6 +2406,45 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 ③ ★ **C-05（机制 26 轻判据）是否授权**（**会改 `TEMPLATES.md`**；**推荐：暂缓**）。
 ④ `L5_DESIGN` §4#5／#6／#7 的"验收动作"是否补做（**须真机/运行**，非本轮范围）—— **推荐：列入阶段四**。
 
+---
+
+## §三十三 · v0.274 轮次：push v0.270–v0.273 ＋ 4 项裁定落地 ＋ 夜间持续任务（2026-09-21）
+
+### 33.0 §〇 Push 放行（**先 push、后改文件**）
+- `git push origin main` ⇒ `321cc7f..cdb4db3`（exit 0）；ahead 4 → 0；`origin/main` 与 HEAD 同为 `cdb4db3`。
+- **CI**：run／sha／逐 job 结论**只记当日 `2026-09-21.md`**（C20）—— 仓库侧不入库。
+
+### 33.1 裁定 2：`docs/FIELD_RENDER_SOURCELESS_DESIGN.md` 第五批 **4 处落地**（改底图·获授权）
+| # | 位置 | 改前 → 改后（逐字要点） |
+|---|---|---|
+| 1 | §3#5 四元组接入呈现决策 | `🟡 部分（modulate_gabor 已接；尚未进渲染管线）` ⇒ `✅ 已接`（依据：`modulate_gabor` 在 `host/field-render` 有真实调用点 `main.rs` L812/L975/L2175、`window.rs` L87/L558/L741/L978） |
+| 2 | §3#6 探测策略未落地 | `🟡 部分（内核 decide_probe 已实现；尚未接呈现/宿主）` ⇒ `✅ 已接`（依据：`decide_probe` 被 `host/field-render/src/window.rs:844` 调用） |
+| 3 | §3#7 Runtime 依赖未消除 | `⏳ 未做` ⇒ `🟡 部分`（依据：native 渲染路径 `host/field-render`（wgpu）已不依赖 WebView2 Runtime） |
+| 4 | §4#4 渲染 | `⏳ 第二阶段` ⇒ `🟡 部分`（依据：`ci.yml` field-render job 含构建断言 ＋ 单测 ≥30 ＋ C9 门禁） |
+- **§4#5/#6/#7 维持原判定**（验收动作/端到端/宿主性能未做）。
+- **判据 F**：`FAIL（点名 FIELD_RENDER_SOURCELESS_DESIGN.md）` → `--update-baseline`（`basemap_hashes.txt` **diff 1 行**）→ `PASS`。
+- **汇编**：第2批 **4 行**／合订本 **4 行**（＝本次 4 处编辑，逐字装配）；**反向自检 PASS**。
+- **C15**：全 **±0**。
+
+### 33.2 裁定 3（C-05）**暂缓**（登记，无文件改动）
+- `TEMPLATES.md`（机制 26 矩阵完整性**轻判据**）**本轮未编辑**；**零治理文件改动**。
+- **触发条件留痕**：出现「机制 26 矩阵实际缺失/错位 ⇒ 而现有判据判绿」的真实实例时，C-05 **自动转「须授权」**。
+- 补充：`TEMPLATES.md` 受**判据 F（源一致性）**覆盖 ⇒ 其静默改动会触发 FAIL，**非无监管**。
+
+### 33.3 裁定 4 · 阶段四验收动作**排入**（登记，无文件改动）
+- **★ 对象订正（实证）**：指令写「`L5_DESIGN` §4#5/#6/#7」，实测 `docs/L5_DESIGN.md` §4 为**「数据流」**（**无 #5/#6/#7 表**）；内容吻合者＝**`docs/FIELD_RENDER_SOURCELESS_DESIGN.md` §4 验收清单** **#5 不依赖 WebView2（核心验收）／#6 端到端／#7 性能（宿主）** ⇒ **对象＝该文档 §4#5/#6/#7**。
+- **漂移根因（C19 自订正）**：错标最早出现在 **本台账 §三十一／§三十二 的待裁行**（我把对象误记成 `L5_DESIGN`），随后被复述进指令。⇒ 已在本节订正；**同族教训**＝R87（状态/命名陈述静默过期）。
+- **「阶段四」定位（实证）**：`docs/FIELD_RENDER_SOURCELESS_DESIGN.md` §5 路线图「**四（1周）｜四元组接入呈现决策 + 探测策略落地｜依赖三（✅ 已完成）｜🟡 内核侧已备**」。
+- **新增条目（逐字入台账）**：依用户裁定，`FIELD_RENDER_SOURCELESS_DESIGN` §4 验收表 **#5 不依赖 WebView2（核心验收）／#6 端到端／#7 性能（宿主）** 三项验收动作 **排入该文档 §5 的「阶段四」**。**本项仅登记**；`docs/` 正文（含 `L5_DESIGN.md` 与非本项授权的 `FIELD_RENDER_SOURCELESS_DESIGN.md`）**本轮未改**。
+- **附带待裁**：`ROADMAP.md` **无「阶段四」**（§二 三阶段总览＝**固定相，不可改**）⇒ 如需正式写入 `ROADMAP.md` 须**另行授权**；**推荐：暂不写入**，以本登记为准。**本轮未动 `ROADMAP.md`**。
+
+### 33.4 C15 双向计数（本轮）
+- 改前＝改后：机制 27／C 21／T 36／§四 21／TERM 9 **全 ±0**；三表**连续、无缺号、无重号 OK**。
+  （D/R 口径依既有脚本：D 行数 45、R 首格 46／全库唯一 47 —— 本轮**未编辑** D/R 行。）
+
+### 33.5 本轮改动清单（v0.274）
+- `docs/FIELD_RENDER_SOURCELESS_DESIGN.md`（4(+)/4(-)）｜`coordination/security/basemap_hashes.txt`（1 行）｜`coordination/discussions/…第2批…md`（4 行）｜`…汇编合订本.md`（4 行）｜**报告新增**：`2026-09-21_裁定登记_C05暂缓与阶段四验收动作.md`。
+
 
 
 
