@@ -2548,6 +2548,46 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 ### 34.9 本轮改动清单（v0.279–v0.283）
 - `docs/` **8 份**（`GENE_LIBRARY_DESIGN`／`L7_EXECUTION_DESIGN`／`LAYER_BASEMAP_L0_L6`／`WORK_CONSOLE_PLAN`／`FIELD_PRESENTATION_DESIGN`／`FIELD_RENDER_SOURCELESS_DESIGN`／`SELF_DIAGNOSIS_REPORT`；`FIELD_RENDER` 含回填）｜`coordination/security/basemap_hashes.txt`（7 行＋1 行，两轮）｜`coordination/discussions/`（四批＋合订本）｜`coordination/BASELINE.md`（本节）｜**报告新增 3 份**：`2026-09-21_H-1H-2取证稿.md`、`2026-09-21_docs时效核对稿_第七批.md`、`2026-09-21_推送v0.274至v0.278与4项裁定及夜间任务.md`。
 
+---
+
+## §三十五 · v0.284 轮次：push v0.279–v0.283 ＋ 3 项裁定落地 ＋ 第八批改触发式（2026-09-21）
+
+### 35.0 §〇 Push 放行（**先 push、后改文件**）
+- `git push origin main` ⇒ `db4d37f..fab377f`（exit 0）；ahead 5 → 0；`origin/main` 与 HEAD 同为 `fab377f`。
+- **CI**：run／sha／逐 job 结论**只记当日 `2026-09-21.md`**（C20）—— 仓库侧不入库。
+
+### 35.1 裁定 2：`docs/HOST_UI_DECISION.md` **H-1 六处加锚**（改底图·获授权；**原句未改**，C19）
+| 位置 | 加锚要点 |
+|---|---|
+| **L4** 头部结论 | 标为 **v1.0（2026-09-15）时点口径**；**至 v0.283 窗口宿主已交付** —— `host/field-render/src/window.rs`（`winit` `ApplicationHandler` ＋ `wgpu` surface ＋ **`egui 0.30` UI**）＋ CI **验收④「真实开窗 + URL 取源码 + 上屏回读」硬门禁**（`ci.yml` **L1016**，已去 `continue-on-error`） |
+| **§4 L69** 窗口能打开 | **已过期**（见 §6.2：✅ **1536×1536**、方差 43.9／1182.8／1370.7、非纯黑非纯白） |
+| **§4 L70** 地址栏 URL | **已过期**（`fetch_source` ＋ CI 验收④「URL 取源码」） |
+| **§4 L71** 多标签 | **已过期**（`struct Tab`／`NewTab`／`CloseTab`） |
+| **§4 L72** 下载 | **已过期**（`Action::Download`／`fn download()` 写 `field.json`＋`frame.ppm`；产物 `downloads/`） |
+| **§6.4 L122** | 标为 **v1.1 时点口径**；至 v0.283 **四者均已交付** |
+- **★ 过程处置**：首版把 **L4 锚写成新起一行** ⇒ 该文件行数 +1 ⇒ **汇编带行号前缀**，其后续行号全漂移 ⇒ 汇编 diff 达 **232 行**（R75 同类）。**已改为并入同一行** ⇒ 行数仍 **235（=HEAD）**、汇编 diff 收敛为 **第3批 6 行**。
+
+### 35.2 裁定 3：G-1 加锚 ＋ G-2 总入口总声明（改底图·获授权）
+- **G-1** `docs/FULL_AUDIT_REPORT.md` **L77**「已知未接线」加锚（**原句未改**）：本行为 **2026-09-14 · v0.102 时点口径**；其中 **①③ 已过期** —— ① L4 **已接线**（`threshold::from_library`；调用点 `l4_gate.rs:66`、`host/field-render/src/main.rs:1373`）；③ 基因库**持久化已实现（v0.107）**（`to_text`/`from_text` ＋ 网关 `POST/GET /v1/genelib`）；**② 仍成立**（`scene_baseline*` 全仓无外部调用点）。
+- **G-2** 根 `README.md` 新增 **一条总声明**（**不逐行加锚**）：
+  > `## 文档数值口径（2026-09-21 定稿）`
+  > `> **本仓库全部文档（含本 README.md 与 docs/ 各文档）中出现的所有测试数 / 模块数 / 行数等具体数字，除明确标注"实测"外，一律为时点值（成文时快照）；现值以 git rev-list --count HEAD 实时值与 CI 实测为准。**`
+  > `> 依据：coordination/BASELINE.md §三十四（第七批 G-2；R71／R82）。不逐行加锚 —— 逐行维护不可持续（R79 同族）。`
+- **落点实证**：`docs/README.md` **不存在** ⇒ 取根 `README.md`（用户 §二.2 授权由我方取现状后定）；**插于 `## 许可 · License` 之前** ⇒ 其前各行行号（55／89／105 等被引用行）**零漂移**。
+- **判据 F**：`FAIL（3 项：README.md／FULL_AUDIT_REPORT.md／HOST_UI_DECISION.md）` → `--update-baseline`（**diff 3 行**）→ `PASS`。
+- **汇编**：第3批 **6** 行／第4批 **1** 行／合订本 **7** 行；**反向自检 PASS**。
+- **C15**：全 **±0**。
+
+### 35.3 裁定 4：固化进 `TEMPLATES.md §11.3` —— **本轮不做**（登记）
+- 用户裁定：**本轮不做，下一轮单独授权**。**本轮零治理文件改动**（`TEMPLATES.md` 未动）。
+- **留痕**：正式固化须走 `TEMPLATES §7.2`（提议 → 记 §7.2 → 试用 3 轮）；**触发＝用户下一轮明确授权**。
+
+### 35.4 §四 · **`docs` 第八批改为触发式**（写入台账）
+- **新口径（逐字）**：`docs 第八批 ＝ 触发式；不再每轮固定做。触发条件：① 有新文档加入 docs/；② 或重大状态变化（阶段 / 机制编号）。`
+- **与第七批的关系**：第七批末已建议"改按触发"（边际收益递减：方法四维「单文件 → 同文件 → 跨文件 → 数值型」已建立）⇒ 本轮**正式落为触发式**。
+- **★ 本轮触发评估（实证）**：① `docs/*.md` ＝ **35 份**（与上轮**同为 35**，**无新增**）⇒ **不满足**；② 阶段仍为**阶段二 · 2.4 边界层已验**，机制编号 **1–27 未变** ⇒ **不满足**。⇒ **本轮不产出第八批**（**这正是"改触发式"的实效**：不再为凑数而扫）。
+- **配套**：`advisor_brief` 复扫亦为触发式（§34.4）⇒ **夜间固定"复扫类"项自此清零**。
+
 
 
 
