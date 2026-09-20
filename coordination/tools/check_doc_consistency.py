@@ -363,6 +363,25 @@ def check(repo: Path, verbose=True):
     #   ⇒ 实跑命中即**并入 errors** ⇒ `main()` 返回 1（判红）。**不再降级为提示。**
     errors.extend(p4_obs)
 
+    # ---- 观测面（★ 2026-09-20 夜间加固）：**混合行**（同行 ＝ 历史标记词 ＋ 段号/模块数/剩余断言）----
+    #   已知盲区（R82／R83 家族）：历史豁免是**行级/表级**的 ⇒ 若"活跃断言"与"历史词"**同一行**，
+    #   该行被整行豁免 ⇒ 断言若已过期，P1／P4 **都不会判红**（实测例：`ROADMAP.md:59` 同行含
+    #   「历史快照」与活跃段号陈述）。**本项不改判红策略**，只把它计入 `stats` ⇒
+    #   **把"静默盲区"变成"可数的盲区"**（R71：不写死数字，留给后续判据／人工消费）。
+    mixed = []
+    for f in targets:
+        try:
+            lines = io.open(f, encoding="utf-8", errors="replace").read().split("\n")
+        except OSError:
+            continue
+        rel = str(f.relative_to(repo)).replace("\\", "/")
+        for i, l in enumerate(lines, 1):
+            if _active(l):
+                continue            # 活跃行不属盲区（本判据的正常管辖范围）
+            if circ_of(l) or RE_MOD_SRC.search(l) or RE_MOD_TGT.search(l) or RE_REMAIN.search(l):
+                mixed.append((rel, i, l.strip()[:120]))
+    stats["mixed_history_lines"] = mixed
+
     # ---- 输出 ----
     if verbose:
         print("=" * 68)
@@ -379,6 +398,14 @@ def check(repo: Path, verbose=True):
         print("枚举口径      ：与 check_migration_closure.py **同源**（递归；R79 修复，C18）")
         print("活跃段号陈述  ：%d 条" % n_act_seg)
         print("活跃模块数陈述：%d 条（P4 · R80-1）" % stats.get("active_mod_claims", 0))
+        # ★ 2026-09-20 夜间加固：**观测项**（相邻"历史词同行含断言"的盲区，见 check() 内注）
+        _mix = stats.get("mixed_history_lines") or []
+        print("混合行（历史词同行含段号/模块数/剩余断言）：%d 行"
+              "（★ 观测项：**不改判红策略**；已知盲区，现改为可数）" % len(_mix))
+        for rel, i, t in _mix[:8]:
+            print("    · %s 行%d  %s" % (rel, i, t))
+        if len(_mix) > 8:
+            print("    · …（其余 %d 行略）" % (len(_mix) - 8))
         for rel, vals in sorted(per_file_seg.items()):
             print("    %-32s %s（max=第 %s 段）"
                   % (rel, [CIRC[s - 1] for s in sorted(set(v for _, v in vals))], CIRC[max(v for _, v in vals) - 1]))
@@ -400,7 +427,7 @@ def check(repo: Path, verbose=True):
     return errors, stats
 
 
-# --------------------------- 自检（C18 七侧） ---------------------------
+# --------------------------- 自检（C18 八侧；含 ⑤b／⑦a／⑦b／④b 边界子项） ---------------------------
 def selftest() -> int:
     print("=" * 68)
     print("机制 25 · 自检（C18：同源 ＋ 回读真实仓库 ＋ 可区分 0 与解析失败）")
@@ -533,6 +560,56 @@ def selftest() -> int:
     else:
         print("      来源：%s" % ", ".join(r for r, _, _ in srcs8))
     os.remove(str(d / BOOT_KERNEL_SRC / "main.rs"))
+
+    # 侧 ④b（★ 2026-09-20 夜间加固 · **边界组**）：**历史豁免不得"外溢"**。
+    #   病根（已知盲区）：豁免是**行级**（`_active`）＋**表级**（`history_table_lines`）的 ——
+    #   若实现被改成"文件级"或"直到空行/表末"，会**静默放过**相邻的活跃过期断言
+    #   （**R83 家族**：漏报与"通过"取同值 ⇒ 判据静默变绿）。本侧三小项：
+    #     (a) 行内历史词 ⇒ **只豁免本行**；
+    #     (b) 表头历史词 ⇒ **只豁免该表**，表外正文仍须判红；
+    #     (c) **观测**：同行既有历史词又有断言 ⇒ 计入 `mixed_history_lines`（把静默盲区变可数）。
+    #   —— (a)(b) 是**正反对照**；(c) **不改判红策略**（已知盲区只登记、不判红）。
+
+    # (a) 行内历史词 ⇒ 只豁免本行（下一行的活跃过期断言仍须判红）
+    (d / "coordination" / "OK.md").write_text(
+        "# 夹具·边界(a)\n\n**原文**为「第 ⑫ 段」。\n裸机断言已到第 ⑧ 段。\n", encoding="utf-8")
+    e10, _ = check(d, verbose=False)
+    hit_a = any("P1" in x for x in e10)
+    print("[侧④b-a] 边界·行级豁免不外溢（第 3 行含「原文」被豁免、第 4 行活跃陈旧仍须判红）⇒ %s"
+          % ("✅ 判红且命中 P1" if hit_a else "❌ 漏判（豁免外溢）"))
+    if not hit_a:
+        fails.append("侧④b-a 行级豁免外溢：%s" % e10)
+    else:
+        print("      捕获：%s" % e10[0][:96])
+
+    # (b) 表头历史词 ⇒ 只豁免该表（表外正文的活跃「剩余」仍须判红）
+    (d / "coordination" / "OK.md").write_text(
+        "# 夹具·边界(b)\n\n"
+        "| 项 | 历史值 |\n|---|---|\n| 片6 | 剩余片6–片8 |\n\n"
+        "裸机断言已到第 ⑩ 段。剩余片6–片8 = 7 模块。\n", encoding="utf-8")
+    e11, _ = check(d, verbose=False)
+    hit_b = any("P2a" in x for x in e11)
+    print("[侧④b-b] 边界·表级豁免不外溢（表内「剩余」豁免、表外活跃「剩余」须判红）⇒ %s"
+          % ("✅ 判红且命中 P2a" if hit_b else "❌ 漏判（表级外溢）"))
+    if not hit_b:
+        fails.append("侧④b-b 表级豁免外溢：%s" % e11)
+    else:
+        print("      捕获：%s" % e11[0][:96])
+
+    # (c) 观测：混合行可数（**不改判红策略**）
+    (d / "coordination" / "OK.md").write_text(
+        "# 夹具·边界(c)\n\n裸机断言已到第 ⑩ 段。\n"
+        "另有一处混合行：裸机断言已到第 ⑧ 段（**原文**如此登记）。\n", encoding="utf-8")
+    e12, s12 = check(d, verbose=False)
+    mix = s12.get("mixed_history_lines") or []
+    ok_c = len(mix) >= 1
+    print("[侧④b-c] 观测·混合行（同行含历史词 ＋ 段号）可数 ⇒ %s（计 %d 行）"
+          % ("✅ 可观测" if ok_c else "❌ 不可观测", len(mix)))
+    if not ok_c:
+        fails.append("侧④b-c 混合行不可观测：%s" % s12)
+    else:
+        print("      ⚠️ **本项只观测、不判红**：混合行仍按「历史留痕」豁免 ——")
+        print("         这是**已知盲区**（R82／R83 家族），现改为**可数**；是否判红留待裁定。")
 
     print("\n" + "=" * 68)
     if fails:
