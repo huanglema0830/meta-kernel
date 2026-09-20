@@ -2442,8 +2442,34 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 - 改前＝改后：机制 27／C 21／T 36／§四 21／TERM 9 **全 ±0**；三表**连续、无缺号、无重号 OK**。
   （D/R 口径依既有脚本：D 行数 45、R 首格 46／全库唯一 47 —— 本轮**未编辑** D/R 行。）
 
-### 33.5 本轮改动清单（v0.274）
-- `docs/FIELD_RENDER_SOURCELESS_DESIGN.md`（4(+)/4(-)）｜`coordination/security/basemap_hashes.txt`（1 行）｜`coordination/discussions/…第2批…md`（4 行）｜`…汇编合订本.md`（4 行）｜**报告新增**：`2026-09-21_裁定登记_C05暂缓与阶段四验收动作.md`。
+### 33.5 本轮改动清单（v0.274–v0.276）
+- `docs/FIELD_RENDER_SOURCELESS_DESIGN.md`（4(+)/4(-)）｜`coordination/security/basemap_hashes.txt`（1 行）｜`coordination/discussions/…第2批…md`（4 行）｜`…汇编合订本.md`（4 行）｜`coordination/BASELINE.md`（本节）｜**报告新增**：`2026-09-21_裁定登记_C05暂缓与阶段四验收动作.md`、`2026-09-21_docs时效核对稿_第六批.md`。
+
+### 33.6 夜间持续任务（§四）
+- **4.1 `docs` 第六批**（**只出稿**）：`2026-09-21_docs时效核对稿_第六批.md`。**口径**＝全 35 份系统复扫（88 行候选）＋ **方法升级：内部一致性交叉核（C19）**。
+  - **★ 8 处新发现**：**F-1** `GENE_LIBRARY_DESIGN` **§2↔§8 三处自相矛盾**（L65 第1层「尚未从基因库读取」↔L244「✅已实现+已接线」；L91「尚未入库」↔L246/L255「已入库未被读取」；L102「尚未使用哈希链」↔L247「✅已实现、verify_chain」—— 实证 `gene_library.rs` `add_relation`/`relation_formula`/`ChainLink{prev_hash}`/`chain` 持久化；外部调用点 0）｜**F-2** `L7_EXECUTION_DESIGN` **§0 L40「已定义、未实现」↔ §0.1 L13–22（✅已实现 v0.109）同文件矛盾**｜**F-3** `LAYER_BASEMAP` L346「L7 未实现」过期｜**F-4** `LAYER_BASEMAP` L668/L685「未做：汇编重做」过期（汇编已重做，今日 04:40 重生成）｜**F-5** `WORK_CONSOLE_PLAN` L94「L7 ⏳ 下一阶段」过期｜**F-6** `FIELD_PRESENTATION_DESIGN` L57「多内核互联 ⏳ 待接」（`l7/mesh.rs` 已实现 9 测试 ⇒ 能力侧过期；接线待核）｜**F-7** `FIELD_RENDER_SOURCELESS_DESIGN` L82「尚未接入 wgpu；第二阶段实现时编译验证」（第二/三阶段已完成 ⇒ 后半句过期；两 wgsl 是否接入待核）｜**F-8** `SELF_DIAGNOSIS_REPORT` L300/L308/L341/L358（后记未覆盖）。
+  - **维持原判定 2 处**：L6「对齐」❌未实现（`WorldAdapter` 缺）｜性能「待老笔记本实测」⏳（需真机）。
+  - **待核 2 处**：**H-1** `HOST_UI_DECISION` L4/§6.4/§8.5 与 CI「真实开窗」硬断言的张力（疑历史轮次口径）｜**H-2** 两 wgsl 接入状态。
+- **4.2 判据继续加固**：**无新增可做项**（C-01…C-04 已落地；C-05 本轮**已裁定暂缓**）。**复核实跑**：机制 25 `--selftest` **十二侧全绿**（rc=0）＋无参实跑 **✅ 通过** ⇒ 正反对照健全。
+- **4.3 汇编后续批次**：**本轮 `docs/` 未改 ⇒ 无需重生成**；**重跑 `asm_regen_0920.sh` 验证幂等 = 零差异**（`git diff coordination/discussions/` 为空）。
+
+### 33.7 验收对照（用户 §八）
+| 验收标准 | 结果 |
+|---|---|
+| push 完成、CI 三 job 全绿 | ✅ `321cc7f..cdb4db3`；CI 三 job 全 success（**run/结论只记日报，C20**） |
+| `docs` 第五批 4 处落地、逐字对照；判据 F PASS | ✅ 见 33.1（FAIL→update diff 1 行→PASS） |
+| 汇编合订本重生成、逐字保真 | ✅ 第2批 4 行／合订本 4 行；反向自检 PASS；4.3 幂等零差异 |
+| C-05 暂缓、记录到 BASELINE | ✅ 见 33.2 |
+| 阶段四验收动作排入 | ✅ 见 33.3（含对象订正） |
+| `docs` 第六批核对稿出 | ✅ 见 33.6（4.1） |
+| C15 复算通过，编号表连续无缺重 | ✅ 见 33.4 |
+| 下一次返回第 0 行含 9 步指令 | ✅ 三份新报告 P1/P2 全 PASS、泄漏 0 |
+
+### 33.8 本轮待裁（4）
+① ★ **本轮 3 个新 commit（v0.274–v0.276）是否 push**（**推荐：放行**；机制 23 须当轮明示）。
+② ★ **`docs` 第六批 8 处"应改为"是否落地**（F-1～F-5 建议**加锚**；F-6/F-7 建议**加锚＋列待核**；F-8 建议**补锚或扩后记**）—— **改底图须授权**；**推荐：落地**。
+③ **H-1／H-2 两处待核**是否本轮取证（**推荐：下一轮**）。
+④ **`advisor_brief` 复扫**是否再跑（本轮**未跑** —— 6.1/5.3 已连续两轮无新增 ⇒ **推荐：暂缓**，改为触发式）。
 
 
 
