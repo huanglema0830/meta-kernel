@@ -1075,6 +1075,23 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
 - **真实跑过** ⏳：**本轮本机未真实引导**（无 qemu）⇒ 交 **CI boot job**。
 - **未验证** ❌：① boot **full build**（本机缺 `dlltool`）＋ **QEMU 真实引导**；② **真实硬件**（非 QEMU）帧缓冲回读（WC 显存可能读到陈旧值）；③ 场源仍为**最小 product 路径**（SDF 依几何）—— **真正的场演化图像**（B 路径／NCA）待 **2.4 × L6 集成**。
 
-### 21.7 本轮 CI 结果
+### 21.7 本轮 CI 结果（**实取** · 2026-09-20 · 补记）
 
-- 提交并 push 后，以 `gh run list --limit 3` ＋ `gh run view <id> --json jobs` **实取**为准（R71）。
+- **复核命令（R71：环境派生值不抄进文档，以命令实取为准）**：`gh run list --limit 3`｜`gh run view <id> --json conclusion,jobs`｜`gh run view <id> --log`｜`gh run view <id> --json headSha`
+- **结论**：sha `026afe3` ⇒ run **`35483476601`** ⇒ **`conclusion = success`**；**三 job 全绿**：
+
+| job | 结论 | 时段（UTC） |
+|---|---|---|
+| `test` | ✅ success | 02:14:41 → 02:16:30 |
+| 元内核引导镜像（bootloader 0.11 + QEMU 真实引导） | ✅ success | 02:14:41 → 02:16:51 |
+| 宿主 field-render（Windows 构建 + 客观验收） | ✅ success | 02:14:41 → 02:20:09 |
+
+- **★ ⑫ 段接线断言**真的跑到 —— **非静默跳过**（三步取证，日志实证）：
+  1. `test` job 内步骤「验收 ⑫ 段接线 —— 2.4 边界层接入帧缓冲（host 镜像 ＋ 接线断言）」**存在**且**打印 `PRESENT_MIRROR_AND_WIRING_OK`**；
+  2. 同 job `mirror_present` 系列 **8 条**全 `ok`（`121`–`125` ＋ **`126`／`127`／`128`**）＋ 该步骤内 **`8 passed`**（口径：host 镜像 **5 → 8**）；
+  3. 断言**直查调用点**（`present::present_product_selftest`／`present_field(buf, info`）未失败 ⇒ **函数真被调用** —— 专治 「函数存在 ≠ 被调用」的 `never used` 型静默空转。
+- **★ ⑫ 段 product 路径在 QEMU 真实帧缓冲上成立**：boot job 绿屏判据实取 —— `python3 meta-kernel-boot/scripts/check_screendump.py shot.ppm --expect 0,255,0` ⇒「整屏采样 **25 点**，颜色分布（前 5）：**[((0, 255, 0), 25)]**」（`shot.ppm` 2,764,816 B）。
+  - **推理链**（与 ⑫ 段自检路径同源）：`present_product_selftest` 与自检路径走**同一条**边界层；退化出口（`desc_from_info`=None／宽高<2／`min_len > buf.len()`）任一成立 ⇒ 返**非 0** ⇒ `Fail(100+r)` ⇒ **红屏**；实测**绿屏** ⇒ 退化出口**全不成立**且路径返 0 ⇒ **"写像素 → 回读 → 逐字节一致"真走通**。
+  - **⚠️ 适用边界**：该判定**仅对 QEMU 成立**；**真实硬件**（WC 显存）回读可能拿陈旧值 ⇒ **未验证**。
+- **⚠️ 口径（R14）**：本结论取自 **CI**，**不是本机** —— 本机无 `qemu-system-x86_64`，"真实引导"这一层**本机不可能验**。
+
