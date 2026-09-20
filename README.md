@@ -125,6 +125,12 @@ docs/               架构与设计文档（MATH/ONTOLOGY/API_GATEWAY/LAYER/GENE
 examples/           演示（DOSBox 概念 / WASM Canvas / 禅境示波器）
 ```
 
+## 文档数值口径（2026-09-21 定稿）
+
+> **本仓库全部文档（含本 `README.md` 与 `docs/` 各文档）中出现的所有测试数 / 模块数 / 行数等具体数字，除明确标注"实测"外，一律为时点值（成文时快照）；现值以 `git rev-list --count HEAD` 实时值与 CI 实测为准。**
+>
+> 依据：`coordination/BASELINE.md` **§三十四**（第七批 **G-2**；**R71／R82**）。**不逐行加锚** —— 逐行维护不可持续（**R79 同族**）。
+
 ## 许可 · License
 
 [Apache-2.0](./LICENSE)
