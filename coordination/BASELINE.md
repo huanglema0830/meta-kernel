@@ -2515,6 +2515,39 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 - **落点说明（实证）**：`TEMPLATES.md §11.3 夜间任务清单（P3）` 系**通用类别表**（调研／文档／测试／重构／修复／清理／基准维护／CI优化），**不含** "advisor_brief 复扫"固定项 ⇒ 该做法原属**当轮指令／夜间提示词层面**，仓库内**无规则条文可改** ⇒ 依用户 §三 落点为 **BASELINE（本节）**。
 - **待裁**：是否将本策略**固化进 `TEMPLATES.md §11.3`**（治理文件）—— **推荐：下一轮单独授权**（须走 `TEMPLATES §7.2` 变更程序）。
 
+### 34.5 夜间持续任务（§四）
+- **4.1 `docs` 第七批**（**只出稿**）：`2026-09-21_docs时效核对稿_第七批.md`。**口径**＝**跨文件口径交叉核（C19·跨文件）** ＋ **数值型时点值清点**。
+  - **G-1（跨文件矛盾）**：`FULL_AUDIT_REPORT.md` **L77**「已知未接线」**2/3 已过期** —— ① L4「阈值仍为常量、未从基因库读取」**过期**（§8 L244「✅ 已实现 + 已接线」；调用点 `l4_gate.rs:66`／`main.rs:1373`）；② L5 主链未接场景公式 **成立**（`scene_baseline*` 无外部调用点）；③ 「基因库无持久化」**过期**（§8 L252「✅ 已实现（v0.107）」；实证 `gene_library.rs` L487 `to_text`／L540 `from_text` ＋ 网关 `/v1/genelib`）。**该行无时点标记**（同文件 L212 已有先例）。
+  - **G-2（数值型）**：`docs/` **9+ 处**测试／模块计数为**时点值**且**无"以实测为准"声明**（`LAYER_ARCHITECTURE` L87/88/442｜`LAYER_BASEMAP` L58/59｜`FIELD_PRESENTATION_DESIGN` L180/182｜`L7_EXECUTION_DESIGN` L24｜`L5_VALIDATION_REPORT` L81｜`PHASE4_ACCEPTANCE_REPORT` L22｜`CREATION_LOG` L23–27｜`FULL_AUDIT` §2.3）⇒ **建议"总入口一条总声明"**（避免逐行加锚不可持续，R79 同族）。
+  - **G-3（正向确认）**：L7 状态**跨 5 文件已一致**（`LAYER_ARCHITECTURE §2.1/§4.1`｜`L7_EXECUTION_DESIGN §0.1`｜`SELF_DIAGNOSIS L39`｜`LAYER_BASEMAP L346`｜`WORK_CONSOLE_PLAN L94`）⇒ **无新增矛盾**（第六批 F-2/F-3/F-5 已闭合）。
+  - **O-1／O-2 观察**＋**阴性自检 1 条**（剔除「模块 23／21」误报 —— 实为**行号范围引用**；R83 同族）。
+- **4.2 汇编后续批次**：本轮已随裁定 2 重生成（四批 3/4/3/2 ＋ 合订本 12 行）；**重跑验证幂等 = 零差异**；**R71 合规**（只引路径＋命令，不抄派生值）。
+
+### 34.6 验收对照（用户 §八）
+| 验收标准 | 结果 |
+|---|---|
+| push 完成、CI 三 job 全绿 | ✅ `cdb4db3..db4d37f`；CI 三 job 全 success（**run/结论只记日报，C20**） |
+| `docs` 第六批 8 处落地、逐字对照；判据 F PASS | ✅ 见 34.1（FAIL(7)→diff 7 行→PASS） |
+| 汇编合订本重生成、逐字保真 | ✅ 四批 3/4/3/2 ＋ 合订本 12 行；反向自检 PASS；4.2 幂等零差异 |
+| H-1/H-2 取证稿出 | ✅ `2026-09-21_H-1H-2取证稿.md` |
+| `advisor_brief` 复扫改触发式、逐字对照 | ✅ 见 34.4 |
+| `docs` 第七批核对稿出 | ✅ 见 34.5（4.1） |
+| C15 复算通过，编号表连续无缺重 | ✅ 见 34.7 |
+| 下一次返回第 0 行含 9 步指令 | ✅ 三份新报告 P1/P2 全 PASS、泄漏 0 |
+
+### 34.7 C15 双向计数（本轮）
+- 改前＝改后：机制 27／C 21／T 36／§四 21／TERM 9 **全 ±0**；三表**连续、无缺号、无重号 OK**。
+  （D 行数 45、R 首格 46／全库唯一 47 —— 本轮**未编辑** D/R 行；**未新增 T 行**。）
+
+### 34.8 本轮待裁（4）
+① ★ **本轮新增 commit 是否 push**（自 v0.279 起；**推荐：放行**；机制 23 须当轮明示）。
+② ★ **H-1 建议的加锚是否落地**（`HOST_UI_DECISION` L4 ／ §4 L69–L72 ／ §6.4 共 6 处，**改底图须授权**）—— **推荐：落地（加锚，原句不改）**。
+③ ★ **G-1 加锚是否落地**（`FULL_AUDIT_REPORT` L77，**改底图须授权**）｜**G-2 总声明是否落地**（根 `README.md` 或 `LAYER_ARCHITECTURE §1`；**改底图须授权**）—— **推荐：G-1 加锚；G-2 走"总入口一条"**。
+④ **裁定 4 策略是否固化进 `TEMPLATES.md §11.3`**（治理文件）—— **推荐：下一轮单独授权**。
+
+### 34.9 本轮改动清单（v0.279–v0.283）
+- `docs/` **8 份**（`GENE_LIBRARY_DESIGN`／`L7_EXECUTION_DESIGN`／`LAYER_BASEMAP_L0_L6`／`WORK_CONSOLE_PLAN`／`FIELD_PRESENTATION_DESIGN`／`FIELD_RENDER_SOURCELESS_DESIGN`／`SELF_DIAGNOSIS_REPORT`；`FIELD_RENDER` 含回填）｜`coordination/security/basemap_hashes.txt`（7 行＋1 行，两轮）｜`coordination/discussions/`（四批＋合订本）｜`coordination/BASELINE.md`（本节）｜**报告新增 3 份**：`2026-09-21_H-1H-2取证稿.md`、`2026-09-21_docs时效核对稿_第七批.md`、`2026-09-21_推送v0.274至v0.278与4项裁定及夜间任务.md`。
+
 
 
 
