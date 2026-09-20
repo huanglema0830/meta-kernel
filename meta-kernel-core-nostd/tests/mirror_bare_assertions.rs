@@ -747,3 +747,254 @@ fn mirror_present_128_product_empty_detected() {
     let spec = ProjectSpec::new(4, 4, 0.0, 1.0).expect("spec");
     assert!(project_gray_u8(&[0.5f32; 3], &spec).is_empty(), "128：输入不足须为空");
 }
+
+// ---------------------------------------------------------------------------
+// ★ 2026-09-20 · **场演化路径**（B 路径「低维场演化产生图像」）的 host 镜像（129–132）
+//   ＋ **退化出口机器化**（**R83**）的 host 镜像（133–134）
+//
+// 与 126–128 的分工：那条的场是**静态**的（SDF 一帧）⇒ 它验"接线 ＋ 回读"，
+// 但**证不了"演化是否真的发生"**（**恒等映射也能过**）；本组把**场演化**这一段也镜像过来
+// ⇒ 恒等映射**过不了**（步数必须真走完、阳性对照要求灰度非退化）。
+// ⚠️ 镜像**不替代 QEMU**：真实 `stride`/`bpp`/`pixel_format` 仍只能由 bootloader 给出。
+// ⚠️ **R83 的映射层（分类器 → 编号）在 boot 层，本机无法镜像** —— 镜像的是**分类器语义**
+//   （`nostd::fb::classify_degenerate`，纯算层）＋ "退化必须与通过可区分"这条性质。
+// ---------------------------------------------------------------------------
+
+/// 场演化自检的网格边长（**与裸机同值**：`9 = 2³ + 1`，守多重网格铁律）。
+const EVOLVE_N: usize = 9;
+/// 与裸机同值的 PRNG 种子（E1：确定性）。
+const EVOLVE_SEED: u32 = 0x5EED_0920;
+
+/// 与裸机 `present_evolve_selftest` **同一套步骤**（同参、同序）⇒ 返回 `(通道0平面, 灰度, 灰度种类数)`。
+fn evolve_scene(steps: u32) -> (Vec<f32>, Vec<u8>, usize) {
+    use meta_kernel_core_nostd::field::{nca, sdf};
+    use meta_kernel_core_nostd::project::{project_gray_u8, ProjectSpec};
+
+    let cells = EVOLVE_N * EVOLVE_N;
+    let mut a = vec![0.0f32; nca::CH * cells];
+    let mut b = vec![0.0f32; nca::CH * cells];
+    let mut percept = vec![0.0f32; nca::perception_len(EVOLVE_N, EVOLVE_N)];
+    let mut hidden = vec![0.0f32; nca::HIDDEN];
+    let mut pool = vec![0.0f32; cells];
+    let mut alive = vec![0.0f32; cells];
+    let mut seed_field = vec![0.0f32; cells];
+
+    // 初始状态：SDF 圆盘（几何由"帧缓冲"给出 ⇒ 与裸机同式）
+    let cx = (EVOLVE_N as f32 - 1.0) * 0.5;
+    let cy = cx;
+    let r = EVOLVE_N as f32 * 0.5 - 0.5;
+    let m = sdf::sample_into(|x, y| sdf::circle(cx, cy, r, x, y), EVOLVE_N, EVOLVE_N, &mut seed_field);
+    assert_eq!(m, cells, "129：初始场采样数");
+
+    for c in 0..nca::CH {
+        for i in 0..cells {
+            let t = -seed_field[i] / r; // 圆内 > 0、圆外 < 0
+            a[c * cells + i] = if t > 0.0 {
+                if t > 1.0 {
+                    1.0
+                } else {
+                    t
+                }
+            } else {
+                0.0
+            };
+        }
+    }
+
+    let w = nca::forward_const_weights();
+    let mut rng = nca::Xorshift32::new(EVOLVE_SEED);
+    let done = nca::evolve(
+        &mut a, &mut b, EVOLVE_N, EVOLVE_N, &w, &mut rng, 0.0,
+        &mut percept, &mut hidden, &mut pool, &mut alive, steps,
+    );
+    assert_eq!(done, steps, "129：演化步数必须真走完");
+
+    let spec = ProjectSpec::new(EVOLVE_N, EVOLVE_N, 0.0, 1.0).expect("spec");
+    let gray = project_gray_u8(&a[..cells], &spec);
+    assert_eq!(gray.len(), cells, "129：投影长度");
+
+    let mut seen = [false; 256];
+    let mut levels = 0usize;
+    for &g in gray.iter() {
+        if !seen[g as usize] {
+            seen[g as usize] = true;
+            levels += 1;
+        }
+    }
+    (a[..cells].to_vec(), gray, levels)
+}
+
+/// 129：**场演化链往返** —— 步数（由三引擎节律导出）→ 演化 → 投影 → 写入 → 回读逐字节；
+/// 且**演化真的发生** ＋ **图案非退化**（灰度种类 ≥ 8，阳性对照）。
+#[test]
+fn mirror_present_129_evolve_roundtrip() {
+    use meta_kernel_core_nostd::energy::EnergyPool;
+    use meta_kernel_core_nostd::fb::{encode, put_pixel, FbDesc, FbFormat, Rgb24};
+    use meta_kernel_core_nostd::field::rhythm_steps;
+
+    // 步数**由三引擎节律导出**（与裸机同源；**不写死** ⇒ C19）
+    let pool = EnergyPool { flow_in: 0.9, flow_out: 1.0, stored: 1.0 };
+    let (engine, steps) = rhythm_steps(&pool, 0.5, 3);
+    println!("[诊断] 129 节律 engine={:?} steps={}", engine, steps);
+    assert!((1..=4).contains(&steps), "129：steps 必须 ∈ [1, base+1]（0 会让判据假绿）");
+
+    let cells = EVOLVE_N * EVOLVE_N;
+    let d = FbDesc::new(EVOLVE_N, EVOLVE_N, EVOLVE_N + 4, 3, FbFormat::Bgr); // 行距 > 宽
+    let mut buf = vec![0u8; d.min_len().expect("min_len")];
+    let (field, gray, levels) = evolve_scene(steps);
+    assert_eq!(field.len(), cells);
+
+    println!(
+        "[诊断] 129 场演化灰度种类 = {} / min = {} / max = {}",
+        levels,
+        gray.iter().min().unwrap(),
+        gray.iter().max().unwrap()
+    );
+    assert!(levels >= 8, "129：图案退化（灰度种类 {} < 8）⇒ 判据会空转", levels);
+
+    let mut written = 0usize;
+    for i in 0..cells {
+        let (x, y) = (i % EVOLVE_N, i / EVOLVE_N);
+        if put_pixel(&mut buf, &d, x, y, Rgb24::new(gray[i], gray[i], gray[i])) {
+            written += 1;
+        }
+    }
+    assert_eq!(written, cells, "129：写入像素数");
+
+    for i in 0..cells {
+        let (x, y) = (i % EVOLVE_N, i / EVOLVE_N);
+        let (bytes, bn) = encode(&d, Rgb24::new(gray[i], gray[i], gray[i]));
+        let off = d.offset_of(x, y).expect("offset");
+        assert_eq!(&buf[off..off + bn], &bytes[..bn], "129：({},{}) 回读与期望不符", x, y);
+    }
+    // 行间填充**逐字节未被触碰**（区间由 `FbDesc` 现算）
+    let row_bytes = d.stride_px * d.bpp;
+    let visible = d.width * d.bpp;
+    assert_eq!(row_bytes - visible, 12);
+    for row in 0..d.height {
+        let pad = &buf[row * row_bytes + visible..(row + 1) * row_bytes];
+        assert!(pad.iter().all(|&b| b == 0), "129：第 {} 行填充被踩", row);
+    }
+}
+
+/// 130：**阳性对照** —— 故意篡改演化链写入的一个字节 ⇒ 回读比对**必须**发现。
+#[test]
+fn mirror_present_130_evolve_mismatch_detected() {
+    use meta_kernel_core_nostd::fb::{encode, put_pixel, FbDesc, FbFormat, Rgb24};
+
+    let n = EVOLVE_N;
+    let d = FbDesc::new(n, n, n, 3, FbFormat::Rgb);
+    let mut buf = vec![0u8; d.min_len().expect("min_len")];
+    let (_f, gray, _l) = evolve_scene(2);
+    assert!(put_pixel(&mut buf, &d, 3, 4, Rgb24::new(gray[4 * n + 3], gray[4 * n + 3], gray[4 * n + 3])));
+    let off = d.offset_of(3, 4).expect("offset");
+    let (bytes, bn) = encode(&d, Rgb24::new(gray[4 * n + 3], gray[4 * n + 3], gray[4 * n + 3]));
+    assert_eq!(&buf[off..off + bn], &bytes[..bn], "写后应立即一致");
+    buf[off + 1] ^= 0xFF; // 篡改
+    assert_ne!(&buf[off..off + bn], &bytes[..bn], "130：篡改后仍判一致 ⇒ 判据空转");
+}
+
+/// 131：**"不演化也算过"是不允许的** ——
+/// ① `steps == 0` ⇒ `evolve` 返回 `0`（裸机据此返 [`CODE_EVOLVE_EMPTY`] 判红）；
+/// ② **节律永不为 0**（正反对照：多种物态下 `steps ≥ 1`）—— 这条是"假绿"的系统性防线。
+#[test]
+fn mirror_present_131_evolve_empty_and_rhythm_never_zero() {
+    use meta_kernel_core_nostd::energy::EnergyPool;
+    use meta_kernel_core_nostd::field::{nca, rhythm_steps};
+
+    let cells = EVOLVE_N * EVOLVE_N;
+    let mut a = vec![0.7f32; nca::CH * cells];
+    let mut b = vec![0.0f32; nca::CH * cells];
+    let mut percept = vec![0.0f32; nca::perception_len(EVOLVE_N, EVOLVE_N)];
+    let mut hidden = vec![0.0f32; nca::HIDDEN];
+    let mut pool = vec![0.0f32; cells];
+    let mut alive = vec![0.0f32; cells];
+    let w = nca::forward_const_weights();
+    let mut rng = nca::Xorshift32::new(EVOLVE_SEED);
+    let before = a.clone();
+    let done = nca::evolve(
+        &mut a, &mut b, EVOLVE_N, EVOLVE_N, &w, &mut rng, 0.0,
+        &mut percept, &mut hidden, &mut pool, &mut alive, 0,
+    );
+    assert_eq!(done, 0, "131：steps=0 ⇒ 必须返回 0（裸机据此判红）");
+    assert_eq!(a, before, "131：steps=0 ⇒ 不得改场（无隐式'至少一步'）");
+
+    // 正反对照：四种物态下节律**均 ≥ 1**
+    let states = [
+        EnergyPool { flow_in: 0.4, flow_out: 1.0, stored: 1.0 },  // Solid
+        EnergyPool { flow_in: 0.9, flow_out: 1.0, stored: 1.0 },  // Liquid
+        EnergyPool { flow_in: 1.15, flow_out: 1.0, stored: 1.0 }, // Gas
+        EnergyPool { flow_in: 1.0, flow_out: 0.0, stored: 1.0 },  // Energy
+    ];
+    for (i, s) in states.iter().enumerate() {
+        let (_e, st) = rhythm_steps(s, 0.5, 3);
+        println!("[诊断] 131 物态[{}] ⇒ steps={}", i, st);
+        assert!(st >= 1, "131：物态[{}] 节律给 0 步 ⇒ '不推进'会让判据假绿", i);
+        assert!(st <= 4, "131：steps 必须 ≤ base+1");
+    }
+}
+
+/// 132：**阳性对照** —— 图案**退化**（全同色）⇒ 灰度种类 < 8 ⇒ 裸机返 [`CODE_EVOLVE_PATTERN_DEGENERATE`]。
+/// 为什么必须判红：全同色时"偏移／步长／字节序错误"**根本暴露不出来**（回读照样一致）⇒ 判据**空转**。
+#[test]
+fn mirror_present_132_evolve_pattern_degenerate_detected() {
+    use meta_kernel_core_nostd::project::{project_gray_u8, ProjectSpec};
+
+    let n = EVOLVE_N;
+    let spec = ProjectSpec::new(n, n, 0.0, 1.0).expect("spec");
+    // ① 退化：全同值 ⇒ 灰度种类 = 1
+    let flat = vec![0.5f32; n * n];
+    let g_flat = project_gray_u8(&flat, &spec);
+    let mut seen = [false; 256];
+    let mut lv = 0usize;
+    for &g in g_flat.iter() {
+        if !seen[g as usize] {
+            seen[g as usize] = true;
+            lv += 1;
+        }
+    }
+    assert_eq!(lv, 1, "132：全同值必须是'退化'（否则该判据无意义）");
+    assert!(lv < 8, "132：退化图案须落入门线之下（裸机据此判红）");
+
+    // ② 阴性对照：**演化出来的**场必须**不退化**（否则阳性对照会把正常路径也判红）
+    let (_f, _g, evolved_levels) = evolve_scene(2);
+    assert!(
+        evolved_levels >= 8,
+        "132：阴性对照失败 ⇒ 演化场自己就退化（levels={}）",
+        evolved_levels
+    );
+}
+
+/// 133／134：**退化出口机器化**（**R83**）的镜像 —— 分类器**必须**把三类退化各归其类，
+/// 且**正常描述必须归 `None`**（阴性对照）。
+///
+/// ⚠️ **镜像的边界（诚实写清）**：`classify_degenerate → 编号` 这一跳在 **boot 层**，
+/// **本机无法镜像**（需要 `bootloader_api::FrameBufferInfo`）⇒ 此处镜像的是**分类器语义**，
+/// 以及"**退化与通过可区分**"这条性质（分类结果非 `None` ⇔ 不会返 0）。
+#[test]
+fn mirror_present_133_134_degenerate_classifier_mirror() {
+    use meta_kernel_core_nostd::fb::{classify_degenerate, Degenerate, FbDesc};
+
+    // 133：帧缓冲不可用
+    assert_eq!(
+        classify_degenerate(0, 720, 1280, 3, 1 << 20, 9, 9),
+        Some(Degenerate::NoFramebuffer)
+    );
+    // 134：可视区过小（8×720 < 9×9 的宽要求）
+    assert_eq!(
+        classify_degenerate(8, 720, 8, 3, 1 << 20, 9, 9),
+        Some(Degenerate::ViewportTooSmall)
+    );
+    // 125（既有）：描述与缓冲矛盾
+    assert_eq!(
+        classify_degenerate(9, 9, 9, 3, 9 * 9 * 3 - 1, 9, 9),
+        Some(Degenerate::DescInconsistent)
+    );
+    // 阴性对照：QEMU 真实几何 ⇒ **不退化**（否则"永远判红"也能骗过测试）
+    let d = FbDesc::qemu_1280x720_bgr();
+    assert_eq!(
+        classify_degenerate(1280, 720, 1280, 3, d.min_len().expect("min_len"), 9, 9),
+        None,
+        "133/134：阴性对照失败 ⇒ 分类器在'永不退化'一侧失效"
+    );
+}

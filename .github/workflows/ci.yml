@@ -74,8 +74,8 @@ jobs:
         run: |
           set -o pipefail
           cargo test -p meta-kernel-core-nostd --test mirror_bare_assertions mirror_present -- --nocapture 2>&1 | tee present-mirror.log
-          grep -q "8 passed" present-mirror.log || { echo "::error::⑫ 段 host 镜像未全过（期望 8 passed）"; exit 1; }
-          # 机器断言：present 必须存在、必须声明为模块、**两条入口都必须真被 run() 调用**、八码齐备
+          grep -q "13 passed" present-mirror.log || { echo "::error::⑫ 段 host 镜像未全过（期望 13 passed：121–134）"; exit 1; }
+          # 机器断言：present 必须存在、必须声明为模块、**三条入口都必须真被 run() 调用**、十四码齐备
           test -f meta-kernel-boot/kernel/src/present.rs \
             || { echo "::error::present.rs 缺失"; exit 1; }
           grep -q "mod present;" meta-kernel-boot/kernel/src/main.rs \
@@ -84,9 +84,26 @@ jobs:
             || { echo "::error::⑫ 段【自检路径】未挂进 run（等于没跑）"; exit 1; }
           grep -q "present::present_product_selftest" meta-kernel-boot/kernel/src/main.rs \
             || { echo "::error::⑫ 段【product 路径】未挂进 run（产品入口 = never used）"; exit 1; }
+          grep -q "present::present_evolve_selftest" meta-kernel-boot/kernel/src/main.rs \
+            || { echo "::error::⑫ 段【场演化路径】未挂进 run（B 路径 = 静默空转）"; exit 1; }
           grep -q "present_field(buf, info" meta-kernel-boot/kernel/src/present.rs \
             || { echo "::error::product 自检没有真的调用 present_field（等于没接线）"; exit 1; }
-          for c in 121 122 123 124 125 126 127 128; do
+          # ★ 场演化链：**函数存在 ≠ 被调用** ⇒ **直查调用点**
+          grep -q "nca::evolve(" meta-kernel-boot/kernel/src/present.rs \
+            || { echo "::error::场演化入口没有真的调用 nca::evolve（恒等映射会骗过判据）"; exit 1; }
+          grep -q "rhythm_steps" meta-kernel-boot/kernel/src/main.rs \
+            || { echo "::error::场演化步数不是由三引擎节律导出（写死 ⇒ 与 Q11 口径脱钩）"; exit 1; }
+          # ★ R83：退化出口必须**机器化** —— 分类走纯算层 ＋ 退化必须返回**非零编号**
+          grep -q "classify_degenerate(" meta-kernel-boot/kernel/src/present.rs \
+            || { echo "::error::退化判定未走纯算层分类器（机制 21）"; exit 1; }
+          grep -q "return CODE_DEG_NO_FRAMEBUFFER" meta-kernel-boot/kernel/src/present.rs \
+            || { echo "::error::R83 回归：帧缓冲不可用未判红（会静默变绿）"; exit 1; }
+          grep -q "return CODE_DEG_VIEWPORT_TOO_SMALL" meta-kernel-boot/kernel/src/present.rs \
+            || { echo "::error::R83 回归：可视区过小未判红（会静默变绿）"; exit 1; }
+          if grep -q "不判红" meta-kernel-boot/kernel/src/present.rs; then
+            echo "::error::R83 回归：present.rs 仍写着'不判红'（退化出口未机器化）"; exit 1
+          fi
+          for c in 121 122 123 124 125 126 127 128 129 130 131 132 133 134; do
             grep -q "= $c;" meta-kernel-boot/kernel/src/present.rs \
               || { echo "::error::⑫ 段缺码 $c"; exit 1; }
           done

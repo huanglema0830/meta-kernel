@@ -334,6 +334,89 @@ pub fn step(
     cells
 }
 
+// ===================== 多步场演化（**纯算层**：B 路径「低维场演化产生图像」的第一段） =====================
+
+/// **确定性前向权重表（`const` 资产）** —— 供"**内核内可跑的场演化**"使用。
+///
+/// ## 为什么是写死的 `const`，而不是"训练出来的"
+/// 设计稿口径（`field.rs` 头注「明确**不做**」第 1 条）：**训练不在内核内**（E2／C1）
+/// ⇒ 内核只做**前向**，权重以 `const` 表进内核。本表是**手设的常量资产**，不是学习结果。
+///
+/// ## 公式（**写死、可复算**；与 [`NcaWeights`] 的四个矩阵一一对应）
+/// ```text
+/// 隐藏层（HIDDEN=16；只用前 CH=4 个单元，其余恒 0）：
+///     h_k = ReLU( S_k − 0.5·gx_k − 0.5·gy_k + b1_k )，b1_k = 0.1        （k ∈ 0..4）
+/// 输出层（CH=4）：
+///     ΔS_o = 0.10·h_o + 0.02·Σ_{k≠o} h_k + b2_o，b2_o = 0
+/// ```
+/// ⇒ **对角项（`0.10`）＝"各通道自增长"，非对角项（`0.02`）＝"通道间混合"**。
+/// ⚠️ **它只保证 `ΔS ≠ 0`**（否则演化退化成**恒等映射**、判据**空转**）；
+/// **不承诺**任何"好看的图像"（"好看"属**增义**，须另案裁定 —— D8「呈现不增义」）。
+///
+/// ⚠️ **值域**：本表**不做钳位**（`step` 不做、本表也不做）⇒ 演化会把 `S` **单调放大**；
+/// 调用方须**限制步数**（这正是 [`crate::field::rhythm_steps`] 的作用：`steps ∈ [1, base+1]`）。
+#[must_use]
+pub const fn forward_const_weights() -> NcaWeights {
+    let mut w = NcaWeights::zeroed();
+    let mut k = 0usize;
+    while k < CH {
+        // W1：S_k 正、Sobel x/y 负（≈ "锐化后的自响应"）
+        w.w1[k * PERCEPTION + k] = 1.0;
+        w.w1[k * PERCEPTION + CH + k] = -0.5;
+        w.w1[k * PERCEPTION + 2 * CH + k] = -0.5;
+        w.b1[k] = 0.1;
+        // W2：对角 0.10、非对角 0.02
+        let mut o = 0usize;
+        while o < CH {
+            w.w2[o * HIDDEN + k] = if o == k { 0.10 } else { 0.02 };
+            o += 1;
+        }
+        k += 1;
+    }
+    w
+}
+
+/// **多步确定性场演化**：连续跑 `steps` 次 [`step`]（双缓冲轮换 ⇒ **结果恒在 `a`**）。
+///
+/// ## 口径（写死，勿猜）
+/// - **结果恒在 `a`**：每步 `a → b` 后把 `b` **回写** `a` ⇒ 调用方**不必关心奇偶步**
+///   （代价＝每步一次 `copy_from_slice`；`steps ≤ base+1` 且格数小 ⇒ 可忽略）。
+/// - `steps == 0` ⇒ **不执行任何一步**、`a` 原样返回（返回 `0`）—— **不做隐式"至少一步"**。
+/// - 缓冲不足／`w*h == 0` ⇒ 返回 `0`（**不 panic**；由 [`step`] 的同款检查兜住）。
+/// - **确定性**：`mask_p` 与 `rng` 由调用方给定；判据场景一律 `mask_p = 0.0`（**不丢弃任何格**）。
+///
+/// **返回**：实际执行的步数（`0` ＝ 未执行，调用方**不得**当成"演化成功"）。
+#[allow(clippy::too_many_arguments)]
+pub fn evolve(
+    a: &mut [f32],
+    b: &mut [f32],
+    w: usize,
+    h: usize,
+    weights: &NcaWeights,
+    rng: &mut Xorshift32,
+    mask_p: f32,
+    percept: &mut [f32],
+    hidden: &mut [f32],
+    pool: &mut [f32],
+    alive: &mut [f32],
+    steps: u32,
+) -> u32 {
+    let cells = w * h;
+    if cells == 0 || a.len() < CH * cells || b.len() < CH * cells {
+        return 0;
+    }
+    let mut done = 0u32;
+    while done < steps {
+        let n = step(a, b, w, h, weights, rng, mask_p, percept, hidden, pool, alive);
+        if n != cells {
+            return done; // 中途被拒（缓冲不足）⇒ 如实返回已执行步数，不冒充
+        }
+        a[..CH * cells].copy_from_slice(&b[..CH * cells]);
+        done += 1;
+    }
+    done
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,6 +642,83 @@ mod tests {
         assert!(
             (0..CH * cells).any(|i| (dst[i] - src[i]).abs() > 1.0e-9),
             "mask_p=0 ⇒ 应全更新"
+        );
+    }
+
+    /// **`forward_const_weights` 的正反对照**：
+    /// ① **必须非零**（否则 `ΔS ≡ 0` ⇒ 演化＝恒等 ⇒ 判据**空转**，R83 同族）；
+    /// ② 对角项必须**严格大于**非对角项（"自增长"须强于"通道混合"，否则口径写反了）。
+    #[test]
+    fn const_weights_are_nonzero_and_diagonal_dominant() {
+        let w = forward_const_weights();
+        let nonzero = w.w1.iter().filter(|v| **v != 0.0).count() + w.w2.iter().filter(|v| **v != 0.0).count();
+        assert!(nonzero > 0, "权重全零 ⇒ 演化退化（判据空转）");
+        let mut k = 0usize;
+        while k < CH {
+            let diag = w.w2[k * HIDDEN + k];
+            let mut o = 0usize;
+            while o < CH {
+                if o != k {
+                    assert!(
+                        diag > w.w2[o * HIDDEN + k],
+                        "对角项必须严格大于非对角项（k={k} o={o}）"
+                    );
+                }
+                o += 1;
+            }
+            k += 1;
+        }
+        // 论文式初始化的对照：`paper_init` 的 `W2 == 0` ⇒ **恒等映射**（证明"非零"不是白给的）
+        let p = NcaWeights::paper_init(7);
+        assert!(p.w2.iter().all(|v| *v == 0.0), "paper_init 的 W2 应为 0（恒等起点）");
+    }
+
+    /// **`evolve` 的四条口径**（写死、可判）：`steps=0` ⇒ 恒等；`steps>0` ⇒ 场**真的变了**；
+    /// 结果**恒在 `a`**（与 `b` 的奇偶无关）；缓冲不足 ⇒ 返回 `0`（**不 panic**）。
+    #[test]
+    fn evolve_steps_identity_and_result_location() {
+        let (w, h) = (9usize, 9usize); // 2^3 + 1：守多重网格铁律
+        let cells = w * h;
+        let wt = forward_const_weights();
+        let mut percept = vec![0.0f32; perception_len(w, h)];
+        let mut hidden = vec![0.0f32; HIDDEN];
+        let mut pool = vec![0.0f32; cells];
+        let mut alive = vec![0.0f32; cells];
+        let init: Vec<f32> = (0..CH * cells).map(|i| (i % 7) as f32 * 0.1 + 0.2).collect();
+
+        // ① steps = 0 ⇒ 恒等（**不做隐式"至少一步"**）
+        let mut a = init.clone();
+        let mut b = vec![0.0f32; CH * cells];
+        let mut rng = Xorshift32::new(1);
+        let n0 = evolve(&mut a, &mut b, w, h, &wt, &mut rng, 0.0, &mut percept, &mut hidden, &mut pool, &mut alive, 0);
+        assert_eq!(n0, 0, "steps=0 必须返回 0");
+        assert_eq!(a, init, "steps=0 必须恒等");
+
+        // ② steps = 3 ⇒ 场真的变了（阳性对照）
+        let mut rng2 = Xorshift32::new(1);
+        let n3 = evolve(&mut a, &mut b, w, h, &wt, &mut rng2, 0.0, &mut percept, &mut hidden, &mut pool, &mut alive, 3);
+        assert_eq!(n3, 3, "应执行 3 步");
+        assert!(
+            a.iter().zip(init.iter()).any(|(x, y)| (x - y).abs() > 1.0e-6),
+            "3 步后场必须变化（否则演化是空转）"
+        );
+        assert!(a.iter().all(|v| v.is_finite()), "不得出现 NaN/Inf");
+
+        // ③ 结果**恒在 `a`**：同参重跑（结果应可复现 ⇒ 确定性）
+        let mut a2 = init.clone();
+        let mut b2 = vec![0.0f32; CH * cells];
+        let mut rng3 = Xorshift32::new(1);
+        evolve(&mut a2, &mut b2, w, h, &wt, &mut rng3, 0.0, &mut percept, &mut hidden, &mut pool, &mut alive, 3);
+        assert_eq!(a, a2, "同参必须同结果（E1 确定性）");
+
+        // ④ 缓冲不足 ⇒ 0（不 panic）
+        let mut small = vec![0.0f32; 8];
+        let mut small_b = vec![0.0f32; 8];
+        let mut rng4 = Xorshift32::new(1);
+        assert_eq!(
+            evolve(&mut small, &mut small_b, w, h, &wt, &mut rng4, 0.0, &mut percept, &mut hidden, &mut pool, &mut alive, 2),
+            0,
+            "缓冲不足 ⇒ 必须返回 0"
         );
     }
 }

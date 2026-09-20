@@ -25,6 +25,8 @@ mod verify;
 
 use bootloader_api::config::{BootloaderConfig, Mapping};
 use bootloader_api::{entry_point, BootInfo};
+use meta_kernel_core_nostd::energy::EnergyPool;
+use meta_kernel_core_nostd::field;
 use verify::Verdict;
 
 /// ⚠️ **内存门禁的前提**：不开这个映射，`BootInfo.physical_memory_offset` 就是 `None`，
@@ -50,7 +52,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 }
 
 /// 自检与门禁。**顺序不可调换**：内存门禁在算法自检之前；⑫ 段（帧缓冲写入：**自检路径 121–125
-/// ＋ product 路径 126–128**）在算法自检之前。
+/// ＋ product 路径 126–128 ＋ 场演化路径 129–132**）在算法自检之前。
 fn run(boot_info: &mut BootInfo) -> Verdict {
     // —— 内存门禁 + 分配往返 + 净零校验（拿不到堆区 ⇒ 黄屏停，不冒充成功） ——
     match mem::selftest(boot_info) {
@@ -81,6 +83,25 @@ fn run(boot_info: &mut BootInfo) -> Verdict {
         let info = fb.info();
         let buf = fb.buffer_mut();
         let r = present::present_product_selftest(buf, &info);
+        if r != 0 {
+            return Verdict::Fail(100 + r);
+        }
+    }
+    // —— ⑫ 段（**场演化路径**）：**B 路径「低维场演化产生图像」的小范围验证**（2026-09-20）——
+    // 与上一条的区别：那条的场是**静态**的（SDF 一帧），本条的场是**多步演化**出来的
+    // ⇒ 验的是"**场演化 → 投影 → 像素**"这条链**真的通**（**恒等映射骗不过去**：步数必须真走完）。
+    // **步数从哪来**：`field::rhythm_steps` —— 它 **import** `engine_select`（Q11 口径，**不重实现**，C19）
+    // 把"物态 → 引擎"映射成"本轮推进几步"，且 `steps ∈ [1, base+1]` ⇒ **永不为 0**
+    // （否则"不推进"会让判据**假绿**）。
+    // 同样被 `render()` 的整屏 `fill()` 覆盖 ⇒ **不改变绿/红判定**。
+    // 编号：129–132；经 `100 + n` 映射后，CI 上读作 **229–232**。
+    if let Some(fb) = boot_info.framebuffer.as_mut() {
+        let info = fb.info();
+        let buf = fb.buffer_mut();
+        // 节律：物态 → 引擎 → 步数（**纯算层**，不改场）。此处取 Liquid 物态（与 Q11 契约同款取值）。
+        let pool = EnergyPool { flow_in: 0.9, flow_out: 1.0, stored: 1.0 };
+        let (_engine, steps) = field::rhythm_steps(&pool, 0.5, 3);
+        let r = present::present_evolve_selftest(buf, &info, steps);
         if r != 0 {
             return Verdict::Fail(100 + r);
         }

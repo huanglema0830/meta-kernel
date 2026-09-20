@@ -163,6 +163,62 @@ impl FbDesc {
     }
 }
 
+// ===================== 边界层「退化出口」的**纯算分类**（机制 21 ＋ R83） =====================
+
+/// 边界层「**退化出口**」的种类（**机器可判**；三条入口见 `meta-kernel-boot/kernel/src/present.rs`）。
+///
+/// ★ **为什么这个类型在纯算层**（机制 21 执行体边界）：
+/// "**判定帧缓冲能否用来验**"只需**几个数**（宽／高／行距／`bpp`／缓冲长度）⇒ 属**纯算**；
+/// "**把 `bootloader_api::FrameBufferInfo` 取出来**"才是**边界动作**。
+/// ⇒ 判定在纯算层（**本机可 100% 单测**），桥接在 boot 层 —— **同一口径只实现一次**（C19）。
+///
+/// ★ **为什么"退化"必须与"通过"分开**（**R83**）：
+/// 旧写法里退化**返回 `0`**，而 `0` 又是"全过"的返回值 ⇒ **"没验到"与"验到了"同值**
+/// ⇒ 判据**静默变绿**（"漏挂＝静默空转"的同族病）。本类型把退化**显式分类**，
+/// 由边界层映射成**非零编号**（判红）⇒ **不许把"没验到"读成"验过了"**。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Degenerate {
+    /// 帧缓冲**不可用**：宽／高／行距为 `0`，或 `bpp` 越界（`0` 或 `> 4`）。
+    NoFramebuffer,
+    /// 可视区**过小**：放不下该入口所需的图案（`min_w × min_h`）。
+    ViewportTooSmall,
+    /// 描述与**真实缓冲**自相矛盾：`min_len` 超出 `buf_len`（或 `min_len` 溢出）。
+    DescInconsistent,
+}
+
+/// **机器可判**的退化分类：`None` ＝ **不退化**（可正常验）。
+///
+/// 参数**全为数值**（不依赖任何硬件类型）⇒ 纯算层可测、可镜像到 host；
+/// 判定顺序**写死**（与三条入口的语义一一对应）：
+/// **① 不可用 → ② 过小 → ③ 缓冲不足**（顺序影响归类 ⇒ 必须写死，不许留解释空间）。
+///
+/// - `min_w`／`min_h`：该入口所需的最小可视区（自检 `2×2`／product `4×4`／场演化 `9×9`）；
+/// - 缓冲检查**转调 [`FbDesc::check_buf`]**（**不重实现** ⇒ C19 同源）。
+///   ⚠️ `min_len` 只依赖 `stride_px`／`height`／`bpp`（**与 `format` 无关**），
+///   故此处用占位格式 `U8` 构造描述，**不影响结论**。
+#[must_use]
+pub fn classify_degenerate(
+    width: usize,
+    height: usize,
+    stride_px: usize,
+    bpp: usize,
+    buf_len: usize,
+    min_w: usize,
+    min_h: usize,
+) -> Option<Degenerate> {
+    if width == 0 || height == 0 || stride_px == 0 || bpp == 0 || bpp > 4 {
+        return Some(Degenerate::NoFramebuffer);
+    }
+    if width < min_w || height < min_h {
+        return Some(Degenerate::ViewportTooSmall);
+    }
+    let d = FbDesc::new(width, height, stride_px, bpp, FbFormat::U8);
+    match d.check_buf(buf_len) {
+        Ok(_) => None,
+        Err(_) => Some(Degenerate::DescInconsistent),
+    }
+}
+
 /// 半开区间矩形 `[x0, x1) × [y0, y1)`（**半开**是刻意选择：`x1 - x0` 直接等于宽度，免去 `+1` 类差一错误）。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Rect {
@@ -807,5 +863,72 @@ mod tests {
         assert_eq!(quantize_u8(-5.0), 0, "下越界被 clamp（不 wrap）");
         assert_eq!(quantize_u8(5.0), 255);
         assert_eq!(quantize_u8(0.5), 128);
+    }
+
+    /// **退化分类的正反对照**（R83）：每一类退化**必须**被归到**自己的**类别上，
+    /// 而**正常描述必须归 `None`**（阴性对照）—— 少了阴性对照，"永远返回退化"也能骗过测试。
+    #[test]
+    fn degenerate_classifier_positive_and_negative() {
+        // —— 阳性对照 ①：帧缓冲不可用（宽/高/行距为 0；bpp 越界）——
+        assert_eq!(
+            classify_degenerate(0, 720, 1280, 3, 1 << 20, 2, 2),
+            Some(Degenerate::NoFramebuffer)
+        );
+        assert_eq!(
+            classify_degenerate(1280, 0, 1280, 3, 1 << 20, 2, 2),
+            Some(Degenerate::NoFramebuffer)
+        );
+        assert_eq!(
+            classify_degenerate(1280, 720, 0, 3, 1 << 20, 2, 2),
+            Some(Degenerate::NoFramebuffer)
+        );
+        assert_eq!(
+            classify_degenerate(1280, 720, 1280, 0, 1 << 20, 2, 2),
+            Some(Degenerate::NoFramebuffer)
+        );
+        assert_eq!(
+            classify_degenerate(1280, 720, 1280, 5, 1 << 20, 2, 2),
+            Some(Degenerate::NoFramebuffer),
+            "bpp > 4 ⇒ 不可用"
+        );
+
+        // —— 阳性对照 ②：可视区过小（16×16 < 17×17；且**不可用**须优先于**过小**）——
+        assert_eq!(
+            classify_degenerate(16, 16, 16, 3, 1 << 20, 17, 17),
+            Some(Degenerate::ViewportTooSmall)
+        );
+        assert_eq!(
+            classify_degenerate(0, 16, 16, 3, 1 << 20, 17, 17),
+            Some(Degenerate::NoFramebuffer),
+            "顺序写死：不可用优先于过小"
+        );
+
+        // —— 阳性对照 ③：描述与缓冲自相矛盾（min_len = 16×16×3 = 768 > 767）——
+        assert_eq!(
+            classify_degenerate(16, 16, 16, 3, 767, 2, 2),
+            Some(Degenerate::DescInconsistent)
+        );
+        assert_eq!(
+            classify_degenerate(16, 16, 16, 3, 768, 2, 2),
+            None,
+            "恰好够 ⇒ 不退化（边界值钉死）"
+        );
+
+        // —— 阳性对照 ④：行距 > 宽（GOP 式对齐）必须按 **stride** 算需求（16×20×3 = 960）——
+        assert_eq!(
+            classify_degenerate(16, 16, 20, 3, 959, 2, 2),
+            Some(Degenerate::DescInconsistent),
+            "按 width 算会误判为够 ⇒ 必须按 stride_px"
+        );
+        assert_eq!(classify_degenerate(16, 16, 20, 3, 960, 2, 2), None);
+
+        // —— 阴性对照：QEMU 真实几何（1280×720 Bgr）＋ 足量缓冲 ⇒ 不退化 ——
+        let d = FbDesc::qemu_1280x720_bgr();
+        let need = d.min_len().expect("min_len");
+        assert_eq!(
+            classify_degenerate(1280, 720, 1280, 3, need, 9, 9),
+            None,
+            "阴性对照失败 ⇒ 分类器在'永不退化'一侧失效"
+        );
     }
 }
