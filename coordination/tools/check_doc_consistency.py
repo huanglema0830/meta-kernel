@@ -39,7 +39,8 @@ P4 · **模块数一致性（文档 ↔ 机器 · ★ 2026-09-20 **转判红**�
 ⑦ 夹具·模块数过期 ⇒ **判红**（P4；⑦a 一致不误报）；⑧ 夹具·段号源多文件 ⇒ 取全体最大（缺陷③）。
 ⑨ **C-02** 豁免词**只减不增**（现行词表无扩张；注入反例词 ⇒ 可判红）；
 ⑩ **C-03** **零陈述文档 ⇒ `NO_CLAIM`**（**与 `PASS` 不同值**；对照·含陈述 ⇒ `HAS_CLAIM`）；
-⑪ **C-04** **机器事实源退化 ⇒ 判红**（闭包源不可读 ⇒ `CLOSURE_EMPTY`；对照·源齐备 ⇒ 不报）。
+⑪ **C-04** **机器事实源退化 ⇒ 判红**（闭包源不可读 ⇒ `CLOSURE_EMPTY`；对照·源齐备 ⇒ 不报）；
+⑫ **C-01** **多文件同时过期 ⇒ 逐份点名**（2 份 ⇒ 两份都点名；对照·1 份 ⇒ 只点名 1 份）。
 
 【★ 2026-09-21 加固（C-02／C-03／C-04 · 用户裁定「合并为一次 P3」）】
 三条同属 **R83 家族**（**"退化／跳过／空转"必须与"通过"取不同值**）：
@@ -732,20 +733,49 @@ def selftest() -> int:
         fails.append("侧⑪ C-04 未按预期：e15=%s empty=%s e16=%s"
                      % (e15, s15.get("source_empty"), e16))
 
+    # 侧 ⑫（★ 2026-09-21 · **C-01**）：**多文件同时过期 ⇒ 逐份点名**。
+    #   病根（R83 同族）：若实现里存在"命中即 break／只取第一份"，多文件过期会**只报一份** ⇒
+    #   "部分生效"与"全生效"**取同值**（其余静默漏报）。本侧**正反对照**：
+    #     (a) 2 份同时过期 ⇒ 必须**两份都点名**；(b) 对照·只 1 份过期 ⇒ **只点名 1 份**。
+    (d / "coordination" / "A.md").write_text("# 夹具A\n\n裸机断言已到第 ⑧ 段。\n", encoding="utf-8")
+    (d / "coordination" / "B.md").write_text("# 夹具B\n\n裸机断言已到第 ⑨ 段。\n", encoding="utf-8")
+    _ok = d / "coordination" / "OK.md"
+    _ok_bak = d / "coordination" / "OK__bak.md"
+    _ok.rename(_ok_bak)                       # 暂移"第 ⑩ 段"夹具，避免它把最大段号抬到 ⑩
+    _e17, _s17 = check(d, verbose=False)
+    _p1 = [x for x in _e17 if "[P1" in x]
+    named = set()
+    for _x in _p1:
+        for _fn in ("A.md", "B.md"):
+            if _fn in _x:
+                named.add(_fn)
+    ok12a = (named == {"A.md", "B.md"})
+    (d / "coordination" / "B.md").unlink()    # 阴性对照：只留 1 份过期
+    _e18, _s18 = check(d, verbose=False)
+    _p1b = [x for x in _e18 if "[P1" in x]
+    ok12b = (len(_p1b) == 1) and ("A.md" in _p1b[0])
+    _ok_bak.rename(_ok)                       # 复原
+    (d / "coordination" / "A.md").unlink()
+    print("[侧⑫] C-01 多文件同时过期（a）2 份 ⇒ %s；（b）对照·1 份 ⇒ %s"
+          % ("✅ 逐份点名 %s" % sorted(named) if ok12a else "❌ 漏点名：%s" % sorted(named),
+             "✅ 只点名 1 份" if ok12b else "❌ 异常：%s" % [x[:60] for x in _p1b]))
+    if not (ok12a and ok12b):
+        fails.append("侧⑫ C-01 未按预期：named=%s p1b=%s" % (sorted(named), _p1b))
+
     print("\n" + "=" * 68)
     if fails:
         print("自检结论：❌ 失败 %d 项" % len(fails))
         for x in fails:
             print("  - %s" % x)
         return 1
-    print("自检结论：✅ 十一侧全部符合预期")
+    print("自检结论：✅ 十二侧全部符合预期")
     print("=" * 68)
     return 0
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="机制 25 · 文档一致性判据")
-    ap.add_argument("--selftest", action="store_true", help="自检（十一侧）")
+    ap.add_argument("--selftest", action="store_true", help="自检（十二侧）")
     ap.add_argument("--list", action="store_true", help="只列活跃陈述")
     ap.add_argument("--repo", default=".", help="仓库根")
     a = ap.parse_args()
