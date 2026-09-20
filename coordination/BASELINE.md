@@ -2442,7 +2442,7 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 - 改前＝改后：机制 27／C 21／T 36／§四 21／TERM 9 **全 ±0**；三表**连续、无缺号、无重号 OK**。
   （D/R 口径依既有脚本：D 行数 45、R 首格 46／全库唯一 47 —— 本轮**未编辑** D/R 行。）
 
-### 33.5 本轮改动清单（v0.274–v0.276）
+### 33.5 本轮改动清单（v0.274–v0.277）
 - `docs/FIELD_RENDER_SOURCELESS_DESIGN.md`（4(+)/4(-)）｜`coordination/security/basemap_hashes.txt`（1 行）｜`coordination/discussions/…第2批…md`（4 行）｜`…汇编合订本.md`（4 行）｜`coordination/BASELINE.md`（本节）｜**报告新增**：`2026-09-21_裁定登记_C05暂缓与阶段四验收动作.md`、`2026-09-21_docs时效核对稿_第六批.md`。
 
 ### 33.6 夜间持续任务（§四）
@@ -2466,7 +2466,7 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 | 下一次返回第 0 行含 9 步指令 | ✅ 三份新报告 P1/P2 全 PASS、泄漏 0 |
 
 ### 33.8 本轮待裁（4）
-① ★ **本轮 3 个新 commit（v0.274–v0.276）是否 push**（**推荐：放行**；机制 23 须当轮明示）。
+① ★ **本轮 4 个新 commit（v0.274–v0.277）是否 push**（**推荐：放行**；机制 23 须当轮明示）。
 ② ★ **`docs` 第六批 8 处"应改为"是否落地**（F-1～F-5 建议**加锚**；F-6/F-7 建议**加锚＋列待核**；F-8 建议**补锚或扩后记**）—— **改底图须授权**；**推荐：落地**。
 ③ **H-1／H-2 两处待核**是否本轮取证（**推荐：下一轮**）。
 ④ **`advisor_brief` 复扫**是否再跑（本轮**未跑** —— 6.1/5.3 已连续两轮无新增 ⇒ **推荐：暂缓**，改为触发式）。
