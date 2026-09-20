@@ -37,6 +37,19 @@ P4 · **模块数一致性（文档 ↔ 机器 · ★ 2026-09-20 **转判红**�
 ③ 夹具·一致文档 ⇒ 不判红；④ 夹具·段号落后 ⇒ 判红；⑤ 夹具·收口却说剩余 ⇒ 判红；
 ⑥ 夹具·未收口却说已收口 ⇒ 判红（P2b 反向侧）；
 ⑦ 夹具·模块数过期 ⇒ **判红**（P4；⑦a 一致不误报）；⑧ 夹具·段号源多文件 ⇒ 取全体最大（缺陷③）。
+⑨ **C-02** 豁免词**只减不增**（现行词表无扩张；注入反例词 ⇒ 可判红）；
+⑩ **C-03** **零陈述文档 ⇒ `NO_CLAIM`**（**与 `PASS` 不同值**；对照·含陈述 ⇒ `HAS_CLAIM`）；
+⑪ **C-04** **机器事实源退化 ⇒ 判红**（闭包源不可读 ⇒ `CLOSURE_EMPTY`；对照·源齐备 ⇒ 不报）。
+
+【★ 2026-09-21 加固（C-02／C-03／C-04 · 用户裁定「合并为一次 P3」）】
+三条同属 **R83 家族**（**"退化／跳过／空转"必须与"通过"取不同值**）：
+  · **C-02「豁免词只减不增」**：豁免词是本判据的**弱化旋钮**（加一个常用词即可让一批过期陈述免检）
+    ⇒ 用 `HISTORY_MARKS_BASELINE` 冻结，判据＝**子集**判定（只许减、不许增）。
+  · **C-03「零陈述 ⇒ NO_CLAIM」**：文档一条活跃陈述都没有时，"**没被检查**"与"**检查通过**"
+    **取同值** ⇒ 假绿；现标为 **`NO_CLAIM`**（独立取值，**不并入 errors**）。
+  · **C-04「机器事实源退化 ⇒ 判红」**：段号源空／闭包源不可读时，P1–P4 会**静默跳过**
+    ⇒ 与"通过"同值；现**判红**并打 `SEG_EMPTY`／`CLOSURE_EMPTY` 标记。
+  · **范围**：只改**本判据脚本**；**未改任何治理文件**（`TEMPLATES.md` 等一律未动）。
 
 【★ 口径同源（C18 · R79 修复）】
 本判据的"机器事实·迁移收口"**直接 import** `check_migration_closure.py::modules()`，
@@ -82,6 +95,19 @@ TGT_DIR = "meta-kernel-core-nostd/src"
 HISTORY_MARKS = ["修订前", "改前", "原为", "原文", "已处置", "已修订", "订正",
                  "引述", "当时", "历史", "~~"]
 # 例外：含"原文"但同时是活跃陈述？—— 保守起见，一律按历史留痕处理。
+
+# ★ **C-02（2026-09-21 加固）· 豁免词「只减不增」**
+#   病根：豁免词是本判据的**弱化旋钮** —— 往里加一个常用词（如「计划」）即可让**一批过期陈述
+#   静默免检**（≡ 弱化判据，与 C13「弱化判据即为破戒」同族）。
+#   口径：**允许删（更严）、禁止增** —— 判据＝`set(HISTORY_MARKS) ⊆ HISTORY_MARKS_BASELINE`。
+#   **本基线一旦锁定，只许缩小、不许扩大**；要扩大须**明示裁定**并同步改本常量与自检侧。
+HISTORY_MARKS_BASELINE = frozenset(["修订前", "改前", "原为", "原文", "已处置", "已修订",
+                                    "订正", "引述", "当时", "历史", "~~"])
+
+
+def history_marks_expansion(marks):
+    """C-02 纯函数：返回**超出基线**的豁免词（空 ⇒ 合规）。便于自检注入对照。"""
+    return sorted(set(marks) - set(HISTORY_MARKS_BASELINE))
 
 CIRC = [chr(0x2460 + i) for i in range(20)]        # ①..⑳
 CIRC_MAP = {c: i + 1 for i, c in enumerate(CIRC)}
@@ -246,6 +272,14 @@ def check(repo: Path, verbose=True):
     errors = []
     stats = {}
 
+    # ---- ★ C-02（2026-09-21）：豁免词「只减不增」----
+    extra_marks = history_marks_expansion(HISTORY_MARKS)
+    stats["history_marks_extra"] = extra_marks
+    stats["history_marks_n"] = len(HISTORY_MARKS)
+    if extra_marks:
+        errors.append("[C-02 豁免词扩张] 历史豁免词**新增** %s ⇒ 判据被**静默弱化**"
+                      "（口径：只许减、不许增）" % extra_marks)
+
     # ---- 锚点自检（C18 第 ①② 侧）----
     targets = scan_targets(repo)
     stats["target_files"] = len(targets)
@@ -256,44 +290,76 @@ def check(repo: Path, verbose=True):
     stats["machine_max_seg"] = mx
     stats["machine_seg_titles"] = cnt
     stats["machine_seg_sources"] = seg_srcs
+    src_empty = []
     if mx is None:
-        errors.append("[锚点] %s 下未解析到任何段号 —— 机器事实源不可读（判据空转）" % BOOT_KERNEL_SRC)
+        # ★ C-04（2026-09-21）：**退化必须与「通过」取不同值**（R83／R68 同族）
+        errors.append("[C-04 退化·段号源空] %s 下未解析到任何段号 —— 机器事实源不可读；"
+                      "本态**不得与「通过」同值**（判据空转 ⇒ 假绿）" % BOOT_KERNEL_SRC)
+        src_empty.append("SEG_EMPTY")
     elif cnt < 5:
         errors.append("[锚点] %s 下仅解析到 %d 处段号（期望 >=5）—— 疑似解析式失效" % (BOOT_KERNEL_SRC, cnt))
+        src_empty.append("SEG_THIN")
 
     closed, sn, tn, rest = machine_is_closed(repo)
     stats["src_modules"] = sn
     stats["tgt_modules"] = tn
     stats["rest_modules"] = rest
+    if closed is None:
+        # ★ C-04：闭包源不可读时，P2a／P2b／P4 会**静默跳过** ⇒ 与「通过」同值（R83 病象）
+        errors.append("[C-04 退化·闭包源不可读] 源/目标 crate 或其枚举不可用 ⇒ P2a／P2b／P4 将**静默跳过**；"
+                      "本态**不得与「通过」同值**（判据空转 ⇒ 假绿）")
+        src_empty.append("CLOSURE_EMPTY")
+    stats["source_empty"] = src_empty
 
     # ---- 逐文件收集活跃陈述 ----
     per_file_seg = {}      # file -> [(lineno, seg)]
     per_file_remain = {}   # file -> [(lineno, text)]
     per_file_done = {}     # file -> [(lineno, text)]
     per_file_mod = {}      # file -> [(lineno, kind, value)]  （P4 用）
+    rel_claims = {}        # file -> 活跃断言**条数**（★ C-03：0 ⇒ NO_CLAIM，与 PASS 不同值）
 
     for f in targets:
+        rel = str(f.relative_to(repo)).replace("\\", "/")
+        rel_claims.setdefault(rel, 0)
         try:
             lines = io.open(f, encoding="utf-8", errors="replace").read().split("\n")
         except OSError:
-            continue
-        rel = str(f.relative_to(repo)).replace("\\", "/")
+            continue                      # 读不到 ⇒ 保持 0（C-03 会把它标为 NO_CLAIM）
         _HIST_LINES.clear()
         _HIST_LINES.update(history_table_lines(lines))   # ★ 表格级历史豁免（逐文件重算）
+        c = 0
         for i, l in enumerate(lines, 1):
             if not _active_at(lines, i):
                 continue
             for s in circ_of(l):
                 per_file_seg.setdefault(rel, []).append((i, s))
+                c += 1
             if RE_REMAIN.search(l):
                 per_file_remain.setdefault(rel, []).append((i, l.strip()[:120]))
+                c += 1
             if RE_DONE.search(l):
                 per_file_done.setdefault(rel, []).append((i, l.strip()[:120]))
+                c += 1
+            n_mod = 0
             for mm in RE_MOD_SRC.finditer(l):
                 per_file_mod.setdefault(rel, []).append((i, "源", int(mm.group(1))))
                 per_file_mod.setdefault(rel, []).append((i, "目标", int(mm.group(2))))
+                n_mod += 2
             for mm in RE_MOD_TGT.finditer(l):
                 per_file_mod.setdefault(rel, []).append((i, "目标", int(mm.group(1))))
+                n_mod += 1
+            c += n_mod
+        rel_claims[rel] = rel_claims.get(rel, 0) + c
+
+    # ---- ★ C-03（2026-09-21）：**零陈述文档 ⇒ NO_CLAIM**（独立取值，≠ PASS）----
+    #   病根（R83 同族）：文档一条活跃陈述都没有时，P1/P2/P3/P4 **全部无事可做** ⇒
+    #   「**该文档根本没被检查**」与「**该文档检查通过**」**取同值**（假绿）。
+    #   处置：把它标成 **NO_CLAIM**（**与 PASS 不同值**），在 stats 与输出里**单列**。
+    #   ⚠️ 本项**不改判红策略**（NO_CLAIM 不并入 errors）—— 它只负责"**可区分**"。
+    no_claim = sorted(rel for rel, c in rel_claims.items() if c == 0)
+    stats["no_claim_files"] = no_claim
+    stats["verdicts"] = {rel: ("NO_CLAIM" if c == 0 else "HAS_CLAIM")
+                         for rel, c in sorted(rel_claims.items())}
 
     stats["active_mod_claims"] = sum(len(v) for v in per_file_mod.values())
 
@@ -388,6 +454,11 @@ def check(repo: Path, verbose=True):
         print("机制 25 · 文档一致性判据")
         print("=" * 68)
         print("扫描范围      ：%d 份（coordination 顶层 + README + docs/*.md）" % stats["target_files"])
+        print("豁免词（C-02） ：%d 条（基线 %d，**只减不增**）｜超出基线的新增：%s"
+              % (stats.get("history_marks_n", 0), len(HISTORY_MARKS_BASELINE),
+                 stats.get("history_marks_extra") or "无"))
+        if stats.get("source_empty"):
+            print("退化标记（C-04）：%s ⇒ **本态与「通过」不同值**" % stats["source_empty"])
         print("机器·最大段号 ：%s（段号 %d 处，来源 %s 下 %d 份 .rs）"
               % (CIRC[mx - 1] if mx else "解析失败", cnt, BOOT_KERNEL_SRC, len(seg_srcs)))
         for rel, fm, n in seg_srcs:
@@ -406,6 +477,12 @@ def check(repo: Path, verbose=True):
             print("    · %s 行%d  %s" % (rel, i, t))
         if len(_mix) > 8:
             print("    · …（其余 %d 行略）" % (len(_mix) - 8))
+        _nc = stats.get("no_claim_files") or []
+        print("NO_CLAIM 文档（C-03 · 零活跃陈述 ⇒ **与 PASS 不同值**）：%d 份" % len(_nc))
+        for rel in _nc[:8]:
+            print("    · %s" % rel)
+        if len(_nc) > 8:
+            print("    · …（其余 %d 份略）" % (len(_nc) - 8))
         for rel, vals in sorted(per_file_seg.items()):
             print("    %-32s %s（max=第 %s 段）"
                   % (rel, [CIRC[s - 1] for s in sorted(set(v for _, v in vals))], CIRC[max(v for _, v in vals) - 1]))
@@ -611,20 +688,64 @@ def selftest() -> int:
         print("      ⚠️ **本项只观测、不判红**：混合行仍按「历史留痕」豁免 ——")
         print("         这是**已知盲区**（R82／R83 家族），现改为**可数**；是否判红留待裁定。")
 
+    # 侧 ⑨（★ 2026-09-21 加固 · **C-02**）：豁免词**只减不增**（正反对照）
+    exp_now = history_marks_expansion(HISTORY_MARKS)
+    exp_bad = history_marks_expansion(list(HISTORY_MARKS) + ["计划"])
+    ok9 = (exp_now == []) and ("计划" in exp_bad)
+    print("[侧⑨] C-02 豁免词（a）现行词表 ⇒ %s；（b）注入反例词 ⇒ %s"
+          % ("✅ 无扩张（合规）" if exp_now == [] else "❌ 已扩张：%s" % exp_now,
+             "✅ 可判红" if "计划" in exp_bad else "❌ 未检出"))
+    if not ok9:
+        fails.append("侧⑨ C-02 未按预期：now=%s bad=%s" % (exp_now, exp_bad))
+
+    # 侧 ⑩（★ C-03）：**零陈述文档 ⇒ NO_CLAIM**（**与 PASS 不同值**）＋ 对照·含陈述 ⇒ HAS_CLAIM
+    (d / "coordination" / "OK.md").write_text(
+        "# 夹具·零陈述\n\n这是一段**没有任何**段号／模块数／剩余断言的正文。\n", encoding="utf-8")
+    _e13, s13 = check(d, verbose=False)
+    nc13 = s13.get("no_claim_files") or []
+    v13 = s13.get("verdicts") or {}
+    ok10a = any(r.endswith("OK.md") for r in nc13) and v13.get("coordination/OK.md") == "NO_CLAIM"
+    (d / "coordination" / "OK.md").write_text(
+        "# 夹具·有陈述\n\n裸机断言已到第 ⑩ 段。\n", encoding="utf-8")
+    _e14, s14 = check(d, verbose=False)
+    v14 = s14.get("verdicts") or {}
+    ok10b = v14.get("coordination/OK.md") == "HAS_CLAIM"
+    print("[侧⑩] C-03 零陈述 ⇒ %s（**NO_CLAIM ≠ PASS**）；对照·含陈述 ⇒ %s"
+          % ("✅ 标为 NO_CLAIM" if ok10a else "❌ 未标 NO_CLAIM",
+             "✅ 标为 HAS_CLAIM" if ok10b else "❌ 仍标 NO_CLAIM"))
+    if not (ok10a and ok10b):
+        fails.append("侧⑩ C-03 未按预期：nc=%s v13=%s v14=%s" % (nc13, v13, v14))
+
+    # 侧 ⑪（★ C-04）：**机器事实源退化 ⇒ 判红**（不得与「通过」同值；R83／R68 同族）
+    _tgt = d / TGT_DIR
+    _bak = d / (TGT_DIR + "__bak")
+    _tgt.rename(_bak)                                   # 令闭包源不可读
+    e15, s15 = check(d, verbose=False)
+    ok11a = any("C-04" in x for x in e15) and ("CLOSURE_EMPTY" in (s15.get("source_empty") or []))
+    _bak.rename(_tgt)                                   # 复原
+    e16, _s16 = check(d, verbose=False)
+    ok11b = not any("C-04" in x for x in e16)
+    print("[侧⑪] C-04 退化（a）闭包源不可读 ⇒ %s；（b）对照·源齐备 ⇒ %s"
+          % ("✅ 判红且标 CLOSURE_EMPTY" if ok11a else "❌ 未判红（假绿）",
+             "✅ 不报 C-04" if ok11b else "❌ 误报"))
+    if not (ok11a and ok11b):
+        fails.append("侧⑪ C-04 未按预期：e15=%s empty=%s e16=%s"
+                     % (e15, s15.get("source_empty"), e16))
+
     print("\n" + "=" * 68)
     if fails:
         print("自检结论：❌ 失败 %d 项" % len(fails))
         for x in fails:
             print("  - %s" % x)
         return 1
-    print("自检结论：✅ 八侧全部符合预期")
+    print("自检结论：✅ 十一侧全部符合预期")
     print("=" * 68)
     return 0
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="机制 25 · 文档一致性判据")
-    ap.add_argument("--selftest", action="store_true", help="自检（八侧）")
+    ap.add_argument("--selftest", action="store_true", help="自检（十一侧）")
     ap.add_argument("--list", action="store_true", help="只列活跃陈述")
     ap.add_argument("--repo", default=".", help="仓库根")
     a = ap.parse_args()
