@@ -79,7 +79,7 @@
 - `host/sky-browser/shaders/preprocess.wgsl`：**Stage 1** 场域元素 → 高斯泼溅 2D 参数
   （`Σ' = J·W·Σ·Wᵀ·Jᵀ` 三阶段标准式；Gabor 各向异性尺度；颜色由 `θ+ψ` 决定色相）
 - `host/sky-browser/shaders/render.wgsl`：**Stage 3** 屏幕空间四边形 + `exp(-2r²)` 高斯衰减
-- 两文件为**设计骨架**（尚未接入 wgpu；第二阶段实现时编译验证）
+- 两文件为**设计骨架**（尚未接入 wgpu；第二阶段实现时编译验证）**（★ 2026-09-21 加锚：「第二阶段实现时编译验证」**已过期** —— 第二阶段（呈现器）＋第三阶段（宿主）**已完成**（`host/field-render` wgpu 独立管线 ＋ CI 验收）；两文件本身是否已接入 `host/field-render`（现仅 `shaders/sort.wgsl`）**待核**；本行原句未改）**
 
 ---
 
