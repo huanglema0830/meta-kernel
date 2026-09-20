@@ -21,6 +21,13 @@
 //! - ❌ **不做双缓冲**（当前分配器单帧上限 4 KiB，1280×720×3 ＝ 2.64 MiB，给不出来）。
 //! - ❌ **不做任何"美化"**（D8：呈现＝内核状态的直接投影；无 gamma／无锐化／无调色）。
 //!
+//! ## 本文件的两条入口（★ 2026-09-20 起：product 路径接线）
+//! | 入口 | 编号（裸机→CI） | 走不走 `present_field` | 用途 |
+//! |---|---|---|---|
+//! | [`present_selfcheck`] | **121–125** → 221–225 | ❌ 否（写死 2×2 图案） | 验**桥接与写入**（`FrameBufferInfo` → `FbDesc` → 字节） |
+//! | [`present_product_selftest`] | **126–128** → 226–228 | ✅ **是**（真调产品入口） | 验 **product 路径真的通**（2.4 接线） |
+//! 两条都**回读校验**；**缺任一条** ⇒ "桥接正确"与"产品路径可用"就分不清（**漏挂 = 静默空转**）。
+//!
 //! ## ⚠️ 诚实标注（C5：本机不可验证）
 //! **本机无 MSVC 库／`clang`／`lld` ⇒ boot 层连 `cargo check` 都跑不起来**（实测，见 `reports/`）。
 //! ⇒ 本文件**只能由 CI 的 `boot-image` job（QEMU 真实引导）验证**；
@@ -29,6 +36,7 @@
 
 use bootloader_api::info::{FrameBufferInfo, PixelFormat};
 use meta_kernel_core_nostd::fb::{self, FbDesc, FbFormat, Rgb24};
+use meta_kernel_core_nostd::field::sdf;
 use meta_kernel_core_nostd::project::{self, ProjectSpec};
 
 /// ⑫ 段自检编号的**基准**（`main.rs` 经 `100 + n` 映射后，CI 上读作 **221–225**）。
@@ -41,6 +49,14 @@ pub const CODE_PROJECT_INVALID: u8 = 123;
 pub const CODE_FORMAT_UNSUPPORTED: u8 = 124;
 /// `FbDesc` 与真实缓冲**自相矛盾**（`min_len` 超出 `buf.len()`）。
 pub const CODE_DESC_INCONSISTENT: u8 = 125;
+
+/// **product 路径**自检编号的**基准**（`main.rs` 经 `100 + n` 映射后，CI 上读作 **226–228**）。
+/// （121–125 是 ⑫ 段的**自检路径**编号；126–128 是**产品路径**编号 —— 两段分开，便于定位。）
+pub const CODE_PRODUCT_NOT_WRITTEN: u8 = 126;
+/// product 路径**回读不一致**（`present_field` 写进去的字节，读回来对不上）。
+pub const CODE_PRODUCT_MISMATCH: u8 = 127;
+/// product 路径的**场源／投影出口非法**（SDF 采样不足 或 投影为空）。
+pub const CODE_PRODUCT_EMPTY: u8 = 128;
 
 /// **`FrameBufferInfo` → `FbDesc`**（本层**唯一**的桥接点）。
 ///
@@ -216,6 +232,103 @@ pub fn present_selfcheck(buf: &mut [u8], info: &FrameBufferInfo) -> u8 {
             }
             k += 1;
         }
+    }
+
+    0
+}
+
+/// **product 路径自检**：**真的把 [`present_field`]（产品入口）跑一遍**，并回读校验。
+///
+/// ## 为什么需要它（= 2.4「product 路径接线」）
+/// [`present_selfcheck`]（121–125）验的是**一块写死的 2×2 图案** —— 它证明"桥接与写入正确"，
+/// 但**不经过 `present_field`** ⇒ **产品入口此前在裸机上从未被调用过**
+/// （编译期 `function present_field is never used` 警告即是证据，见 `reports/`）。
+/// ⇒ 本函数把 **`present_field` 挂进真实调用路径**：场 → `Project(S)` → 真实帧缓冲，
+/// 并**回读校验**（返回值只能证明"没被拒绝"，证不了"字节真落在那块内存上"）。
+///
+/// ## 场从哪来（D8：**呈现 ＝ 内核状态的直接投影 —— 界面就是它自己**）
+/// 场源 ＝ **纯算层 `field::sdf`** 对**帧缓冲几何**（`info.width/height`）采样得到的圆盘 SDF：
+/// 圆心／半径**由显示几何导出** ⇒ 投影像**确实是"当前状态"的函数**，而非写死图案。
+/// ⚠️ **诚实标注**：这是 2.4 阶段的**最小 product 路径**；下一步（2.4 × L6 集成）
+/// 将把场源换成**场演化产生的图像**（B 路径 / NCA），**本函数的接线与校验形态不变**。
+///
+/// ## 判据（逐条）
+/// - `present_field` 返回的**写入数须 == `w*h`**，否则 [`CODE_PRODUCT_NOT_WRITTEN`]；
+/// - 回读须与 `fb::encode` 的**期望字节逐字节相等**，否则 [`CODE_PRODUCT_MISMATCH`]；
+/// - 场采样／投影长度为 0 ⇒ [`CODE_PRODUCT_EMPTY`]。
+///
+/// ⚠️ **退化路径（显式）**：帧缓冲不可用／可视区小于 4×4 ⇒ 返回 `0`（**不判红**）
+/// ＋ 由调用方如实标注"本轮未真正验到"。**不假装验过。**
+/// ⚠️ **回读适用边界**：同 [`present_selfcheck`] —— **仅在 QEMU 成立**
+/// （真实硬件 WC 显存回读可能拿到陈旧值）。
+#[must_use]
+pub fn present_product_selftest(buf: &mut [u8], info: &FrameBufferInfo) -> u8 {
+    let Some(d) = desc_from_info(info) else {
+        return 0; // 退化：帧缓冲不可用
+    };
+    // 图案尺寸：16×16，但**不得越出真实可视区**（`offset_of` 在 x≥width 时返回 None）
+    let w = if info.width < 16 { info.width } else { 16 };
+    let h = if info.height < 16 { info.height } else { 16 };
+    if w < 4 || h < 4 {
+        return 0; // 退化：太小，放不下有意义的图案
+    }
+    match desc_min_len(&d) {
+        Some(n) if n <= buf.len() => {}
+        _ => return CODE_DESC_INCONSISTENT,
+    }
+
+    // —— 场源：纯算层 SDF，参数由**帧缓冲几何**导出（D8：状态 → 像素）——
+    let mut field = [0.0f32; 256];
+    let cells = w * h;
+    let cx = (w as f32 - 1.0) * 0.5;
+    let cy = (h as f32 - 1.0) * 0.5;
+    let r = (if w < h { w } else { h }) as f32 * 0.5 - 1.0;
+    let n = sdf::sample_into(|x, y| sdf::circle(cx, cy, r, x, y), w, h, &mut field[..cells]);
+    if n != cells {
+        return CODE_PRODUCT_EMPTY;
+    }
+    let spec = match ProjectSpec::new(w, h, -r, r) {
+        Some(s) => s,
+        None => return CODE_PROJECT_INVALID,
+    };
+
+    // —— ★ product 路径：**调用 `present_field`（本函数真被 `run()` 调用 ⇒ 产品入口已接线）** ——
+    let written = present_field(buf, info, &field[..cells], &spec);
+    if written != cells {
+        return CODE_PRODUCT_NOT_WRITTEN;
+    }
+
+    // —— 回读：与 `fb::encode` 的期望字节逐字节比对（**期望值从被测物推导，不手写**，D40／C19）——
+    let gray = project::project_gray_u8(&field[..cells], &spec);
+    if gray.len() != cells {
+        return CODE_PRODUCT_EMPTY;
+    }
+    let mut i = 0usize;
+    while i < cells {
+        let x = i % w;
+        let y = i / w;
+        let g = gray[i];
+        let (bytes, bn) = fb::encode(&d, Rgb24::new(g, g, g));
+        if bn == 0 {
+            return CODE_FORMAT_UNSUPPORTED;
+        }
+        let Some(off) = d.offset_of(x, y) else {
+            return CODE_PRODUCT_MISMATCH;
+        };
+        let Some(end) = off.checked_add(bn) else {
+            return CODE_PRODUCT_MISMATCH;
+        };
+        if end > buf.len() {
+            return CODE_PRODUCT_MISMATCH;
+        }
+        let mut k = 0usize;
+        while k < bn {
+            if buf[off + k] != bytes[k] {
+                return CODE_PRODUCT_MISMATCH;
+            }
+            k += 1;
+        }
+        i += 1;
     }
 
     0

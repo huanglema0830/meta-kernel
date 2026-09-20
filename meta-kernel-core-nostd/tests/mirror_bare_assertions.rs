@@ -632,3 +632,118 @@ fn mirror_present_125_desc_inconsistent_detected() {
     // 与 `present.rs` 的守卫同式：`min_len <= buf.len()` 不成立 ⇒ 判 125（**不写半截**）
     assert!(need > small.len(), "125：该场景必须落入'缓冲不足'分支");
 }
+
+// ---------------------------------------------------------------------------
+// ★ 2026-09-20 · **2.4 product 路径接线**的 host 镜像（126–128）
+//
+// `present.rs::present_product_selftest` 的**逻辑本体** ＝「纯算层 SDF 采样 → `Project(S)` →
+// 按 `put_pixel` 写入 → 回读逐字节比对」。这几步**全在 `nostd` 侧** ⇒ **可在 host 上原样镜像**
+// （boot 层本机不可构建，理由见上面 ⑫ 段镜像的头注）。
+// ⚠️ 镜像**不替代 QEMU**：真实 `stride`/`bpp`/`pixel_format` 仍只能由 bootloader 给出。
+// ---------------------------------------------------------------------------
+
+/// 126：**product 路径往返** —— SDF 场 → 投影 → 写入 → 回读，逐字节一致；
+/// 且**图案非退化**（多种灰度）—— 否则"全同色"会让偏移/字节序错误**无法暴露**（阳性对照）。
+#[test]
+fn mirror_present_126_product_roundtrip() {
+    use meta_kernel_core_nostd::fb::{encode, put_pixel, FbDesc, FbFormat, Rgb24};
+    use meta_kernel_core_nostd::field::sdf;
+    use meta_kernel_core_nostd::project::{project_gray_u8, ProjectSpec};
+
+    // 与裸机同参：16×16 视区 ＋ **行距 > 宽**（刻意制造行间填充，钉死"步进用 stride_px"）
+    let w = 16usize;
+    let h = 16usize;
+    let d = FbDesc::new(w, h, w + 4, 3, FbFormat::Bgr);
+    let mut buf = vec![0u8; d.min_len().expect("min_len")];
+
+    // —— 场源：与 `present_product_selftest` **同一式**（几何导出的圆盘 SDF）——
+    let cx = (w as f32 - 1.0) * 0.5;
+    let cy = (h as f32 - 1.0) * 0.5;
+    let r = (if w < h { w } else { h }) as f32 * 0.5 - 1.0;
+    let mut field = [0.0f32; 256];
+    let cells = w * h;
+    let n = sdf::sample_into(|x, y| sdf::circle(cx, cy, r, x, y), w, h, &mut field[..cells]);
+    assert_eq!(n, cells, "126：SDF 采样数");
+
+    let spec = ProjectSpec::new(w, h, -r, r).expect("spec");
+    let gray = project_gray_u8(&field[..cells], &spec);
+    assert_eq!(gray.len(), cells, "126：投影长度");
+
+    // **阳性对照**：图案必须**非退化**（多种灰度）
+    let mut uniq = gray.clone();
+    uniq.sort_unstable();
+    uniq.dedup();
+    println!(
+        "[诊断] 126 product 灰度种类 = {} / min = {} / max = {}",
+        uniq.len(),
+        gray.iter().min().unwrap(),
+        gray.iter().max().unwrap()
+    );
+    assert!(uniq.len() >= 8, "126：图案退化（灰度种类 {} < 8）⇒ 判据会空转", uniq.len());
+
+    // —— 写入（与 `present_field` **同一套循环**）——
+    let mut written = 0usize;
+    for i in 0..cells {
+        let (x, y) = (i % w, i / w);
+        let g = gray[i];
+        if put_pixel(&mut buf, &d, x, y, Rgb24::new(g, g, g)) {
+            written += 1;
+        }
+    }
+    assert_eq!(written, cells, "126：写入像素数（不足 ⇒ 裸机返回 126）");
+
+    // —— 回读：与 `encode` 的期望字节逐字节比对（期望值从被测物推导，D40/C19）——
+    for i in 0..cells {
+        let (x, y) = (i % w, i / w);
+        let g = gray[i];
+        let (bytes, bn) = encode(&d, Rgb24::new(g, g, g));
+        assert_eq!(bn, 3, "Bgr 应为 3 字节");
+        let off = d.offset_of(x, y).expect("offset");
+        assert_eq!(&buf[off..off + bn], &bytes[..bn], "127：({},{}) 回读与期望不符", x, y);
+    }
+
+    // 行间填充**逐字节未被触碰**（区间由 `FbDesc` 现算，不写死魔数）
+    let row_bytes = d.stride_px * d.bpp;
+    let visible_bytes = d.width * d.bpp;
+    assert_eq!(row_bytes - visible_bytes, 12);
+    for row in 0..d.height {
+        let pad = &buf[row * row_bytes + visible_bytes..(row + 1) * row_bytes];
+        assert!(pad.iter().all(|&b| b == 0), "126：第 {} 行填充被踩（偏移用错 width）", row);
+    }
+}
+
+/// 127：**阳性对照** —— 故意篡改 product 路径写入的一个字节 ⇒ 回读比对**必须**发现。
+#[test]
+fn mirror_present_127_product_mismatch_detected() {
+    use meta_kernel_core_nostd::fb::{encode, put_pixel, FbDesc, FbFormat, Rgb24};
+
+    let d = FbDesc::new(4, 4, 4, 3, FbFormat::Rgb);
+    let mut buf = vec![0u8; d.min_len().expect("min_len")];
+    assert!(put_pixel(&mut buf, &d, 1, 1, Rgb24::new(0x11, 0x22, 0x33)));
+    // ⚠️ 比对偏移必须**由 `FbDesc` 现算**（本用例写 (1,1) ⇒ off = (1*4+1)*3 = 15，**不是 0**）
+    //    —— 首版误用 `buf[..n]`（= (0,0)）⇒ 该测试自测当场判红；属"**断言失败先自查期望值**"的同族教训
+    //    （被测物正确，错的是期望值 ⇒ **不改被测物、不调参**）。
+    let off = d.offset_of(1, 1).expect("offset");
+    let (bytes, n) = encode(&d, Rgb24::new(0x11, 0x22, 0x33));
+    assert_eq!(&buf[off..off + n], &bytes[..n], "写后应立即一致");
+
+    buf[off + 1] ^= 0xFF; // 篡改
+    assert_ne!(&buf[off..off + n], &bytes[..n], "127：篡改后仍判一致 ⇒ 判据空转（必须检出）");
+}
+
+/// 128：**场源／投影出口非法** ⇒ 采样不足 / 空序列（`present_product_selftest` 据此返回 128）。
+#[test]
+fn mirror_present_128_product_empty_detected() {
+    use meta_kernel_core_nostd::field::sdf;
+    use meta_kernel_core_nostd::project::{project_gray_u8, ProjectSpec};
+
+    // ① 输出缓冲**小于**要采样的格点数 ⇒ `sample_into` 提前返回 < cells
+    let mut small = [0.0f32; 4];
+    let n = sdf::sample_into(|x, y| sdf::circle(3.0, 3.0, 2.0, x, y), 8, 8, &mut small);
+    assert_eq!(n, 4, "128：out 容量不足时采样数须受限于 out.len()");
+    assert!(n < 8 * 8, "128：该场景必须被判为'采样不足'");
+
+    // ② 投影出口：输入不足 ⇒ 空（product 路径据此返 0/128）
+    let spec = ProjectSpec::new(4, 4, 0.0, 1.0).expect("spec");
+    assert!(project_gray_u8(&[0.5f32; 3], &spec).is_empty(), "128：输入不足须为空");
+}

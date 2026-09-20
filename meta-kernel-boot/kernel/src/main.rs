@@ -49,7 +49,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 }
 
-/// 自检与门禁。**顺序不可调换**：内存门禁在算法自检之前；⑫ 段（帧缓冲写入）在算法自检之前。
+/// 自检与门禁。**顺序不可调换**：内存门禁在算法自检之前；⑫ 段（帧缓冲写入：**自检路径 121–125
+/// ＋ product 路径 126–128**）在算法自检之前。
 fn run(boot_info: &mut BootInfo) -> Verdict {
     // —— 内存门禁 + 分配往返 + 净零校验（拿不到堆区 ⇒ 黄屏停，不冒充成功） ——
     match mem::selftest(boot_info) {
@@ -65,6 +66,21 @@ fn run(boot_info: &mut BootInfo) -> Verdict {
         let info = fb.info();
         let buf = fb.buffer_mut();
         let r = present::present_selfcheck(buf, &info);
+        if r != 0 {
+            return Verdict::Fail(100 + r);
+        }
+    }
+    // —— ⑫ 段（**product 路径**）：**真的调用 `present_field`**（2.4 产品入口接线，2026-09-20）——
+    // 为什么单列：上面那条走的是**写死的 2×2 图案**，**不经过产品入口** ⇒ 若不在此真调
+    // `present_field`，产品路径在裸机上**从未被走过**（编译期 `never used` 警告即是证据）；
+    // "漏挂 = 静默空转" —— 绿屏照样绿，却证不了产品路径可用。
+    // 场源＝纯算层 `field::sdf` 依**帧缓冲几何**采样（D8：呈现＝内核状态的直接投影），并**回读校验**。
+    // 同样被 `render()` 的整屏 `fill()` 覆盖 ⇒ **不改变绿/红判定**。
+    // 编号：126–128；经 `100 + n` 映射后，CI 上读作 **226–228**。
+    if let Some(fb) = boot_info.framebuffer.as_mut() {
+        let info = fb.info();
+        let buf = fb.buffer_mut();
+        let r = present::present_product_selftest(buf, &info);
         if r != 0 {
             return Verdict::Fail(100 + r);
         }

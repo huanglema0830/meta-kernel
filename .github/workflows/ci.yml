@@ -61,25 +61,32 @@ jobs:
 
       # ===== ⑫ 段（2026-09-20 · O-1 已同意）：**2.4 边界层接入帧缓冲** =====
       # 判什么：`present.rs`（boot 边界层：`FrameBufferInfo` → `FbDesc` ＋ 真实写入 ＋ 回读往返）
-      #   ① **host 镜像**必须全过（5 项：121–125）—— 逻辑错在本地就能筛掉，不必等 QEMU；
-      #   ② **接线**：模块已声明 ＋ `run()` 真的调它 ＋ 五个编号常量齐备。
+      #   ① **host 镜像**必须全过（**8 项**：121–125 **自检路径** ＋ **126–128 product 路径**）
+      #      —— 逻辑错在本地就能筛掉，不必等 QEMU；
+      #   ② **接线**：模块已声明 ＋ `run()` 真的调**两条入口** ＋ 八个编号常量齐备。
       # 为什么必须有本步骤：若无，"present.rs 存在"与"⑫ 段真的跑过"是两件事 ——
       #   **漏挂 = 静默空转**，绿屏照样绿（这正是 Q11 步骤写下的同族教训）。
-      # 口径（R35）：编号 121–125，经 `run()` 的 `100 + n` 映射后 CI 上读作 **221–225**。
+      # ★ 2026-09-20 新增 **product 路径**（`present_product_selftest` **真调 `present_field`**）——
+      #   此前只跑**写死的 2×2 图案**，产品入口**在裸机上从未被调用**（编译期 `never used`）⇒ 两条入口缺一不可。
+      # 口径（R35）：编号 121–125 → CI **221–225**；**126–128 → CI 226–228**（经 `run()` 的 `100 + n` 映射）。
       - name: 验收 ⑫ 段接线 —— 2.4 边界层接入帧缓冲（host 镜像 ＋ 接线断言）
         shell: bash
         run: |
           set -o pipefail
           cargo test -p meta-kernel-core-nostd --test mirror_bare_assertions mirror_present -- --nocapture 2>&1 | tee present-mirror.log
-          grep -q "5 passed" present-mirror.log || { echo "::error::⑫ 段 host 镜像未全过（期望 5 passed）"; exit 1; }
-          # 机器断言：present 必须存在、必须声明为模块、必须真被 run() 调用、五码齐备
+          grep -q "8 passed" present-mirror.log || { echo "::error::⑫ 段 host 镜像未全过（期望 8 passed）"; exit 1; }
+          # 机器断言：present 必须存在、必须声明为模块、**两条入口都必须真被 run() 调用**、八码齐备
           test -f meta-kernel-boot/kernel/src/present.rs \
             || { echo "::error::present.rs 缺失"; exit 1; }
           grep -q "mod present;" meta-kernel-boot/kernel/src/main.rs \
             || { echo "::error::present 未声明为模块"; exit 1; }
           grep -q "present::present_selfcheck" meta-kernel-boot/kernel/src/main.rs \
-            || { echo "::error::⑫ 段未挂进 run（等于没跑）"; exit 1; }
-          for c in 121 122 123 124 125; do
+            || { echo "::error::⑫ 段【自检路径】未挂进 run（等于没跑）"; exit 1; }
+          grep -q "present::present_product_selftest" meta-kernel-boot/kernel/src/main.rs \
+            || { echo "::error::⑫ 段【product 路径】未挂进 run（产品入口 = never used）"; exit 1; }
+          grep -q "present_field(buf, info" meta-kernel-boot/kernel/src/present.rs \
+            || { echo "::error::product 自检没有真的调用 present_field（等于没接线）"; exit 1; }
+          for c in 121 122 123 124 125 126 127 128; do
             grep -q "= $c;" meta-kernel-boot/kernel/src/present.rs \
               || { echo "::error::⑫ 段缺码 $c"; exit 1; }
           done

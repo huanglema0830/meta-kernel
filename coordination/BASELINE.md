@@ -959,7 +959,7 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
 ## 二十、2026-09-20 · D-2（机制 25 P4 **转判红**）＋ 缺陷③（**段号源扩到 boot kernel 全部 `.rs`**）
 
 > **来源**：发起人 2026-09-20 指令（基准 v0.233）｜**性质**：判据加固（裁定落地）
-> **配套**：本轮先 push 上一轮遗留的本地 commit（`52f12e3..9e162f7`），CI 结论见 §二十一。
+> **配套**：本轮先 push 上一轮遗留的本地 commit（`52f12e3..9e162f7`），CI 结论见 **§二十一 · 21.0**。
 
 ### 20.1 D-2 · P4 转判红（**三项前置均已完成**）
 
@@ -996,3 +996,85 @@ C14 **夜间自动化**（**WorkBuddy 侧**：23:00–08:00 **只跑 P3**；21:0
   - `coordination/ROADMAP.md:59`：含活跃段号「**⑪**」（**注：该行因含"历史快照"词被**整行豁免** ⇒ 当前 P1 对它 **漏报** —— R80 家族新实例**）。
   - ⇒ **本轮一律不改**；**不改不影响 CI**（上述词句不构成段号／模块数陈述，判据不命中）。
 
+
+
+---
+
+## 二十一、2026-09-20 · 授权同步 3 处机制描述 ＋ D-1 **结项** ＋ 2.4 **product 路径接线**
+
+> **来源**：发起人 2026-09-20 指令（基准 **v0.236**）｜**性质**：裁定落地 ＋ 推进
+> **约束**：不改底图｜不改 boot 既有门禁语义｜禁止内联含反引号命令（全程脚本文件）｜不 taskkill
+
+### 21.0 承接（§二十 的 CI 结论 · **消除 §20.3 遗留的悬空指针**）
+
+- 上一轮 **3 次 push**，各自**三 job 全绿**（test／元内核引导镜像／宿主 field-render）：上一轮遗留 **6 个** commit ＋ **v0.234**（判据加固）＋ **v0.235**（报告）＋ **v0.236**（补记）。
+- run 号属**环境派生值**（R71）⇒ 以 `gh run list --limit 5` 实取为准。
+
+### 21.1 授权同步 3 处机制描述（**上一轮 §20.3 的"待授权"三项，本轮清零**）
+
+| # | 文件 | 落点 | 改前 | 改后 |
+|---|---|---|---|---|
+| ① | `coordination/CHARTER.md` | 机制 25 行（§三 机制表） | 「**三条**」／「**自带六侧自检**」／段号源 **`verify.rs`** | 「**四条**（含 **P4 模块数一致性**）」／「**自带八侧自检**」／段号源 **boot kernel 全部 `.rs`（递归，不写死文件名）** |
+| ② | `coordination/TEMPLATES.md` | **T-032** | 「**六侧自检**」，**未含 P4** | 补 **P4**（标"★ 2026-09-20 转判红"）＋ **八侧** ＋ 段号源口径；并加 2026-09-20 变更说明 |
+| ③ | `coordination/ROADMAP.md` | **行 59** | 活跃段号 **⑪** | **⑫**（＋注 **⑫＝2.4 边界层帧缓冲呈现（`present`，含 product 路径）**） |
+
+- **口径（R35）**：三处均为**既有行内的描述文本／段号**，**不动任何编号表**⇒ C15 差值应 **±0**（见 21.2）。
+- **判据即时校验**：改后 `check_doc_consistency.py` **实跑 ✅ 通过**（P1 段号一致／P2 收口一致〔双侧〕／P3 内部自洽／P4 模块数一致），活跃段号陈述 **20 条**、活跃模块数陈述 **0 条**。
+
+### 21.2 C15 双向计数（**改前／改后 用同一份脚本 ⇒ C18 同源**）
+
+| 表 | 改前 | 改后 | 差值 | 预期 | 结论 |
+|---|---|---|---|---|---|
+| 机制（`CHARTER.md` §三） | **25**（1–25） | **25**（1–25） | **±0** | ±0 | ✅ |
+| C（`CONSTRAINTS.md`） | **19**（1–19） | **19**（1–19） | **±0** | ±0 | ✅ |
+| T（`TEMPLATES.md`） | **34**（1–34） | **34**（1–34） | **±0** | ±0 | ✅ |
+| `BASELINE.md` D 行／R 行 | **44**／**45** | **44**／**45** | **±0** | ±0 | ✅ |
+
+- **连续性**：三表 **无缺号、无重号**。
+- **对照（R65：由实测推导，不硬编码）**：阳性＝表内最大号**必命中**（25／19／34 全 **PASS**）｜阴性＝最大号 **+1** **必不命中**（26／20／35 全 **PASS**）。
+- **脚本**：`.workbuddy/tmp/c15_take.sh`（改前／改后**同一份**）＋ `.workbuddy/tmp/c15.py`。
+
+### 21.3 D-1 **结项**（**发起人裁定**）
+
+- **裁定原文**：「记为：**截断到界、ULP 未达标、暂不追**。**不再派 Payne-Hanek**。」
+- **口径（防再次误述 —— C19 家族）**：
+  - **成立**：`f64 sin/cos` **截断误差已到理论界内** —— 主区间 **maxAbs 1.110e-15 < 截断界 2.0038e-15**。
+  - **不成立**：「**≤4 ULP 达标**」—— 那条门线是 **`f32` 口径**（`meta-kernel-core-nostd/src/fmath.rs:18–20`），而 `sin_cos_f64_regression` **自述"未达标"**（同文件行 **1436–1452**）；本轮实测 `cos` 主区间 **maxULP = 10（>4）**。
+- **状态**：**D-1 由"暂停"转为"已裁定结项"**；**不再派 Payne-Hanek**。
+- **保留为已知边界（不列待办）**：大参数区 `|x| ≥ 1e3` 未修；`|x| ≥ 1e100` 返回 `inf`。
+
+### 21.4 2.4 **product 路径接线**（本轮主要推进）
+
+| 项 | 内容 |
+|---|---|
+| **问题** | `present_field`（**product 入口**）**在裸机上从未被调用** —— `present_selfcheck` 走的是**写死的 2×2 图案**；编译期 `function present_field is never used` 警告即为证据 |
+| **改法** | `meta-kernel-boot/kernel/src/present.rs` 新增 **`present_product_selftest`**：① 场源＝纯算层 `field::sdf` 依**帧缓冲几何**采样（**D8：呈现＝内核状态的直接投影 —— 界面就是它自己**）；② **真调 `present_field`**；③ **回读逐字节校验**。`meta-kernel-boot/kernel/src/main.rs` 的 `run()` **真调**它（紧接自检路径之后） |
+| **编号（R35）** | **126–128**（裸机）→ `100 + n` 映射 ⇒ CI **226–228**；与**自检路径 121–125 → 221–225** 分列，便于定位 |
+| **守约** | **C1**（零依赖：仅用 `nostd` ＋ `bootloader_api`）｜**C3／C9**（**新增代码 0 处 `unsafe`**：全程 `buffer_mut()` 安全 API ＋ 切片写入）｜**机制 21**（"算像素"在纯算层，"持有并改写硬件内存"在边界层） |
+| **门禁语义** | product 写入**被 `render()` 的整屏 `fill()` 覆盖** ⇒ **既有绿/红判定零变化**；但**产品路径被真实走过一遍** |
+| **host 镜像** | 新增 `mirror_present_126／127／128`（`mirror_present` 合计 **5 → 8**）；**126 带阳性对照**：图案灰度**种类 = 32**（≥8 ⇒ **非退化**，否则偏移/字节序错误测不出来） |
+| **CI 接线断言** | 步骤名「验收 ⑫ 段接线 —— 2.4 边界层接入帧缓冲（host 镜像 ＋ 接线断言）」：**8 passed** ＋ `mod present;` ＋ `present::present_selfcheck` ＋ **`present::present_product_selftest`** ＋ **`present_field(buf, info`（**真被调用**）** ＋ 码 **121–128** 齐备 |
+| **落地自检** | 本机 `cargo +nightly-…-gnu check -p meta-kernel-boot-kernel` ⇒ **✅ 通过**，且 `function present_field is never used` 警告计数 **0**（唯一条 "never used" 来自**既存** `fourier.rs` 告警） |
+
+### 21.5 ★ 环境发现（**纠正旧结论的适用范围** —— R14 同族）
+
+- **旧结论**：「boot 层本机**连 `cargo check` 都跑不起来**（无 MSVC 库／clang／lld）」。
+- **本轮实测（口径更精确）**：
+  - `cargo +nightly check`（宿主解析到 **MSVC**）⇒ **失败**；根因是 **`bootloader_api` 的宿主构建脚本在链接期缺 MSVC 导入库**（`kernel32.lib`／`ntdll.lib`／`userenv.lib`／`ws2_32.lib`／`dbghelp.lib`／`synchronization.lib`）—— **根本没走到内核 crate 的代码**。
+  - **`cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel --target x86_64-unknown-none` ⇒ ✅ 通过**（`Checking meta-kernel-boot-kernel … Finished`；**全新 target-dir 复跑同样通过**）。
+  - `cargo +nightly-x86_64-pc-windows-gnu **build**`（full build）⇒ ❌ **仍失败**，卡 **`error calling dlltool 'dlltool.exe': program not found`**（`windows-sys` raw-dylib；**R1 老问题**）。
+  - 本机**无 `qemu-system-x86_64`** ⇒ **真实引导本机仍不可做**。
+- **⇒ 可用结论（更新记忆）**：**boot 层本机可做「类型检查」（用 GNU 宿主工具链）**，**不可做「full build ＋ QEMU」**。
+  - **本轮已用它在提交前筛掉编译错误风险**（判断依据：`present_field` 的 `never used` 计数 **0**）。
+  - **仍须 CI boot job 证成**：镜像可引导 ＋ **⑫ 段 product 路径在真实帧缓冲上往返成功**。
+
+### 21.6 边界说明（四类）
+
+- **本地跑过** ✅：① 14 项判据全 `exit=0`；② host 镜像 `mirror_present` **8 passed**；③ `meta-kernel-core-nostd` lib 单测 **474 passed**；④ `x86_64-unknown-none` 构建门禁 **OK**；⑤ **boot kernel crate `cargo check`（GNU 宿主工具链）通过**。
+- **CI 过** ✅：见 **21.7**（本轮提交后实取）。
+- **真实跑过** ⏳：**本轮本机未真实引导**（无 qemu）⇒ 交 **CI boot job**。
+- **未验证** ❌：① boot **full build**（本机缺 `dlltool`）＋ **QEMU 真实引导**；② **真实硬件**（非 QEMU）帧缓冲回读（WC 显存可能读到陈旧值）；③ 场源仍为**最小 product 路径**（SDF 依几何）—— **真正的场演化图像**（B 路径／NCA）待 **2.4 × L6 集成**。
+
+### 21.7 本轮 CI 结果
+
+- 提交并 push 后，以 `gh run list --limit 3` ＋ `gh run view <id> --json jobs` **实取**为准（R71）。
