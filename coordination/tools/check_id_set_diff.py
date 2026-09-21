@@ -30,12 +30,18 @@
   - ★ **自指污染**（已观察，暂不专项处置）：判据会把「讨论其自身告警的文本」纳入输入 ⇒ 告警数受报告内容影响
     （登记于 `BASELINE §四十四 / §四十五`）。
 
+【★ T-041「告警扫描范围限定」（2026-09-21 落地）】
+  扫描前，先剔除 5 层文本（元标注块／待裁定段／问答段／举例引用段／讨论段）—— 清单在
+  `coordination/tools/scan_exclude.json`（**机器可读**）；**每次扫描打印「已剔除段落」**；规则本身见 `TEMPLATES.md §十八`。
+  ★ **只剔引用集，不剔登记集**。三条约束齐备 ⇒ 剔除**不是隐藏规则**（R73 教训）。
+
 【自检】
-  `--selftest`：正反对照**八侧** ——
+  `--selftest`：正反对照**十一侧** ——
     ① 有引用、无登记 ⇒ **必须**出现在差集（正例）
     ②③④ 分别以 A / C / D 形态登记 ⇒ **不得**出现在差集（反例；★ ③④ 是本判据的关键）
     ⑤ MECH 引用无登记 ⇒ 必须告警；⑥ MECH 区段首格登记 ⇒ 不告警；
-    ⑦ MECH **区段外**裸数字不得入登记（区段限定生效）；⑧ MECH 空区段 ⇒ 登记为空（触发空转告警）
+    ⑦ MECH **区段外**裸数字不得入登记（区段限定生效）；⑧ MECH 空区段 ⇒ 登记为空（触发空转告警）；
+    ⑨ T-041 举例段 ⇒ 剔除后**不告警**；⑩ T-041 **真引用不被误剔** ⇒ 仍告警；⑪ 剔除清单可读且 ≥5 层（**不静默**）
 """
 import io
 import os
@@ -150,6 +156,47 @@ def scan_mech_ref(all_lines):
     return out
 
 
+# ---------------- 告警扫描范围限定：剔除段（★ T-041 落地）----------------
+# 规则：扫描前，先剔除 5 层文本（元标注块／待裁定段／问答段／举例引用段／讨论段）。
+#   ⇒ 治「自指污染」（判据读到"讨论其自身结论的文字" ⇒ 告警数随报告漂移）。
+#   ★ 三条关键约束（防"隐藏规则"，R73 教训）：
+#     ① 清单入**机器可读 json**（`scan_exclude.json`，与元标注块同源）；
+#     ② 每次扫描**打印「已剔除段落」**（可见）；
+#     ③ **剔除规则本身是正式规则**（`TEMPLATES.md` §十八 · T-041）。
+#   ★ **只剔引用集，不剔登记集** —— 登记是显式编号行；剔了会造假告警。
+EXCLUDE_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scan_exclude.json")
+
+
+def load_exclude():
+    """读剔除清单（json）。失败 ⇒ 返回 ([], 错误信息) —— **不静默**。"""
+    try:
+        import json
+        with io.open(EXCLUDE_JSON, encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("layers", []), None
+    except Exception as e:                                  # noqa: BLE001
+        return [], "读 %s 失败：%s" % (os.path.basename(EXCLUDE_JSON), e)
+
+
+def apply_exclude(lines, layers):
+    """按层剔除行。返回 (kept_lines, drops)；drops＝[(layer_id, layer_name, lineno, text)]。"""
+    marks = []
+    for L in layers:
+        for m in L.get("marks", []):
+            marks.append((m, L.get("id"), L.get("name")))
+    kept, drops = [], []
+    for i, l in enumerate(lines, 1):
+        hit = None
+        for m, lid, lname in marks:
+            if m in l:
+                hit = (lid, lname)
+                break
+        if hit is None:
+            kept.append(l)
+        else:
+            drops.append((hit[0], hit[1], i, l.strip()[:100]))
+    return kept, drops
+
 
 def selftest():
     fails = []
@@ -225,11 +272,39 @@ def selftest():
     if not ok:
         fails.append("侧⑧")
 
+    # ==== T-041（告警扫描范围限定 · 剔除层）====
+    layers, ex_err = load_exclude()
+    _seg = ["| 5 | 机制五 |"]
+
+    # 侧⑨ 正例(T-041)：**举例段**（含「可约定／示例／之类」）⇒ 剔除后 **不告警**
+    _l9 = ['- 可约定示例编号一律用 "机制 99" 之类保留号段']
+    _kept9, _d9 = apply_exclude(_l9, layers)
+    _diff9 = scan_mech_ref(_kept9) - scan_mech_seg(_seg)
+    ok = (99 not in _diff9) and (len(_d9) == 1)
+    print("  侧⑨（正例·T-041 举例段被剔 ⇒ 不告警）: %s  剔除 %d 行" % ("PASS" if ok else "FAIL", len(_d9)))
+    if not ok:
+        fails.append("侧⑨")
+
+    # 侧⑩ 反例(T-041)：**真引用**（无剔除标记）⇒ **仍必须告警**（防"剔除过宽"）
+    _l10 = ["- 【真缺口】机制 99 尚未登记，需补"]
+    _kept10, _d10 = apply_exclude(_l10, layers)
+    _diff10 = scan_mech_ref(_kept10) - scan_mech_seg(_seg)
+    ok = (99 in _diff10) and (len(_d10) == 0)
+    print("  侧⑩（反例·T-041 真引用不被误剔 ⇒ 仍告警）: %s" % ("PASS" if ok else "FAIL"))
+    if not ok:
+        fails.append("侧⑩")
+
+    # 侧⑪ 对照·**清单可见可读**（"不静默"）：json 必须可读且层数 ≥5
+    ok = (ex_err is None) and (len(layers) >= 5)
+    print("  侧⑪（对照·T-041 剔除清单可读且 ≥5 层）: %s  层数=%d err=%s" % ("PASS" if ok else "FAIL", len(layers), ex_err))
+    if not ok:
+        fails.append("侧⑪")
+
     print("=" * 60)
     if fails:
         print("自检结论：FAIL %d 项 %s" % (len(fails), fails))
         return 1
-    print("自检结论：PASS（八侧：R 五族 1 正 + 3 反 ＋ MECH 3 反 + 1 空转防护）")
+    print("自检结论：PASS（十一侧：R 五族 1 正 + 3 反 ＋ MECH 3 反 + 1 空转 ＋ T-041 2 正反 + 1 对照）")
     return 0
 
 
@@ -254,13 +329,30 @@ def main():
     print("扫描 %d 个 *.md ｜ 行数 %d" % (len(files), len(all_lines)))
     print("登记口径：A 表格首格行 ∪ B 表格第2列 ∪ C 分条列表 ∪ D 节标题（行首锚）")
 
+    # ---- ★ T-041「告警扫描范围限定」：剔除 5 层（**只剔引用集，不剔登记集**）----
+    layers, ex_err = load_exclude()
+    if ex_err:
+        print("\n⚠️ **剔除清单读取失败**：%s" % ex_err)
+        print("   ⇒ 本次**未剔除**（**不静默**；请检查 `coordination/tools/scan_exclude.json`）")
+        ref_lines, drops = all_lines, []
+    else:
+        ref_lines, drops = apply_exclude(all_lines, layers)
+        print("\n【已剔除段落 · T-041】清单＝`coordination/tools/scan_exclude.json`（%d 层）" % len(layers))
+        print("   共剔除 **%d 行**（引用集 %d → **%d 行**）；★ **登记集不剔除**" % (
+            len(drops), len(all_lines), len(ref_lines)))
+        _by = {}
+        for lid, lname, ln, tx in drops:
+            _by.setdefault((lid, lname), []).append((ln, tx))
+        for (lid, lname), items in sorted(_by.items()):
+            print("   L%d %s：剔除 %d 行｜示例 L%d：%s" % (lid, lname, len(items), items[0][0], items[0][1][:58]))
+
     total = 0
     for fam, cfg in FAMILIES.items():
         if cfg.get("special") == "mech":
             # ★ MECH 族：**区段限定专用解析**（选项 B · 2026-09-21 裁定）
             seg = mech_seg_lines(os.path.join(repo, "coordination/CHARTER.md"))
             reg = scan_mech_seg(seg)
-            ref = scan_mech_ref(all_lines)
+            ref = scan_mech_ref(ref_lines)
             diff = sorted(ref - reg)
             print("\n【%s】引用 %d ｜ 登记 %d ｜ **引用但无登记 %d**" % (fam, len(ref), len(reg), len(diff)))
             print("    登记口径：`CHARTER.md`「## 三、全部机制」**区段内**表格首格裸数字（区段限定；区段行数 %d）" % len(seg))
@@ -276,8 +368,8 @@ def main():
             else:
                 print("    ✅ 无告警")
             continue
-        ref = scan(all_lines, cfg["pat"], reg=False)
-        reg = scan(all_lines, cfg["pat"], reg=True)
+        ref = scan(ref_lines, cfg["pat"], reg=False)      # ★ 引用集：用**剔除后**的行（T-041）
+        reg = scan(all_lines, cfg["pat"], reg=True)       # ★ 登记集：用**全部行**（不剔除）
         diff = sorted(ref - reg, key=lambda s: (len(s), s))
         total += len(diff)
         print("\n【%s】引用 %d ｜ 登记 %d ｜ **引用但无登记 %d**" % (fam, len(ref), len(reg), len(diff)))
