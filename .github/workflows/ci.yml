@@ -359,6 +359,27 @@ jobs:
           set -e
           test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
 
+      # ===== 报告结构门禁（报告必带十四项）—— **只告警、不发红**（2026-09-21 接入 · 治 F-3）=====
+      # 为什么：`TEMPLATES.md §〇 固定相 B` 规定「报告必带十四项」，但此前**只有第 0 项有机器判据**
+      #   （`check_reading_instruction.py`），其余 13 项**全靠人守** ⇒ 缺项无人拦（F-3）。
+      # ★ **只告警**：**不传 `--strict`** ⇒ 退出码**恒 0** ⇒ **不阻断 CI**；观察窗口内累计数据
+      #   （再评估条件＝告警命中**连续 N=5 轮为 0**，与编号集差集判据同口径）。
+      # 口径：范围 `coordination/reports/*.md`；**「报告体」＝含「启动回执」**（其余为评估稿/核对稿/清单/讨论稿，
+      #   **不参与检查**）；第 0 项**import 复用** C13 判据（C19 同源）；**冻结豁免名单只减不增**
+      #   （`coordination/security/report_structure_exempt.txt`）。
+      # 浅克隆安全：本判据只读仓库内文件（reports/ ＋ TEMPLATES.md ＋ security/），**不依赖 HEAD~1**（R68）。
+      - name: 报告结构门禁 —— 报告必带十四项（**只告警**）
+        shell: bash
+        run: |
+          set +e
+          python3 coordination/tools/check_report_structure.py --selftest
+          SELFTEST=$?
+          python3 coordination/tools/check_report_structure.py
+          CHECK=$?
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (自检应 0；实跑**只告警**、退出码恒 0)"
+          set -e
+          test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
+
       # ===== 机制 18 / C13：「顾问阅读指令」形态门禁（2026-09-19 建立 · 丁案）=====
       # 为什么：C13 要求「任何输出的字面第 0 行」放固定文本；此前**只有人工纪律、没有判据**
       #   ⇒ 实测 59 份报告里**仅 18 份**（位置＋逐字）合规（R25 教训：声明与事实不符）。
