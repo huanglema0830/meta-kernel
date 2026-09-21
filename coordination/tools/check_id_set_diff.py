@@ -19,14 +19,23 @@
 【范围】
   全仓 `*.md`（排除 `.git` / `target` / `node_modules` / `__pycache__` / `.workbuddy`）。
 
+【★ MECH（机制）族 —— 区段限定专用解析（2026-09-21 裁定「选项 B」）】
+  MECH 的编号**字面是裸数字**（`CHARTER.md` 机制表首格 `| 1 |`…，无族名）⇒ 全仓裸露解析会噪声爆炸。
+  因此：**登记侧**只在 `CHARTER.md`「## 三、全部机制」**区段内**解析表格首格裸数字；**引用侧**用「机制 N」字面（自带族名）。
+  **空转防护**：区段解析到 **0 行** ⇒ 判「空转告警」（**与「通过」取不同值**，C-04 / R83）。
+
 【输出与纪律】
   - 每族输出「引用但无登记」清单（**告警**）；退出码**恒 0**（**先只告警**）；`--strict` 为预留（判红）。
-  - **触发再评估**：本判据的告警命中**连续 N 轮为 0** ⇒ 可考虑转判红（N 待定；登记于 `BASELINE §四十三`）。
+  - **触发再评估**：本判据的告警命中**连续 N 轮为 0** ⇒ 可考虑转判红（N=5；登记于 `BASELINE §四十四`）。
+  - ★ **自指污染**（已观察，暂不专项处置）：判据会把「讨论其自身告警的文本」纳入输入 ⇒ 告警数受报告内容影响
+    （登记于 `BASELINE §四十四 / §四十五`）。
 
 【自检】
-  `--selftest`：正反对照四侧 ——
+  `--selftest`：正反对照**八侧** ——
     ① 有引用、无登记 ⇒ **必须**出现在差集（正例）
     ②③④ 分别以 A / C / D 形态登记 ⇒ **不得**出现在差集（反例；★ ③④ 是本判据的关键）
+    ⑤ MECH 引用无登记 ⇒ 必须告警；⑥ MECH 区段首格登记 ⇒ 不告警；
+    ⑦ MECH **区段外**裸数字不得入登记（区段限定生效）；⑧ MECH 空区段 ⇒ 登记为空（触发空转告警）
 """
 import io
 import os
@@ -43,8 +52,11 @@ FAMILIES = {
     "C":    {"pat": r"C\d+(?![A-Za-z0-9])",     "auth": ["coordination/CONSTRAINTS.md", "coordination/CHARTER.md"]},
     "T":    {"pat": r"T-\d+(?![A-Za-z0-9])",    "auth": ["coordination/TEMPLATES.md"]},
     "TERM": {"pat": r"TERM-\d+(?![A-Za-z0-9])", "auth": ["coordination/TERMS.md"]},
-    # ★ MECH（机制编号）族**暂不启用** —— 其权威载体 `CHARTER.md` 机制表的**首格为纯数字**（非「机制 N」字面），
-    #   与其余五族的 A/B/C/D 形态口径不同 ⇒ 需专用解析（另议）。
+    # ★ MECH（机制编号）族 —— 首格为**纯数字**（无族名）⇒ **必须区段限定**（`special: "mech"`，见 `mech_seg_lines()`）。
+    #   引用侧用「机制 N」字面（自带族名、全仓无歧义）；登记侧用 `CHARTER.md`「## 三、全部机制」区段内表格首格裸数字。
+    #   ★ 2026-09-21 裁定（选项 B）：**区段限定专用解析**启用
+    #     依据：`coordination/reports/2026-09-21_MECH族专用解析评估稿.md`（选项 B；备「解析到 0 行 ⇒ 告警」遵 C-04/R83）。
+    "MECH": {"pat": r"机制\s*(\d+)(?![0-9])", "auth": ["coordination/CHARTER.md"], "special": "mech"},
 }
 
 SKIP_DIRS = {".git", "target", "node_modules", "__pycache__", ".workbuddy"}
@@ -99,6 +111,46 @@ def repo_root():
     return os.path.abspath(os.path.join(here, "..", ".."))
 
 
+# ---------------- MECH 族：区段限定专用解析（★ 2026-09-21 裁定「选项 B」）----------------
+# 为什么需要：MECH 的编号**字面是裸数字**（`| 1 |`…，无族名）⇒ 若在全仓按裸数字解析，任何数字
+#   都会被当候选（噪声爆炸）；因此**必须区段限定**：只在 `CHARTER.md` 的「## 三、全部机制」区段内解析。
+MECH_SEG_KEY = "全部机制"
+
+def mech_seg_slice(lines):
+    """从行列表切出「## 三、全部机制」区段（至下一个 `## ` 一级标题或 EOF）。找不到 ⇒ 返回 []。"""
+    start = None
+    for i, l in enumerate(lines):
+        if re.match(r"^##\s", l) and MECH_SEG_KEY in l:
+            start = i
+            continue
+        if start is not None and re.match(r"^##\s", l):
+            return lines[start:i]
+    return lines[start:] if start is not None else []
+
+def mech_seg_lines(charter_path):
+    return mech_seg_slice(read_lines(charter_path))
+
+def scan_mech_seg(seg_lines):
+    """区段内「表格首格纯数字」⇒ 登记集（`| 5 | …`）。★ 仅区段内 ⇒ 区段外裸数字不入集。"""
+    out = set()
+    rx = re.compile(r"^\|\s*[\*`]{0,4}(\d+)[\*`]{0,4}\s*\|")
+    for l in seg_lines:
+        m = rx.match(l)
+        if m:
+            out.add(int(m.group(1)))
+    return out
+
+def scan_mech_ref(all_lines):
+    """全仓「机制 N」字面 ⇒ 引用集（自带族名，无歧义；数字后不能紧跟数字，排除 `机制 10` 误截 `机制 1`）。"""
+    out = set()
+    rx = re.compile(r"机制\s*(\d+)(?![0-9])")
+    for l in all_lines:
+        for m in rx.finditer(l):
+            out.add(int(m.group(1)))
+    return out
+
+
+
 def selftest():
     fails = []
     pat = FAMILIES["R"]["pat"]
@@ -139,11 +191,45 @@ def selftest():
     if not ok:
         fails.append("侧④")
 
+    # ==== MECH 族（区段限定专用解析 · 选项 B）====
+    # 侧⑤ 正例(MECH)：引用「机制 99」但区段内无 `| 99 |` ⇒ 必须进差集
+    seg = ["| 5 | 机制五 |", "| 6 | 机制六 |"]
+    reg = scan_mech_seg(seg)
+    ref = scan_mech_ref(["- 见机制 99（引用）", "机制 5 已登记"])
+    ok = 99 in (ref - reg) and 5 not in (ref - reg)
+    print("  侧⑤（正例·MECH 引用无登记 ⇒ 必须告警）: %s  差集=%s" % ("PASS" if ok else "FAIL", sorted(ref - reg)))
+    if not ok:
+        fails.append("侧⑤")
+
+    # 侧⑥ 反例(MECH)：引用「机制 5」且区段有 `| 5 |` ⇒ 不告警
+    seg = ["| 5 | 机制五 |"]
+    reg = scan_mech_seg(seg)
+    ref = scan_mech_ref(["见机制 5"])
+    ok = not (ref - reg)
+    print("  侧⑥（反例·MECH 区段首格登记 ⇒ 不告警）: %s" % ("PASS" if ok else "FAIL"))
+    if not ok:
+        fails.append("侧⑥")
+
+    # 侧⑦ 反例(区段限定)：区段**外**的裸数字 `| 99 |` 不得被登记（裸数字必须靠区段定身份）
+    lines7 = ["## 一、别的", "| 99 | 区段外裸数字 |", "## 三、全部机制", "| 5 | 机制五 |", "## 四、结尾"]
+    reg = scan_mech_seg(mech_seg_slice(lines7))
+    ok = (reg == {5})
+    print("  侧⑦（反例·区段限定：区段外裸数字不入登记）: %s  登记=%s" % ("PASS" if ok else "FAIL", sorted(reg)))
+    if not ok:
+        fails.append("侧⑦")
+
+    # 侧⑧ 空转防护：区段解析到 0 行 ⇒ 登记应为空集（主循环据此判「空转告警」，≠ PASS）
+    reg = scan_mech_seg(mech_seg_slice(["## 一、x", "无表"]))
+    ok = (len(reg) == 0)
+    print("  侧⑧（反例·MECH 空区段 ⇒ 登记为空 ⇒ 触发空转告警）: %s" % ("PASS" if ok else "FAIL"))
+    if not ok:
+        fails.append("侧⑧")
+
     print("=" * 60)
     if fails:
         print("自检结论：FAIL %d 项 %s" % (len(fails), fails))
         return 1
-    print("自检结论：PASS（四侧：1 正 + 3 反）")
+    print("自检结论：PASS（八侧：R 五族 1 正 + 3 反 ＋ MECH 3 反 + 1 空转防护）")
     return 0
 
 
@@ -170,6 +256,26 @@ def main():
 
     total = 0
     for fam, cfg in FAMILIES.items():
+        if cfg.get("special") == "mech":
+            # ★ MECH 族：**区段限定专用解析**（选项 B · 2026-09-21 裁定）
+            seg = mech_seg_lines(os.path.join(repo, "coordination/CHARTER.md"))
+            reg = scan_mech_seg(seg)
+            ref = scan_mech_ref(all_lines)
+            diff = sorted(ref - reg)
+            print("\n【%s】引用 %d ｜ 登记 %d ｜ **引用但无登记 %d**" % (fam, len(ref), len(reg), len(diff)))
+            print("    登记口径：`CHARTER.md`「## 三、全部机制」**区段内**表格首格裸数字（区段限定；区段行数 %d）" % len(seg))
+            print("    主要落点：%s" % "、".join(cfg["auth"]))
+            if not reg:
+                # ★ 空转防护：解析到 0 行 ⇒ 与「通过」取不同值（C-04 / R83）
+                print("    ⚠️ 区段解析到 **0 行** —— **判据空转**（不是 PASS；C-04/R83）")
+                total += 1
+            elif diff:
+                total += len(diff)
+                show = diff[:a.limit]
+                print("    ⚠️ 告警：%s%s" % (", ".join(str(x) for x in show), " …" if len(diff) > a.limit else ""))
+            else:
+                print("    ✅ 无告警")
+            continue
         ref = scan(all_lines, cfg["pat"], reg=False)
         reg = scan(all_lines, cfg["pat"], reg=True)
         diff = sorted(ref - reg, key=lambda s: (len(s), s))
