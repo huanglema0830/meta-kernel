@@ -41,6 +41,8 @@ REPO = TOOLS.parents[1]
 # 口径：`[]` = 无参数直跑；带参数者**必须**按各脚本自身要求给（否则 rc 会假红）。
 CALLS = [
     ("check_doc_consistency.py", []),
+    # ★ v0.328 新增（`T-052` 效力列判据 · 只告警）
+    ("check_effect_column.py", []),
     ("check_endpoint_table.py", []),
     ("check_id_set_diff.py", []),
     ("check_kernel_purity.py", []),
@@ -52,8 +54,12 @@ CALLS = [
     ("check_private_pointers.py", ["--mode=syntax"]),
     ("check_reading_instruction.py", []),
     ("check_report_structure.py", []),
+    # ★ v0.328 新增（`T-051` 五段流水线判据 · 只告警）
+    ("check_rewrite_pipeline.py", []),
     # ★ 不得传 `--repo .`（其默认 `find_repo()` 才是对的）—— 传了 ⇒ rc=1 假红
     ("check_source_of_truth.py", []),
+    # ★ v0.328 新增（`T-050` 规则⑤ 轮次号判据 · 只告警）
+    ("check_version_label.py", []),
 ]
 
 SUMMARY_RE = ("扫描", "自检结论", "告警", "PASS", "FAIL", "结论", "门禁", "收口")
