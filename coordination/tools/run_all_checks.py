@@ -45,6 +45,8 @@ CALLS = [
     ("check_effect_column.py", []),
     ("check_endpoint_table.py", []),
     ("check_id_set_diff.py", []),
+    # ★ v0.329 新增（治 `F-5` 的**批量**治法 · 只告警）
+    ("check_judge_gaps.py", []),
     ("check_kernel_purity.py", []),
     ("check_memory_layers.py", []),
     ("check_migration_closure.py", []),

@@ -18,8 +18,12 @@
 【口径（五条，写清以免误用）】
   1. **范围**：`coordination/reports/*.md` ＋ `coordination/BASELINE.md`
      —— ★ **只扫"同时含 `count=` 与 `v0.` 的文件"**（标名纪律只在这类文件上可判）。
-  2. ★ **历史豁免**：`count ∈ [312, 323]` 区段**不参与** ②／③
-     （依据 **`T-050` 规则④**：该区段跳号**不追改**）；区间端点**含**。
+  2. ★ **历史豁免（两级）**：
+     **一级（`T-050` 规则④）** ＝ **`count 312–323`** 区段的**跳号不追改**；
+     **二级（时代豁免 · ★★ 2026-09-23 发起人裁定〔v0.329 轮 · 裁定③〕）** ＝
+     **该文件"自身轮次号" ≤ 323 ⇒ 整文件豁免**（依据：**`T-050` 分家前，`v` 标签本就由 `count` 派生**
+     ⇒ **`v0.NNN` 与 `count=NNN` 同值＝当时正确**，非"混写"）。区间端点**含**。
+     ★ **裁定原文口径**：**采用 `≤323`**（发起人 2026-09-23 确认）。
   3. **取值口径与 `T-050` 同源**：版本号 ＝ `git rev-list --count HEAD`（**C21**，不推算）；
      轮次号 ＝ `v` 标签（形如 `v0.NNN`）。★ **两者按设计不相等** ⇒ 本判据**不检查"两数相等"**。
   4. **不重算机器事实**（**C18**）：本脚本**不自己跑 `git rev-list`**；只读**文本陈述**，
@@ -37,10 +41,11 @@
     ⑦ **递增**（同文件 v0.320 → v0.321）⇒ 不告警（反例）
     ⑧ **回退**（同文件 v0.321 → v0.320）⇒ 告警（正例）
     ⑨ **回读真实仓库**（**C18**）：真实 `reports/` ＋ `BASELINE.md`**读到 ≥ 1 份含双值文件**，并**打印实测值**
+    ⑩ ★ **时代豁免边界值**（裁定③）：**自身轮次 323 ⇒ 豁免** ／ **324 ⇒ 不豁免**（**边界两侧对照**）
 
 【用法】
   check_version_label.py              # 实跑（**只告警**；退出码恒 0）
-  check_version_label.py --selftest    # 自检（九侧正反对照）
+  check_version_label.py --selftest    # 自检（十侧正反对照）
   check_version_label.py --repo <path> # 指定仓库根
 
 【触发再评估】
@@ -234,11 +239,24 @@ def selftest():
     if not ok:
         fails.append("侧⑨")
 
+    # ⑩ 时代豁免**边界值**（裁定③：≤323 ⇒ 豁免；≥324 ⇒ 不豁免）—— 边界两侧对照
+    hdr = "".join("填充 %d\n" % i for i in range(1, 30))
+
+    def era(own_v):
+        txt = "轮次 `v0.%03d` 轮\n" % own_v + hdr + "版本 `count=999`\n"
+        a, _ = evaluate_file("<selftest>", txt)
+        return a
+
+    ok = (not era(323)) and bool(era(324))
+    print("  侧⑩（边界·自身轮次 323 ⇒ 豁免 ／ 324 ⇒ 不豁免）: %s" % ("PASS" if ok else "FAIL"))
+    if not ok:
+        fails.append("侧⑩")
+
     print("=" * 62)
     if fails:
         print("自检结论：FAIL %d 项 %s" % (len(fails), fails))
         return 1
-    print("自检结论：PASS（九侧：4 正例 ＋ 3 反例 ＋ 2 对照）")
+    print("自检结论：PASS（十侧：4 正例 ＋ 3 反例 ＋ 3 对照）")
     return 0
 
 
@@ -255,7 +273,8 @@ def main():
     print("=" * 66)
     print("轮次号判据（`T-050` 规则⑤）★ 先只告警，不判红")
     print("仓库根：%s" % repo)
-    print("★ 历史豁免区段：`count` %d–%d（含端点，%s 规则④）" % (EXEMPT_LO, EXEMPT_HI, "T-050"))
+    print("★ 历史豁免：**一级 `count` %d–%d**（`T-050` 规则④）／**二级 时代豁免＝文件自身轮次号 ≤ %d**"
+          "（★ 2026-09-23 发起人裁定③ · v0.329）" % (EXEMPT_LO, EXEMPT_HI, EXEMPT_HI))
     print("=" * 66)
 
     alerts, notes, scanned = evaluate(repo)

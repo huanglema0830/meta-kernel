@@ -272,7 +272,7 @@ jobs:
           echo "    python3 coordination/tools/check_source_of_truth.py --update-baseline"
           echo "  并在提交消息 / BASELINE 中写明【改动理由】。"
           echo "  不跑 ⇒ 下一步「机制 22 源一致性门禁」的判据 F 必判红（CI 不会绿）。"
-          echo "  [口径] 基线只覆盖 docs/ 全 35 份 .md；README.md 不在基线内（不触发判据 F）。"
+          echo "  [口径] 基线覆盖 docs/ 全 36 份 .md ＋ 根 README.md（共 37 份）；★ v0.329 轮底图拆文件后 docs/ 由 35 → 36（新增 LAYER_DETAILS.md）。"
           echo "=============================================================="
           echo "[R60 本次提交触及的 docs/ 文件]"
           if git rev-parse --verify -q HEAD~1 >/dev/null 2>&1; then
@@ -375,6 +375,50 @@ jobs:
           python3 coordination/tools/check_report_structure.py --selftest
           SELFTEST=$?
           python3 coordination/tools/check_report_structure.py
+          CHECK=$?
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (自检应 0；实跑**只告警**、退出码恒 0)"
+          set -e
+          test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
+
+      # ===== v0.328 三条新判据入 CI（2026-09-23 · v0.329 轮 · 发起人裁定②）=====
+      # 为什么：三条判据（`T-050` 规则⑤ ／ `T-051` ／ `T-052`）于 v0.328 立项，但**只进"本机全跑"、
+      #   未入 CI** ⇒ **CI 绿 ≠ 这三条绿**（**R14「本机绿是假绿」同源风险**）。本组 step 即堵此洞。
+      # 口径（三条共同）：**① 先 `--selftest`（判据自身要被验）② 再实跑** ——
+      #   **两者都必须 rc=0**；★ **三条判据均为"先只告警、不判红"** ⇒ 实跑 rc **恒 0**（不阻断 CI），
+      #   其"告警数"须**另行读日志输出**（`R83`：空转必须与通过取不同值）。
+      # 浅克隆安全：三条**只读仓库内文件**（`coordination/` ＋ `docs/` ＋ `README`），**不依赖 HEAD~1**（R68）。
+      # 位置：**紧随"报告结构门禁"之后**（同属"文档/报告侧"门禁簇）。
+      - name: 轮次号判据门禁 —— `T-050` 规则⑤（**只告警** · v0.329 新增）
+        shell: bash
+        run: |
+          set +e
+          python3 coordination/tools/check_version_label.py --selftest
+          SELFTEST=$?
+          python3 coordination/tools/check_version_label.py
+          CHECK=$?
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (自检应 0；实跑**只告警**、退出码恒 0)"
+          set -e
+          test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
+
+      - name: 回写五段流水线判据门禁 —— `T-051`（**只告警** · v0.329 新增）
+        shell: bash
+        run: |
+          set +e
+          python3 coordination/tools/check_rewrite_pipeline.py --selftest
+          SELFTEST=$?
+          python3 coordination/tools/check_rewrite_pipeline.py
+          CHECK=$?
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (自检应 0；实跑**只告警**、退出码恒 0)"
+          set -e
+          test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
+
+      - name: 效力列判据门禁 —— `T-052` ＋ `T-053` 时效（**只告警** · v0.329 新增）
+        shell: bash
+        run: |
+          set +e
+          python3 coordination/tools/check_effect_column.py --selftest
+          SELFTEST=$?
+          python3 coordination/tools/check_effect_column.py
           CHECK=$?
           echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (自检应 0；实跑**只告警**、退出码恒 0)"
           set -e
