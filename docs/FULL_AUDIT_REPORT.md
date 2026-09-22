@@ -53,7 +53,7 @@
 
 | 检查项 | 结果 | 证据 |
 |---|---|---|
-| **命名统一** | 🟢 已收敛（本轮再修 7 文件） | 本轮修复：`CONTRAST_REPORT` / `DIAGNOSIS_VALIDATION` / `QUANTUM_CLOCK_DESIGN` / `examples/*.html`×2 / `manifest-journal/src/main.rs` / `meta-kernel-core/src/lib.rs`，共 7 文件的「元内核」→「基因内核」 |
+| **命名统一** | 🟢 已收敛（本轮再修 7 文件） | 本轮修复：`CONTRAST_REPORT` / `DIAGNOSIS_VALIDATION` / `QUANTUM_CLOCK_DESIGN` / `examples/*.html`×2 / `manifest-journal/src/main.rs` / `meta-kernel-core/src/lib.rs`，共 7 文件的「元内核」→「DNA内核」 |
 | ⚠️ 后续变更（v0.103） | — | 本报告成档后，发起人裁定**命名体系两族分离**（电信号版＝元内核系统 / 量子版＝量子云系统），全库再替换 109 处 / 27 文件；**权威定义见 `LAYER_ARCHITECTURE §3.2`**。本行以下结论仍成立，仅名称口径以 §3.2 为准 |
 | 有意保留（非缺陷） | ✅ | `README.md`（命名规范"历史名称"列表）、`LAYER_ARCHITECTURE`/`VISION`/`SELF_DIAGNOSIS_REPORT`/`L5_DESIGN`/`SILA_IMPLEMENTATION`（版本记录与"旧称"说明） |
 | 待裁决 1 处 | 🟡 | `docs/CREATION_LOG.md` —《元内核极简创世录》是**叙事作品名**，是否随命名统一而改，属内容决策，未自动改 |
@@ -68,7 +68,7 @@
 | L5 诊断层（senses/baseline/compare/diagnosis/translate/router + 语境） | `meta-kernel-core/src/l5_*.rs`（**7 文件**） | ✅ |
 | 基因库四层（基础/场景/计算关系/验证哈希链） | `meta-kernel-core/src/gene_library.rs` | ✅ |
 | 语境模块（类型/时间/历史/环境） | `meta-kernel-core/src/l5_context.rs` | ✅ |
-| 基因内核学习（痕迹→生成→自适应） | `dna_trace.rs` / `dna_generate.rs` / `dna_adapt.rs` | ✅ |
+| DNA内核学习（痕迹→生成→自适应） | `dna_trace.rs` / `dna_generate.rs` / `dna_adapt.rs` | ✅ |
 | L2/L3 转录层（桥 / 网关） | `npb/` / `npb-gateway/` | ✅ |
 | L6 呈现 | `manifest-ui/` | ✅ |
 | 应用框架 / 参考应用（不占层号） | `npb-appkit/` / `manifest-journal/` | ✅ |
