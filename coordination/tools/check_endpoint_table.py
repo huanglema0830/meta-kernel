@@ -4,7 +4,10 @@
 
 ## 它判什么
 
-**代码里的路由，底图列全了吗。** 权威口径＝`docs/LAYER_ARCHITECTURE.md` 的 **§4.L3 端点表**（Q12 裁定）。
+**代码里的路由，底图列全了吗。** 权威口径＝`docs/LAYER_DETAILS.md` 的 **§4.L3 端点表**（Q12 裁定）。
+★ **v0.329 轮指针更新**：该表原在 `docs/LAYER_ARCHITECTURE.md`；**底图拆文件**（裁定④）后
+**§3–§4 迁入 `docs/LAYER_DETAILS.md`**（**节号未变**）⇒ 本判据的 `TABLE_FILE` **随之更新**
+（**未改口径、只改指针** · `C19` 同源）。
 
 - **范围**：`npb-gateway/src/http.rs` 的**非测试区**（`#[cfg(test)]` 之前）——与机制 21 同口径。
 - **比什么**：**路径**（不含 method；method 差异由权威表列内写明）。
@@ -43,7 +46,7 @@ import re
 import sys
 from pathlib import Path
 
-TABLE_FILE = "docs/LAYER_ARCHITECTURE.md"
+TABLE_FILE = "docs/LAYER_DETAILS.md"   # ★ v0.329 轮：原 `docs/LAYER_ARCHITECTURE.md` §4.L3 随**拆分**迁入本文件
 TABLE_ANCHOR = "##### §4.L3 端点表"
 CODE_FILE = "npb-gateway/src/http.rs"
 WHITELIST = "coordination/security/endpoint_whitelist.txt"
