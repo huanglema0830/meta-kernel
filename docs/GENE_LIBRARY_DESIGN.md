@@ -5,7 +5,7 @@
 > `docs/L5_DESIGN.md`（诊断层）、`meta-kernel-core/src/dna_trace.rs|dna_generate.rs|dna_adapt.rs`（现有学习实现）
 >
 > **一句话**：基因库不是"存结论的数据库"，而是**存"怎么变化"的公式库**——
-> 它是DNA内核（Gene Kernel）的**核心资产**，从 **0 锚点**生长，供 L4 判据、L5 场景、L6 词汇表共同消费。
+> 它是DNA内核（DNA Kernel）的**核心资产**，从 **0 锚点**生长，供 L4 判据、L5 场景、L6 词汇表共同消费。
 
 ---
 
