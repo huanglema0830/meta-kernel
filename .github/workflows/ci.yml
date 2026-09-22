@@ -448,7 +448,25 @@ jobs:
         run: |
           set -e
           rustup target add wasm32-unknown-unknown
-          curl -sSL https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.128/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl.tar.gz -o /tmp/wb.tgz
+          # ---- 网络重试加固（2026-09-22 · R90）：本下载会**偶发**失败 ----
+          # 实测（`test` job，与 R88 同族）：下载得到**非 gzip 内容** ⇒ `gzip: stdin: not in gzip format`
+          #   ＋ `tar: Child returned status 1` ⇒ 退出码 2 ⇒ **整个 test job 判红**。
+          # 判据：同 step **上一轮刚通过**、URL 现测 **HTTP 200 + octet-stream** ⇒ **瞬时抖动**（非 URL 失效）。
+          # 口径：与 **R88（llvm-mingw）同一套 shell 循环重试**（1 次首试 ＋ 最多 3 次重试、间隔 5s）。
+          # ★ 但**多一道校验**：解包前用 `tar -tzf` 验真 —— **curl 对"截断／损坏响应"不报错**，
+          #   这正是 R90 的坑；故重试的对象是「**下载到有效 tarball**」，不是「curl 返回 0」。
+          # ★ **重试耗尽仍判红**（门禁不放宽）。
+          WB_URL="https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.128/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl.tar.gz"
+          retry=0
+          until curl -sSL "$WB_URL" -o /tmp/wb.tgz && tar -tzf /tmp/wb.tgz >/dev/null 2>&1; do
+            retry=$((retry + 1))
+            if [ "$retry" -gt 3 ]; then
+              echo "::error::wasm-bindgen 下载/校验失败：1 次首试 + 3 次重试后仍失败（R90；网络持续不可用或资产损坏）"
+              exit 1
+            fi
+            echo "::warning::wasm-bindgen 下载/校验失败（第 ${retry} 次重试，共 3 次），5s 后重试"
+            sleep 5
+          done
           tar -xzf /tmp/wb.tgz -C /tmp
           export PATH="/tmp/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl:$PATH"
           cargo build -p manifest-ui --release --target wasm32-unknown-unknown
@@ -510,7 +528,20 @@ jobs:
           echo "===== STEP 4: Playwright 真实浏览器目验 ====="
           cd examples/ui-verify
           npm install --no-audit --no-fund
-          npx playwright install --with-deps chromium
+          # ---- 网络重试加固（2026-09-22 · B5）：Chromium 包**体积最大、最易抖、此前无重试** ----
+          # 来源：`reports/2026-09-21_R88-R90同型点全仓排查稿.md` 乙类 **B5（中高风险）**；
+          #   且它与 R90 在**同一个 job（test）**——R90 修好后，B5 仍可能是下一个红点。
+          # 口径：与 R88／R90 **同一套**（1 次首试 ＋ 最多 3 次重试、间隔 5s）；★ **重试耗尽仍判红**。
+          retry=0
+          until npx playwright install --with-deps chromium; do
+            retry=$((retry + 1))
+            if [ "$retry" -gt 3 ]; then
+              echo "::error::playwright chromium 安装失败：1 次首试 + 3 次重试后仍失败（B5）"
+              exit 1
+            fi
+            echo "::warning::playwright chromium 安装失败（第 ${retry} 次重试，共 3 次），5s 后重试"
+            sleep 5
+          done
           UI_URL=http://127.0.0.1:$PORT/ UI_TIMEOUT=60000 node verify.mjs
           echo UI_AUTO_VERIFY_ALL_OK
 
