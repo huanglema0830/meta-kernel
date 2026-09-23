@@ -119,7 +119,12 @@ mod win {
 
         Ok(FieldReading {
             s: [t, f, a, phi, x, h, tau],
-            at: None,
+            // ★ `at` 填**来源标识**（治 v0.333 实测「探针 at 恒为空串」）。
+            //   ★ **边界如实（不拔高）**：`FieldReading::at` 的类型是 `Option<&'static str>`
+            //     ⇒ **装不下运行时时间戳**（无 alloc 亦不安全）。
+            //     若要真时间戳，须改**内核公共类型**（`meta-kernel-core/src/l5_senses.rs`
+            //     ＋ nostd 镜像 ＋ JSON 契约测试）⇒ **未擅改，已登记**（报告 ⑪）。
+            at: Some("cloud-probe"),
         })
     }
 

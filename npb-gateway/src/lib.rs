@@ -458,6 +458,26 @@ pub fn health_json() -> String {
     format!("{{\"ok\":true,\"digest\":{d},\"writer\":\"single\",\"schema\":{sc}}}", sc = SNAPSHOT_SCHEMA)
 }
 
+/// /v1/health 载荷（**含动作／探针计数**）—— 治 v0.333 实测缺陷
+/// 「血管跑没跑，在健康面上看不出来」（原 `health_json()` 只有 ok/digest/writer/schema）。
+/// ★ **保留 `health_json()` 原样**（其 JSON 契约有测试在守，`C19`）；本函数是其**增量扩展**。
+pub fn health_json_counted(mon: &selfmon::SelfMon, ledger_len: usize, ledger_head: u64) -> String {
+    let d = npb::mk_self_test();
+    let c = mon.counters();
+    format!(
+        "{{\"ok\":true,\"digest\":{d},\"writer\":\"single\",\"schema\":{sc},\"counters\":{{\"requests\":{rq},\"errors\":{er},\"pushes\":{pu},\"rejected\":{rj},\"probes\":{pr},\"task_posts\":{tp}}},\"actions\":{{\"ledger_len\":{ll},\"ledger_head\":{lh}}}}}",
+        sc = SNAPSHOT_SCHEMA,
+        rq = c.requests,
+        er = c.errors,
+        pu = c.pushes,
+        rj = c.rejected,
+        pr = c.probes,
+        tp = c.task_posts,
+        ll = ledger_len,
+        lh = ledger_head
+    )
+}
+
 /// 极简 JSON 数字提取：从 `{"seed": <num>}` 形请求体中取 seed（协议自控，无嵌套）。
 /// 返回 None 表示未找到合法数字。
 pub fn parse_seed_body(body: &str) -> Option<f32> {

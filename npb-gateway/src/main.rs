@@ -1,6 +1,8 @@
-//! npb-gateway 二进制入口：本地启动 HTTP/SSE 网关（默认 127.0.0.1:8080）。
+//! npb-gateway 二进制入口：本地启动 HTTP/SSE 网关（默认 127.0.0.1:3000）。
 //!
 //! 用法：`cargo run -p npb-gateway [PORT]`
+//! ★ 2026-09-24 订正：首行原写「默认 127.0.0.1:8080」与代码不符（`port` 初值 **3000**，
+//!   见本文件 `let mut port: u16 = 3000;`）—— 只改注释文案，不改行为。
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

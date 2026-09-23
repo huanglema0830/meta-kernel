@@ -10,7 +10,7 @@
 //!
 //! 单写者语义：任何 HTTP 线程都不直接触碰 npb；所有内核操作经 Gateway 串行。
 
-use crate::{edges, health_json, parse_seed_body, Gateway, Projection};
+use crate::{edges, health_json_counted, parse_seed_body, Gateway, Projection};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -58,8 +58,13 @@ pub fn spawn_custom(port: u16, ui_dir: Option<String>) -> std::io::Result<Server
 /// 指定监听地址（局域网实测：如 "192.168.1.3"——受控内网入口；默认仍 127.0.0.1）。
 pub fn spawn_on(ip: &str, port: u16, ui_dir: Option<String>) -> std::io::Result<Server> {
     let listener = TcpListener::bind((ip, port))?;
-    let addr = listener.local_addr()?.to_string();
+    let local = listener.local_addr()?;
+    let addr = local.to_string();
     let gw = Arc::new(Gateway::spawn());
+    // ★ 端口联动（治 v0.333 实测缺陷「换端口即断血」）：把**实际监听端口**交给 L7 执行器，
+    //   使 `trigger-probe` 的回传目标与网关真实端口一致（此前 `Executor::set_port` 有定义无调用
+    //   ⇒ `act_trigger_probe` 恒回传 3000）。`port = 0`（随机端口）同样成立 —— 取绑定后的真实端口。
+    gw.exec().set_port(local.port());
     let stop = Arc::new(AtomicBool::new(false));
     let s2 = Arc::clone(&stop);
     let gw2 = Arc::clone(&gw);
@@ -588,7 +593,11 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
             http_ok(&format!("{{\"ok\":{}}}", if ok { "true" } else { "false" }))
         }
         // 健康 + 单写者语义声明
-        ("GET", "/v1/health") => http_ok(&health_json()),
+        ("GET", "/v1/health") => http_ok(&health_json_counted(
+            gw.mon(),
+            gw.exec().ledger_len(),
+            gw.exec().ledger_head(),
+        )),
         _ => http_err(404, "Not Found", "{\"error\":\"not_found\"}"),
     };
     stream.write_all(resp.as_bytes())?;
