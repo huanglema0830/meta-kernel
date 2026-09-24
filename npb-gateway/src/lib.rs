@@ -461,11 +461,11 @@ pub fn health_json() -> String {
 /// /v1/health 载荷（**含动作／探针计数**）—— 治 v0.333 实测缺陷
 /// 「血管跑没跑，在健康面上看不出来」（原 `health_json()` 只有 ok/digest/writer/schema）。
 /// ★ **保留 `health_json()` 原样**（其 JSON 契约有测试在守，`C19`）；本函数是其**增量扩展**。
-pub fn health_json_counted(mon: &selfmon::SelfMon, ledger_len: usize, ledger_head: u64) -> String {
+pub fn health_json_counted(mon: &selfmon::SelfMon, ledger_len: usize, ledger_head: u64, receipts_len: usize) -> String {
     let d = npb::mk_self_test();
     let c = mon.counters();
     format!(
-        "{{\"ok\":true,\"digest\":{d},\"writer\":\"single\",\"schema\":{sc},\"counters\":{{\"requests\":{rq},\"errors\":{er},\"pushes\":{pu},\"rejected\":{rj},\"probes\":{pr},\"task_posts\":{tp}}},\"actions\":{{\"ledger_len\":{ll},\"ledger_head\":{lh}}}}}",
+        "{{\"ok\":true,\"digest\":{d},\"writer\":\"single\",\"schema\":{sc},\"counters\":{{\"requests\":{rq},\"errors\":{er},\"pushes\":{pu},\"rejected\":{rj},\"probes\":{pr},\"task_posts\":{tp}}},\"actions\":{{\"ledger_len\":{ll},\"ledger_head\":{lh}}},\"receipts\":{{\"count\":{rc}}}}}",
         sc = SNAPSHOT_SCHEMA,
         rq = c.requests,
         er = c.errors,
@@ -474,7 +474,8 @@ pub fn health_json_counted(mon: &selfmon::SelfMon, ledger_len: usize, ledger_hea
         pr = c.probes,
         tp = c.task_posts,
         ll = ledger_len,
-        lh = ledger_head
+        lh = ledger_head,
+        rc = receipts_len
     )
 }
 

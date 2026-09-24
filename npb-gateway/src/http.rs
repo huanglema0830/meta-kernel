@@ -387,7 +387,10 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
         return Ok(());
     }
     if method == "GET" && target == "/v1/audit.txt" {
-        stream.write_all(http_ok_plain(&gw.exec().ledger_text()).as_bytes())?;
+        // ★ L6② 最小闭环（路径 A）：**既有端点**同时输出「动作账」＋「世界回执区」
+        //   ⇒ 读回走既有通道，**零新端点**（不触机制 24；不改底图端点表）。
+        let txt = format!("{}{}", gw.exec().ledger_text(), gw.exec().receipts_text());
+        stream.write_all(http_ok_plain(&txt).as_bytes())?;
         return Ok(());
     }
     // 签发一次性令牌（remember=true 时同时写入记忆授权）
@@ -495,6 +498,32 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
     }
     // 外部投递任务（默认归属 [WorkBuddy]；体可为 JSON{owner,detail} 或纯文本）
     if method == "POST" && target == "/v1/tasks" {
+        // ★ L6② 世界回执入口（人工确认 · 路径 A）：**复用既有端点**，体带 `"source":"human"` 即视为人工确认。
+        //   ★ `source` 恒记 `human`（Q5：不得伪装成真实世界回执）；★ 该回执**不参与 L5 校准**（Q6）。
+        if let Some(src) = extract_json_str(&body, "source") {
+            if src == crate::l7_exec::RECEIPT_SOURCE_HUMAN {
+                let entry = extract_json_str(&body, "entry_id").unwrap_or_else(|| "(unbound)".to_string());
+                let raw = extract_json_str(&body, "status").unwrap_or_else(|| "accepted".to_string());
+                let (st, known) = crate::l7_exec::normalize_receipt_status(&raw);
+                let r = gw.exec().confirm_receipt(&entry, st);
+                gw.mon().note(
+                    crate::selfmon::Owner::Kernel,
+                    if known { "INFO" } else { "WARN" },
+                    "世界回执·人工确认",
+                    format!(
+                        "entry={entry} status={st}{} hash={:#x}",
+                        if known { "" } else { "（status 非四态 ⇒ 已归一到 accepted）" },
+                        r.hash
+                    ),
+                );
+                let body = format!(
+                    "{{\"accepted\":true,\"receipt\":{{\"seq\":{},\"entry_id\":\"{}\",\"status\":\"{}\",\"source\":\"human\",\"hash\":{},\"status_known\":{}}}}}",
+                    r.seq, r.entry_id, r.status, r.hash, known
+                );
+                stream.write_all(http_ok(&body).as_bytes())?;
+                return Ok(());
+            }
+        }
         let detail = extract_json_str(&body, "detail").unwrap_or_else(|| body.trim().to_string());
         let owner = match extract_json_str(&body, "owner") {
             Some(o) => crate::selfmon::Owner::parse(&o),
@@ -597,6 +626,7 @@ fn handle_conn(mut stream: TcpStream, gw: Arc<Gateway>, stop: Arc<AtomicBool>, u
             gw.mon(),
             gw.exec().ledger_len(),
             gw.exec().ledger_head(),
+            gw.exec().receipts_len(),
         )),
         _ => http_err(404, "Not Found", "{\"error\":\"not_found\"}"),
     };

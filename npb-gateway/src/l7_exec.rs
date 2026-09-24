@@ -76,6 +76,54 @@ fn link_hash(prev: u64, id: u32, grade: u8, seq: u32, outcome: &str, note: &str)
     h
 }
 
+// ── ★ L6② 世界回执（人工确认 · 路径 A）────────────────────────────────
+// 依据：`docs/LAYER_BASEMAP_L0_L6.md` **§8.4 ⟨补 17⟩ Q5／Q6／Q7 裁定**（2026-09-18 发起人）。
+// ★ 三条硬边界（写死在代码里，不是约定）：
+//   1. `source` **恒为 `human`** —— 人工确认**不得伪装成真实世界回执**（Q5 末段：**拒绝伪造反馈输入**）；
+//   2. **不参与 L5 校准** —— 否则自家 UI 的确认会反向校准自家判定 ⇒ **自证循环**（Q6）；
+//   3. **只解除「未显化」状态，不证明「显化有效」**（Q5 前半）。
+// ★ 落地口径：**写入既有 L7 哈希链账本**（一类 `outcome = "receipt:human"`）＋ **经既有 `GET /v1/audit.txt` 读回**
+//   ⇒ **零新端点**（不触机制 24）／**零内核改动**（机制 21：感知与动作只落宿主侧）。
+
+/// `source` 现已裁定的唯一取值（Q5）。
+pub const RECEIPT_SOURCE_HUMAN: &str = "human";
+/// 账本中的回执类目（与 `ActionDef` 族区分；`action_id = 0` ＝ **非动作类**）。
+pub const RECEIPT_OUTCOME: &str = "receipt:human";
+/// `WorldReceipt` 四态（与 `archive/reserved-interfaces/l6_interface.rs` 的 status 契约一致）。
+pub const RECEIPT_STATUSES: [&str; 4] = ["accepted", "executed", "completed", "rejected"];
+
+/// 一条世界回执（人工确认）。
+#[derive(Clone, Debug)]
+pub struct Receipt {
+    pub seq: u32,
+    pub entry_id: String,
+    pub status: &'static str,
+    pub source: &'static str,
+    pub at: u64,
+    /// 该回执在 L7 哈希链账本中的链节哈希（**可回指**）。
+    pub hash: u64,
+}
+
+fn receipt_note(status: &'static str) -> &'static str {
+    match status {
+        "executed" => "世界回执·人工确认·executed",
+        "completed" => "世界回执·人工确认·completed",
+        "rejected" => "世界回执·人工确认·rejected",
+        _ => "世界回执·人工确认·accepted",
+    }
+}
+
+/// 归一 `status`：**只接受四态**；其余 ⇒ `accepted`，并**回报"已归一"**（调用方须如实记录，不静默）。
+pub fn normalize_receipt_status(s: &str) -> (&'static str, bool) {
+    match s {
+        "accepted" => ("accepted", true),
+        "executed" => ("executed", true),
+        "completed" => ("completed", true),
+        "rejected" => ("rejected", true),
+        _ => ("accepted", false),
+    }
+}
+
 struct Token {
     id: u32,
     value: String,
@@ -117,6 +165,8 @@ pub struct Executor {
     tokens: Mutex<VecDeque<Token>>,
     ledger: Mutex<Vec<Link>>,
     nonce: Mutex<u64>,
+    /// ★ L6② 世界回执（人工确认 · 路径 A）：**独立存放**，同时写入既有账本链。
+    receipts: Mutex<Vec<Receipt>>,
 }
 
 impl Executor {
@@ -130,6 +180,7 @@ impl Executor {
             tokens: Mutex::new(VecDeque::new()),
             ledger: Mutex::new(Vec::new()),
             nonce: Mutex::new(0),
+            receipts: Mutex::new(Vec::new()),
         }
     }
 
@@ -255,6 +306,52 @@ impl Executor {
                     x.seq, x.action_id, x.grade, x.outcome, x.note, x.prev
                 ));
             }
+        }
+        s
+    }
+
+    // ---- ★ L6② 世界回执（人工确认 · 路径 A）----
+    /// **记录一条人工确认的世界回执**：写入既有账本（一类 `outcome = "receipt:human"`，`action_id = 0` ＝ 非动作类）
+    /// ＋ 存入回执表。★ `source` **恒 `human`**；★ **不参与 L5 校准**（Q6）；★ 只解除「未显化」（Q5）。
+    pub fn confirm_receipt(&self, entry_id: &str, status: &'static str) -> Receipt {
+        let hash = self.ledger_append(0, RECEIPT_OUTCOME, receipt_note(status));
+        let mut v = match self.receipts.lock() {
+            Ok(v) => v,
+            Err(p) => p.into_inner(),
+        };
+        let seq = v.len() as u32 + 1;
+        v.push(Receipt {
+            seq,
+            entry_id: entry_id.to_string(),
+            status,
+            source: RECEIPT_SOURCE_HUMAN,
+            at: now_s(),
+            hash,
+        });
+        v.last().cloned().unwrap()
+    }
+
+    pub fn receipts_len(&self) -> usize {
+        self.receipts.lock().map(|v| v.len()).unwrap_or(0)
+    }
+
+    /// 回执区文本 —— 供**既有** `GET /v1/audit.txt` **追加**输出（★ **不新增端点**）。
+    pub fn receipts_text(&self) -> String {
+        let mut s = String::new();
+        let v = match self.receipts.lock() {
+            Ok(v) => v,
+            Err(p) => p.into_inner(),
+        };
+        if v.is_empty() {
+            return s;
+        }
+        s.push_str("\n[世界回执 · L6② · 人工确认（路径 A）]\n");
+        s.push_str("★ source=human ⇒ 只解除「未显化」，**不参与 L5 校准**（Q5／Q6 裁定 · 防自证循环）\n");
+        for r in v.iter() {
+            s.push_str(&format!(
+                "[世界回执] #{} entry={} status={} source={} at={} hash={:#x}\n",
+                r.seq, r.entry_id, r.status, r.source, r.at, r.hash
+            ));
         }
         s
     }
@@ -565,6 +662,34 @@ mod tests {
         assert!(txt.contains("[元内核] AUDIT"), "{txt}");
         assert!(txt.contains("granted"));
         assert!(txt.contains("executed"));
+    }
+
+    /// ★ **验收：L6② 最小闭环（路径 A）** —— 人工确认 → 账本写入 → 读回（哈希链相接）。
+    #[test]
+    fn human_receipt_enters_ledger_and_reads_back() {
+        let (e, _d, _t) = ex();
+        let r = e.confirm_receipt("entry-1", "accepted");
+        assert_eq!(r.seq, 1);
+        assert_eq!(r.source, "human", "★ source 恒为 human（Q5）");
+        assert!(e.ledger_verify(), "回执入链后哈希链仍可验（链相接）");
+        // 读回：① 既有动作账里出现回执类目 ② 回执区可见 entry/status/source
+        let ledger = e.ledger_text();
+        assert!(ledger.contains("receipt:human"), "{ledger}");
+        let txt = e.receipts_text();
+        assert!(txt.contains("世界回执"), "{txt}");
+        assert!(txt.contains("entry-1"), "{txt}");
+        assert!(txt.contains("source=human"), "{txt}");
+        assert_eq!(e.receipts_len(), 1);
+        // 四态归一：未知值 ⇒ accepted 且**回报"已归一"**（不静默）
+        assert_eq!(normalize_receipt_status("bogus").0, "accepted");
+        assert!(!normalize_receipt_status("bogus").1, "未知 status 须标'已归一'");
+        assert_eq!(normalize_receipt_status("rejected").0, "rejected");
+        assert!(normalize_receipt_status("rejected").1);
+        // 第二条回执 ⇒ 链继续相接
+        let r2 = e.confirm_receipt("entry-2", "completed");
+        assert_eq!(r2.seq, 2);
+        assert!(e.ledger_verify());
+        assert_eq!(e.ledger_len(), 2, "两条回执 = 两个链节");
     }
 
     /// **验收：回滚可用**。
