@@ -123,7 +123,11 @@ ABS_PATH = re.compile(
     r"(?<![A-Za-z])[A-Za-z]:[\\/]+[^\\/\s|`\"'<>：:，。、）】\]]+"
     r"|/{1,2}[cC]/[Uu]sers/")
 ACCOUNT = re.compile(r"(?:账号|帐号|用户名|账户|密码|password|passwd)\s*[:：=]\s*\S+")
-LAN_IP = re.compile(r"\b(?:10|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b")
+# ★ `C3-012` 裁定⑥：**未指定地址（`0.0.0.0`）与回环同一逻辑 ⇒ 显式排除出「内网 IP」规则**
+#   立法理由（`T-071` ② 同）：**外部不可定位**（该地址不指向任何可达目标，形不成定位线索）。
+#   ★ 为什么补明文：`C3-011` 的排除只写在 **port 规则**里；IP 规则虽**事实上不命中**该类地址，
+#     但**无明文、无对照** ⇒ 属"**未验证的绿**"（`R83`）⇒ 本轮补明文 ＋ 补正反两侧对照。
+LAN_IP = re.compile(r"\b(?!0\.0\.0\.0)(?:10|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b")
 # ★ 端口：**只有与"可定位目标"绑定才算 ⛔**（`C3-010` 裁定丙）
 #   (a) IPv4:port  (b) hostname:port（hostname 需带点，避免把 "12:30" 这类误报）
 #   ★ `C3-011` **裁定乙（补正）**：**回环／未指定地址不算"可定位目标"** ⇒ 排除 ——
@@ -368,6 +372,11 @@ CASE_PORT_TARGET = CLEAN + "目标 203.0.113.9:3010 可达（文档网段占位�
 CASE_HOST_PORT = CLEAN + "调试入口 localhost:3999 可用。\n"
 CASE_LOOPBACK_PORT = CLEAN + "本机 127.0.0.1:3000 起服务。\n"
 CASE_ANYADDR_PORT = CLEAN + "监听 0.0.0.0:8080。\n"
+# ★ `C3-012` 裁定⑥：**未指定地址**（不带端口）也排除出「内网 IP」规则
+CASE_ANYADDR_ALONE = CLEAN + "服务监听地址写 0.0.0.0（未指定接口）。\n"
+# ★ 侧㉑ 正例夹具**不得写真形态内网段字面量**（`机制 17` · 本判据第 3 次同族纪律）：
+#   ⇒ 与 `CASE_IPV4_PORT2` 同法，**动态拼接**一个内网形态地址（源里不出现整串）。
+CASE_LAN_REAL = CLEAN + "内网管理段 %s 已分配。\n" % ("10." + ".".join(["1", "2", "3"]))
 # ★ 侧⑰ 的夹具**不能写内网段字面量** —— 那本身就是一条 ⛔（`机制 17`：新增泄漏**必须修代码、不得改基线**；
 #   本文件上一版即因内网段字面量被判红）。⇒ 用**文档网段**（TEST-NET-2/3，RFC 5737）**动态拼接**：
 #   既不产生可被 `lan_ip` 命中的字面量，又能验证"**非回环／非未指定 ⇒ 照报**"。
@@ -426,6 +435,11 @@ def selftest():
         CASE_ANYADDR_PORT, False)
     run("侧⑰（正例·`IPv4:port`（**非回环／非未指定**）⇒ 报 〔`C3-011` 乙 对照〕）",
         CASE_IPV4_PORT2, True, want_sub="端口＋可定位目标")
+    # ★ `C3-012` 裁定⑥：未指定地址排除出「内网 IP」规则（1 反例 ＋ 1 正例对照）
+    run("侧⑳（反例·`0.0.0.0` **不带端口** ⇒ 不判「内网 IP」〔`C3-012` ⑥〕）",
+        CASE_ANYADDR_ALONE, False)
+    run("侧㉑（正例·**真实内网形态**地址 ⇒ 照报〔`C3-012` ⑥ 对照〕）",
+        CASE_LAN_REAL, True, want_sub="内网 IP")
 
     # 侧⑨ 链号解析（对照 · 同源）
     d = tempfile.mkdtemp()
@@ -447,11 +461,24 @@ def selftest():
     if not ok10:
         fails.append("侧⑩")
 
+    # ★ `C3-012` 裁定②：**基线不按周期重写** —— 只当「已减」累积 ≥ 阈值 ⇒ 提示（不自动重写）
+    ok18 = decrease_advice(10, threshold=3)[0] is True
+    print("  侧⑱（正例·**已减 ≥ 阈值** ⇒ 提示重写基线〔`C3-012` ②〕）: %s"
+          % ("PASS" if ok18 else "FAIL"))
+    if not ok18:
+        fails.append("侧⑱")
+    ok19 = decrease_advice(2, threshold=3)[0] is False
+    print("  侧⑲（反例·**已减 < 阈值** ⇒ 不提示〔`C3-012` ②〕）: %s"
+          % ("PASS" if ok19 else "FAIL"))
+    if not ok19:
+        fails.append("侧⑲")
+
     print("=" * 62)
     if fails:
         print("自检结论：FAIL %d 项 %s" % (len(fails), fails))
         return 1
-    print("自检结论：PASS（**十七侧**：8 正例 ＋ 7 反例 ＋ 1 对照 ＋ 回读真实登记表）")
+    print("自检结论：PASS（**二十一侧**：10 正例 ＋ 9 反例 ＋ 1 对照 ＋ 回读真实登记表"
+          "；其中 ⑱⑲⑳㉑ 为 `C3-012` 新增）")
     return 0
 
 
@@ -530,6 +557,21 @@ def compare_baseline(base, counts):
     return sorted(new), sorted(dec)
 
 
+# ★ `C3-012` 裁定②：**基线不按周期重写** —— 只当「已减」累积 ≥ 阈值时才提示重写。
+#   为什么：周期重写会把"未清理的历史"**滚进新基线**（= 变相放行）；只盯"已减"则基线**单调往下走**。
+#   ★ 阈值现值 **10** ＝ **🟡 待用户确认**（用户只定了"达到阈值才重写"的原则、未给数）
+DECREASE_REWRITE_THRESHOLD = 10
+
+
+def decrease_advice(n_dec, threshold=DECREASE_REWRITE_THRESHOLD):
+    """「已减」累积是否达到"建议重写基线"的阈值 ⇒ 返回 (是否建议, 提示语)。"""
+    hint = ("ℹ️ 已减累积 %d 条 ／ 阈值 %d ⇒ **暂不重写**（未达阈值）" % (n_dec, threshold))
+    if n_dec >= threshold:
+        return True, ("★ **已减累积 %d 条 ≥ 阈值 %d** ⇒ **建议重写基线**"
+                      "（仍须显式授权：`--baseline-write`；依 `C3-012` 裁定②）" % (n_dec, threshold))
+    return False, hint
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", default=repo_root())
@@ -583,8 +625,13 @@ def main():
             print("\nℹ️ 已减 %d 条（实测低于基线；**可下调基线**，非告警）：" % len(dec))
             for rel, label, cut in dec:
                 print("   - %s ｜ %s ｜ 减 %d" % (rel, label, cut))
+        # ★ `C3-012` 裁定②：**不按周期重写**；只当"已减"累积 ≥ 阈值 ⇒ 提示（不自动重写）
+        need_rewrite, hint = decrease_advice(len(dec))
+        print("\n★ 基线重写建议（`C3-012` 裁定② · 无周期，只看「已减」累积）：%s" % hint)
         print("\n" + "=" * 70)
         print("新增超基线合计：%d" % len(new))
+        print("已减合计：%d ｜ 重写阈值：%d ｜ 是否建议重写：%s"
+              % (len(dec), DECREASE_REWRITE_THRESHOLD, "是" if need_rewrite else "否"))
         print("★ 本判据**先只告警、不判红**（退出码恒 0）。")
         print("=" * 70)
         return 0
