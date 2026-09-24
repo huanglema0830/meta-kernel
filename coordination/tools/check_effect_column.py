@@ -66,6 +66,11 @@ GREEN, YELLOW = "🟢", "🟡"
 RE_FIRST = re.compile(r"首次标记[：:\s]*v0\.(\d{3})")
 RE_CUR = re.compile(r"v0\.(\d{3})")
 AGING_LIMIT = 3   # 满 3 轮（含起点轮为第 1 轮）；★ 与 `T-053` 22.5 同源
+# ★ 历史留痕排除（2026-09-24 · `云内核-C3-004`）：**述及"曾经 🟡"的历史陈述**
+#   （「原文保留不动」「已被…取代」「原为」…）**不是"仍在挂起"的 🟡** ⇒ 排除。
+#   ★ 依 `T-041`：**剔除规则本身是正式规则**，且**每次扫描打印剔除行数**（可见 · 不隐藏）。
+#   ★ 来历：词表统一（同轮）后，正文里两处**历史陈述**（曾述 🟡 待裁定、后已裁定）被误报 ⇒ 补此。
+HIST_MARKS = ("原文保留", "原为", "已处置", "订正", "引述", "当时", "删除线", "已被", "取代", "不追改", "保留留痕")
 
 
 def repo_root() -> str:
@@ -145,7 +150,11 @@ def aging_alerts(lines, cur, row_lines):
 
     **在范围内的 🟡**（口径写清）：
       (a) **效力表数据行**内的 🟡；或
-      (b) 同行含**「待复核」**的 🟡（＝ `T-052` **块级标注**的形态）。
+      (b) 同行含**「待复核」或「待裁定」**的 🟡（＝ `T-052` **块级标注**的形态）。
+      ★ **2026-09-24（`云内核-C3-004`）词表统一**：原只认字面「待复核」，与规则 B 要求的
+        「待裁定」**不一致** ⇒ 按 `T-052` 正名后 🟡 **反而"隐身"**（`R83` 同族：
+        **"没验到"被读成"验过了"**）。⇒ 本检查**同时接受两种词**（统一为「效力语境标记」）；
+        自检新增 **侧⑪** 守住该回归。
     **不在范围（如实标注的判据边界）**：底图中 🟡 的**其他用法** —— **进度／完成度标记**
       （如 `🟡 部分`／`🟡 60%`），**不属效力语境** ⇒ **不参与**
       （v0.329 实测：底图另有 **26 处**此类用法，若一并纳入会**大面积误报**）。
@@ -153,10 +162,21 @@ def aging_alerts(lines, cur, row_lines):
       **`cur - first > 3`** ⇒ **告警**（挂满 3 轮未裁）。
     """
     out = []
+    skipped_hist = 0
+    skipped_spec = 0
     for ln, line in enumerate(lines, 1):
         if YELLOW not in line or SKIP_MARK in line:
             continue
-        if not (ln in row_lines or "待复核" in line):
+        if any(h in line for h in HIST_MARKS):
+            skipped_hist += 1
+            continue
+        # ★ 规范句排除（2026-09-24）：**同一行同时出现 🟢 与 🟡** ⇒ 是「效力取值只有两种」这类
+        #   **规范／并列说明**（不是某一项的效力标记）⇒ 排除。来历：词表统一后 `§2.2.1` 的
+        #   `T-052` 规范句被误报为"🟡 缺首次标记"。
+        if GREEN in line and YELLOW in line:
+            skipped_spec += 1
+            continue
+        if not (ln in row_lines or "待复核" in line or "待裁定" in line):
             continue
         m = RE_FIRST.search(line)
         if not m:
@@ -166,6 +186,9 @@ def aging_alerts(lines, cur, row_lines):
         if cur is not None and (cur - first) > AGING_LIMIT:
             out.append("行%d：**🟡 挂满 %d 轮未裁**（首次标记 `v0.%03d` ／ 当前 `v0.%03d` ＞ 上限 %d 轮）"
                        % (ln, cur - first, first, cur, AGING_LIMIT))
+    if skipped_hist or skipped_spec:
+        print("  [已剔除 · 历史留痕 %d 行 ／ 规范句 %d 行]（`T-041`：**剔除规则本身是正式规则**；"
+              "历史词表＝%s；规范句判据＝同行兼有 🟢🟡）" % (skipped_hist, skipped_spec, "／".join(HIST_MARKS)))
     return out
 
 
@@ -215,6 +238,9 @@ GOOD = (
     "| L1 | x | y | 🟡 待裁定（首次标记：v0.328 轮） | 讨论稿 §2.2.5.1 |\n"
 )
 YROW = "| L1 | x | y | 🟡 待裁定（首次标记：v0.328 轮） | 讨论稿 §2.2.5.1 |\n"
+# ★ 侧⑪ 夹具：**块级标注**形态（非表格行），且**只用「待裁定」**（不写「待复核」）
+#   —— 这正是 2026-09-24 词表盲区会漏掉的那一类（`云内核-C3-004` 回归守护）。
+BQ = "> **🟡 待裁定**（**首次标记：v0.100 轮**） —— 编者连缀，待发起人裁定。\n"
 
 
 def selftest():
@@ -258,6 +284,17 @@ def selftest():
     run("侧⑩（反例·未满 3 轮）",
         GOOD.replace(YROW, YROW.replace("v0.328", "v0.326")), False, cur=328)
 
+    # ★ 侧⑪（正例 · 回归守护）：**块级标注**只用「待裁定」（不写「待复核」）且超期 ⇒ **必须报**
+    #   —— 词表统一前的旧版会**静默漏报**（"改写即隐身"）；本侧即守此回归。
+    run("侧⑪（正例·块级「待裁定」超期 ⇒ 必报）",
+        GOOD + BQ, True, cur=328, want_sub="挂满")
+    # ★ 侧⑫（反例 · 历史留痕排除）：同一行加「原文保留不动」⇒ **不再报**（`T-041` 剔除可见）
+    run("侧⑫（反例·历史留痕「原文保留」⇒ 不报）",
+        GOOD + BQ.replace("待发起人裁定", "原文保留不动（C19）"), False, cur=328)
+    # ★ 侧⑬（反例 · 规范句排除）：同行兼有 🟢🟡（「取值只有两种」式规范说明）⇒ **不报**
+    run("侧⑬（反例·规范句兼有🟢🟡 ⇒ 不报）",
+        GOOD + "> **效力列取值只有两种**：🟢 已裁定 ／ 🟡 待裁定。\n", False, cur=328)
+
     # 侧⑦ 回读真实底图（C18）
     r = repo_root()
     a, scanned, cur = evaluate(r)
@@ -271,7 +308,7 @@ def selftest():
     if fails:
         print("自检结论：FAIL %d 项 %s" % (len(fails), fails))
         return 1
-    print("自检结论：PASS（十侧：5 正例 ＋ 2 反例 ＋ 3 对照）")
+    print("自检结论：PASS（十三侧：6 正例 ＋ 4 反例 ＋ 3 对照）")
     return 0
 
 
