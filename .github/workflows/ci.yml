@@ -424,6 +424,28 @@ jobs:
           set -e
           test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
 
+      # ===== 机制 31 ／ `T-063`：「对话链可见性域」判据入 CI（v0.333 轮 · `云内核-C3-008`）=====
+      # 为什么：机制 31 经 3 轮**人工承载**后结论为"足够起步、不足以守"（`T-063`）
+      #   ⇒ 立机器判据（用户裁定）。本 step 让它在 CI 里**真的被跑到**，避免**本机绿是假绿**（R14）。
+      # ★ 口径（**起步档位**，遵发起人 `C3-008` §2.4）：**只告警、不判红** ⇒
+      #   本 step 用 `continue-on-error: true` **不阻断 CI**；★ 其"告警数"须**另行读日志输出**（R83）。
+      # ★ 覆盖边界（写在判据头注）：**只扫"落盘版返回件"**；**"只进对话、不落盘"者无法覆盖**
+      #   ⇒ **混合承载**；**不得**因本判据已立就把对话件当已守。
+      # 浅克隆安全：本判据只读仓库内文件（`coordination/`），**HEAD 改动集为空时降级为"当轮日期件"**（R68）。
+      - name: 机制 31 对话链可见性判据 —— `T-063`（**只告警** · v0.333 新增）
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          python3 coordination/tools/check_chain_visibility.py --selftest
+          SELFTEST=$?
+          python3 coordination/tools/check_chain_visibility.py
+          CHECK=$?
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (自检期望 0；实跑**只告警**、退出码恒 0)"
+          echo "★ 覆盖边界：只守「落盘件」；「对话件」仍需人工守（不得当已守）。"
+          set -e
+          test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
+
       # ===== 机制 18 / C13：「顾问阅读指令」形态门禁（2026-09-19 建立 · 丁案）=====
       # 为什么：C13 要求「任何输出的字面第 0 行」放固定文本；此前**只有人工纪律、没有判据**
       #   ⇒ 实测 59 份报告里**仅 18 份**（位置＋逐字）合规（R25 教训：声明与事实不符）。
