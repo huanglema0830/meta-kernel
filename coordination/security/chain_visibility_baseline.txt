@@ -1,0 +1,50 @@
+# 对话链可见性域 · ⛔／🔐 形态基线（**「只减不增」**）
+#
+# 依据：`云内核-C3-011` §五.2（用户裁定 **丙**：建「只减不增」基线）
+# 规范条文：`T-072`
+# 口径：`--all` **全量落盘返回件**（`reports/` ＋ `discussions/`）；**逐 (件, 规则) 计条数**
+# 语义：**实测 > 基线 ⇒ 新增（告警）**；**实测 < 基线 ⇒ 已减（不告警，可下调基线）**；
+#       **历史件不追改**（`C19`）；**基线只存「件＋规则＋条数」，不存任何具体值**（`C12`）
+# 维护：重写须显式授权（`--baseline-write`）；本文件为**机器可读**，勿手改数据行
+#
+# 生成时点：count=399 ｜ HEAD=e0fa133
+# 实测汇总：受检 207 件 ｜ 告警总 129 ｜ 自述剔除 6 行 ｜ 歧义剔除 340 处
+#
+# 件 | 规则 | 条数
+coordination/discussions/2026-09-16_子任务2路线修正与R2排查.md | ④端口＋可定位目标 | 1
+coordination/discussions/2026-09-18_汇编正文_第2批_层设计与机制.md | B🔐级内容超链上限 | 1
+coordination/discussions/2026-09-18_汇编正文_第2批_层设计与机制.md | ⑥二进制路径与体积 | 7
+coordination/discussions/2026-09-18_汇编正文_第3批_应用与宿主.md | ①本机绝对路径 | 2
+coordination/discussions/2026-09-18_汇编正文_第3批_应用与宿主.md | ⑥二进制路径与体积 | 8
+coordination/discussions/2026-09-18_汇编正文_第4批_验证与自诊断.md | ①本机绝对路径 | 6
+coordination/discussions/2026-09-18_汇编正文_第4批_验证与自诊断.md | ⑥二进制路径与体积 | 14
+coordination/discussions/2026-09-18_顾问核验包.md | ⑥二进制路径与体积 | 1
+coordination/discussions/2026-09-19_帧缓冲抽象层设计稿.md | B🔐级内容超链上限 | 5
+coordination/discussions/2026-09-19_汇编合订本.md | B🔐级内容超链上限 | 1
+coordination/discussions/2026-09-19_汇编合订本.md | ①本机绝对路径 | 8
+coordination/discussions/2026-09-19_汇编合订本.md | ⑥二进制路径与体积 | 29
+coordination/reports/2026-09-16_R1宿主真实运行调研.md | ①本机绝对路径 | 1
+coordination/reports/2026-09-16_R1宿主真实运行调研.md | ⑥二进制路径与体积 | 2
+coordination/reports/2026-09-16_R2推送连接超时根因报告.md | ①本机绝对路径 | 1
+coordination/reports/2026-09-16_R2推送连接超时根因报告.md | ④端口＋可定位目标 | 6
+coordination/reports/2026-09-16_子任务2.2执行_bootloader接入.md | ⑥二进制路径与体积 | 2
+coordination/reports/2026-09-16_阶段二可引导ISO调研.md | ⑥二进制路径与体积 | 1
+coordination/reports/2026-09-16_阶段二子任务1收尾_项目宪章与CI宿主job修复.md | ⑥二进制路径与体积 | 1
+coordination/reports/2026-09-16_顾问侧接续机制建设+D19SSH切换.md | ④端口＋可定位目标 | 1
+coordination/reports/2026-09-17_云内核总纲+规划+行动路线图_全量汇编.md | ⑥二进制路径与体积 | 2
+coordination/reports/2026-09-17_片6替换类论证清单.md | B🔐级内容超链上限 | 1
+coordination/reports/2026-09-17_通用工作流_云内核路线图对比与行动方案.md | ⑥二进制路径与体积 | 9
+coordination/reports/2026-09-17_通用工作流三动作调研.md | ⑥二进制路径与体积 | 5
+coordination/reports/2026-09-18_C16C17落台账+Q1-Q16清单+L3-V1详情稿.md | ①本机绝对路径 | 1
+coordination/reports/2026-09-18_P0四条裁定稿+取证漏洞查证+跨项目教训.md | ①本机绝对路径 | 1
+coordination/reports/2026-09-18_运行逻辑D50-D55与三项裁定+L0-L6底图补全.md | ①本机绝对路径 | 1
+coordination/reports/2026-09-18_首夜结果.md | ⑥二进制路径与体积 | 1
+coordination/reports/2026-09-20_3项裁定落地_速查表补全_汇编覆盖清单_快照标注.md | ①本机绝对路径 | 1
+coordination/reports/2026-09-20_夜间P3-3_R5banner版本号口径评估与方案包.md | ⑥二进制路径与体积 | 1
+coordination/reports/2026-09-20_夜间持续任务_晨报与十四项报告.md | ①本机绝对路径 | 1
+coordination/reports/2026-09-21_R88-R90同型点全仓排查稿.md | ⑥二进制路径与体积 | 1
+coordination/reports/2026-09-21_R编号缺口核对稿_二.md | ①本机绝对路径 | 1
+coordination/reports/2026-09-21_docs时效核对稿_第四批.md | B🔐级内容超链上限 | 1
+coordination/reports/2026-09-21_推送v0.302与R70补登及MECH族评估.md | ①本机绝对路径 | 2
+coordination/reports/2026-09-21_推送v0.309与C22-T-00复核及报告结构判据入CI.md | ⑥二进制路径与体积 | 1
+coordination/reports/2026-09-21_裁定登记_C05暂缓与阶段四验收动作.md | ⑥二进制路径与体积 | 1

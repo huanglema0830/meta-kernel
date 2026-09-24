@@ -126,9 +126,14 @@ ACCOUNT = re.compile(r"(?:账号|帐号|用户名|账户|密码|password|passwd)
 LAN_IP = re.compile(r"\b(?:10|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b")
 # ★ 端口：**只有与"可定位目标"绑定才算 ⛔**（`C3-010` 裁定丙）
 #   (a) IPv4:port  (b) hostname:port（hostname 需带点，避免把 "12:30" 这类误报）
+#   ★ `C3-011` **裁定乙（补正）**：**回环／未指定地址不算"可定位目标"** ⇒ 排除 ——
+#     `127.x.x.x`（回环）／`0.0.0.0`（未指定＝本机全部接口）／`localhost`（＝回环别名）。
+#     理由：**外部不可定位**（攻击者由该地址**推不出可达目标**）⇒ 与"端口＋可定位目标"的立法本意不符。
+#     ⚠️ 原口径（含回环 ⇒ 告警）**保留留痕**（`C19`）：见当轮报告 §③ 与 `BASELINE §七十八`。
+_LOCAL_HOST = r"(?:127(?:\.\d{1,3}){3}|0\.0\.0\.0|localhost)"
 PORT = re.compile(
-    r"\b\d{1,3}(?:\.\d{1,3}){3}:(\d{2,5})\b"
-    r"|\b(?:localhost|[A-Za-z][A-Za-z0-9-]*(?:\.[A-Za-z][A-Za-z0-9-]*)+):(\d{2,5})\b",
+    r"\b(?!" + _LOCAL_HOST + r")\d{1,3}(?:\.\d{1,3}){3}:(\d{2,5})\b"
+    r"|\b(?!" + _LOCAL_HOST + r")[A-Za-z][A-Za-z0-9-]*(?:\.[A-Za-z][A-Za-z0-9-]*)+:(\d{2,5})\b",
     re.IGNORECASE)
 SECRET = re.compile(r"(?:token|api[_-]?key|secret|passwd|sk-)[\s:=]{1,2}[A-Za-z0-9_\-]{8,}",
                     re.IGNORECASE)
@@ -144,6 +149,8 @@ FILE_EXT = ("md", "rs", "toml", "yml", "yaml", "txt", "json", "lock", "ps1", "sh
 # ★ **自述剔除**（`C3-010` §四.2.2；依 `T-041`：**剔除规则本身是正式规则** ＋ **打印剔除行数**）：
 #   同行出现"自称示例／占位／假值"等标记 ⇒ 该行**不判**（给"文档里讲路径格式"的片段留出口）。
 SELF_MARKS = ("示例", "示意", "占位", "假值", "反例", "fake", "placeholder", "example")
+
+RULE_B_KEY = "B🔐级内容超链上限"
 
 RULES_A = [
     ("①本机绝对路径", ABS_PATH, "⛔【本机绝对路径】"),
@@ -262,7 +269,7 @@ def all_return_files(repo: str):
 
 
 # ── 单件检查 ───────────────────────────────────────────────────────────────
-def check_file(repo: str, rel: str, limits: dict, default_limit: str):
+def check_file(repo: str, rel: str, limits: dict, default_limit: str, records=None):
     """返回 (alerts, skipped_lines, skipped_self, skipped_ext, chain_used, limit_used)"""
     path = os.path.join(repo, rel)
     if not os.path.isfile(path):
@@ -305,17 +312,21 @@ def check_file(repo: str, rel: str, limits: dict, default_limit: str):
                     skipped_ext += 1
                     continue
             alerts.append("%s 行%d：%s（命中：`%s`）" % (base, ln, tag, mm.group(0)[:40]))
+            if records is not None:
+                records.append((rel, label))
         # 规则 B（★ 排除分级声明行：同行含 🔐 字形 ⇒ 是本类报告的规范说明，非泄漏）
         if LIMIT_ORDER.get(limit_used, 1) < LIMIT_ORDER[LOCK_GLYPH] and LOCK_GLYPH not in line:
             for rx in B_IMPL:
                 if rx.search(line):
                     alerts.append("%s 行%d：**🔐 级内容超链上限**（本链上限 %s < 🔐；须屏蔽后拷）"
                                   % (base, ln, LIMIT_NAME.get(limit_used, limit_used)))
+                    if records is not None:
+                        records.append((rel, RULE_B_KEY))
                     break
     return alerts, skipped, skipped_self, skipped_ext, chain_used, limit_used
 
 
-def evaluate(repo: str, files=None, use_all=False):
+def evaluate(repo: str, files=None, use_all=False, records=None):
     limits = load_chain_limits(repo)
     glyphs = [v[0] for k, v in limits.items() if k != "__lines__"]
     default_limit = strictest(glyphs) or "🔒"
@@ -334,7 +345,7 @@ def evaluate(repo: str, files=None, use_all=False):
                                                  "" if hits is None else "；HEAD 改动集为空")
     alerts, skipped_total, skipped_self_total, skipped_ext_total = [], 0, 0, 0
     for rel in chosen:
-        a, sk, sk_self, sk_ext, cu, lu = check_file(repo, rel, limits, default_limit)
+        a, sk, sk_self, sk_ext, cu, lu = check_file(repo, rel, limits, default_limit, records)
         alerts.extend(a)
         skipped_total += sk
         skipped_self_total += sk_self
@@ -353,7 +364,14 @@ CASE_ABS_SELF = CLEAN + "示例路径 D:\\data\\x\\y.txt（此为示例，非真
 CASE_BARE_PORT = CLEAN + "网关默认端口 3000，用法见注释。\n"
 # ★ 改丙后：**端口 + 可定位目标 ⇒ 告警**
 CASE_PORT_TARGET = CLEAN + "目标 203.0.113.9:3010 可达（文档网段占位）。\n"
+# ★ `C3-011` 裁定乙：**回环／未指定 ⇒ 排除**（不算"可定位目标"）
 CASE_HOST_PORT = CLEAN + "调试入口 localhost:3999 可用。\n"
+CASE_LOOPBACK_PORT = CLEAN + "本机 127.0.0.1:3000 起服务。\n"
+CASE_ANYADDR_PORT = CLEAN + "监听 0.0.0.0:8080。\n"
+# ★ 侧⑰ 的夹具**不能写内网段字面量** —— 那本身就是一条 ⛔（`机制 17`：新增泄漏**必须修代码、不得改基线**；
+#   本文件上一版即因内网段字面量被判红）。⇒ 用**文档网段**（TEST-NET-2/3，RFC 5737）**动态拼接**：
+#   既不产生可被 `lan_ip` 命中的字面量，又能验证"**非回环／非未指定 ⇒ 照报**"。
+CASE_IPV4_PORT2 = CLEAN + "受控目标 %s:%d 可达。\n" % ("203.0.113" + ".20", 8080)
 CASE_SECRET = CLEAN + "请求头带 token=abcdef1234567890 即可。\n"
 CASE_SIZE = CLEAN + "二进制体积约 15.8 MB。\n"
 CASE_SKIP = CLEAN + "目标 198.51.100.7:9999 " + SKIP_MARK + " （显式豁免行）\n"
@@ -399,8 +417,15 @@ def selftest():
         CASE_ABS_SELF, False)
     run("侧⑬（正例·`IPv4:port` ⇒ 报〔改丙〕）",
         CASE_PORT_TARGET, True, want_sub="端口＋可定位目标")
-    run("侧⑭（正例·`hostname:port` ⇒ 报〔改丙〕）",
-        CASE_HOST_PORT, True, want_sub="端口＋可定位目标")
+    # ★ `C3-011` 裁定乙：回环／未指定 ⇒ 排除（3 反例 ＋ 1 正例）
+    run("侧⑭（反例·`localhost:port` 回环 ⇒ **改乙后不报**）",
+        CASE_HOST_PORT, False)
+    run("侧⑮（反例·`127.0.0.1:port` 回环 ⇒ 不报 〔`C3-011` 乙〕）",
+        CASE_LOOPBACK_PORT, False)
+    run("侧⑯（反例·`0.0.0.0:port` 未指定 ⇒ 不报 〔`C3-011` 乙〕）",
+        CASE_ANYADDR_PORT, False)
+    run("侧⑰（正例·`IPv4:port`（**非回环／非未指定**）⇒ 报 〔`C3-011` 乙 对照〕）",
+        CASE_IPV4_PORT2, True, want_sub="端口＋可定位目标")
 
     # 侧⑨ 链号解析（对照 · 同源）
     d = tempfile.mkdtemp()
@@ -426,8 +451,83 @@ def selftest():
     if fails:
         print("自检结论：FAIL %d 项 %s" % (len(fails), fails))
         return 1
-    print("自检结论：PASS（**十四侧**：8 正例 ＋ 4 反例 ＋ 1 对照 ＋ 回读真实登记表）")
+    print("自检结论：PASS（**十七侧**：8 正例 ＋ 7 反例 ＋ 1 对照 ＋ 回读真实登记表）")
     return 0
+
+
+def baseline_path(repo):
+    return os.path.join(repo, "coordination", "security", "chain_visibility_baseline.txt")
+
+
+def load_baseline(repo):
+    """读「只减不增」基线 ⇒ {(rel, rule): count}。★ 只存**件＋规则＋条数**，**不存任何值**（`C12`）。"""
+    p = baseline_path(repo)
+    d = {}
+    if not os.path.isfile(p):
+        return d
+    with open(p, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or " | " not in line:
+                continue
+            parts = line.split(" | ")
+            if len(parts) != 3:
+                continue
+            try:
+                d[(parts[0], parts[1])] = int(parts[2])
+            except ValueError:
+                continue
+    return d
+
+
+def scan_counts(repo):
+    """全量扫描 ⇒ ({(rel, rule): count}, 扫描统计 dict)。**与主流程同源**（同 `evaluate`／同窗具）。"""
+    records = []
+    alerts, chosen, scope_note, limits, default_limit, sk, sks, ske = evaluate(
+        repo, use_all=True, records=records)
+    counts = {}
+    for rel, label in records:
+        counts[(rel, label)] = counts.get((rel, label), 0) + 1
+    return counts, dict(alerts=len(alerts), chosen=len(chosen), skipped=sk,
+                        skipped_self=sks, skipped_ext=ske, scope_note=scope_note)
+
+
+def write_baseline(repo, counts, stat, note):
+    p = baseline_path(repo)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8", newline="\n") as f:
+        f.write("# 对话链可见性域 · ⛔／🔐 形态基线（**「只减不增」**）\n")
+        f.write("#\n")
+        f.write("# 依据：`云内核-C3-011` §五.2（用户裁定 **丙**：建「只减不增」基线）\n")
+        f.write("# 规范条文：`T-072`\n")
+        f.write("# 口径：`--all` **全量落盘返回件**（`reports/` ＋ `discussions/`）；**逐 (件, 规则) 计条数**\n")
+        f.write("# 语义：**实测 > 基线 ⇒ 新增（告警）**；**实测 < 基线 ⇒ 已减（不告警，可下调基线）**；\n")
+        f.write("#       **历史件不追改**（`C19`）；**基线只存「件＋规则＋条数」，不存任何具体值**（`C12`）\n")
+        f.write("# 维护：重写须显式授权（`--baseline-write`）；本文件为**机器可读**，勿手改数据行\n")
+        f.write("#\n")
+        f.write("# 生成时点：%s\n" % note)
+        f.write("# 实测汇总：受检 %d 件 ｜ 告警总 %d ｜ 自述剔除 %d 行 ｜ 歧义剔除 %d 处\n"
+                % (stat["chosen"], stat["alerts"], stat["skipped_self"], stat["skipped_ext"]))
+        f.write("#\n")
+        f.write("# 件 | 规则 | 条数\n")
+        for (rel, label) in sorted(counts):
+            f.write("%s | %s | %d\n" % (rel, label, counts[(rel, label)]))
+    return p
+
+
+def compare_baseline(base, counts):
+    """返回 (新增列表, 已减列表)。新增 ＝ 实测超基线的（件, 规则, 超量）。"""
+    new, dec = [], []
+    for k, v in counts.items():
+        b = base.get(k, 0)
+        if v > b:
+            new.append((k[0], k[1], v - b))
+        elif v < b:
+            dec.append((k[0], k[1], b - v))
+    for k, b in base.items():
+        if k not in counts:
+            dec.append((k[0], k[1], b))
+    return sorted(new), sorted(dec)
 
 
 def main():
@@ -436,12 +536,59 @@ def main():
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--files", nargs="*", default=None)
     ap.add_argument("--all", action="store_true")
+    ap.add_argument("--baseline", action="store_true",
+                    help="与「只减不增」基线比对（隐含 --all）")
+    ap.add_argument("--baseline-write", action="store_true",
+                    help="★ 重写基线（须显式授权；写前会打印将写入的汇总）")
     a = ap.parse_args()
 
     if a.selftest:
         return selftest()
 
     repo = os.path.abspath(a.repo)
+
+    if a.baseline or a.baseline_write:
+        import subprocess
+        head = subprocess.run(["git", "-C", repo, "rev-parse", "--short", "HEAD"],
+                              capture_output=True, text=True).stdout.strip() or "?"
+        cnt = subprocess.run(["git", "-C", repo, "rev-list", "--count", "HEAD"],
+                             capture_output=True, text=True).stdout.strip() or "?"
+        note = "count=%s ｜ HEAD=%s" % (cnt, head)
+        counts, stat = scan_counts(repo)
+        base = load_baseline(repo)
+        print("=" * 70)
+        print("对话链可见性域判据（机制 31 ／ `T-063`）· **「只减不增」基线**模式（`T-072`）")
+        print("=" * 70)
+        print("受检口径：%s ／ 共 %d 件" % (stat["scope_note"], stat["chosen"]))
+        print("实测告警总：%d（自述剔除 %d 行 ／ 歧义剔除 %d 处）"
+              % (stat["alerts"], stat["skipped_self"], stat["skipped_ext"]))
+        if a.baseline_write:
+            p = write_baseline(repo, counts, stat, note)
+            print("\n★ 已重写基线：%s" % os.path.relpath(p, repo))
+            print("  （%d 条（件,规则）记录 ／ 生成时点 %s）" % (len(counts), note))
+            print("告警合计：%d" % stat["alerts"])
+            print("=" * 70)
+            return 0
+        n_base = sum(base.values())
+        new, dec = compare_baseline(base, counts)
+        print("基线：%d 条（件,规则）记录 ／ 基线条数合计 %d" % (len(base), n_base))
+        print("\n" + "-" * 70)
+        if new:
+            print("⚠️ ★ **新增（超基线）%d 条** —— 依 `T-072`「只减不增」，**新增即告警**：" % len(new))
+            for rel, label, extra in new:
+                print("   + %s ｜ %s ｜ 超基线 %d" % (rel, label, extra))
+        else:
+            print("✅ **无新增**（实测未超基线）")
+        if dec:
+            print("\nℹ️ 已减 %d 条（实测低于基线；**可下调基线**，非告警）：" % len(dec))
+            for rel, label, cut in dec:
+                print("   - %s ｜ %s ｜ 减 %d" % (rel, label, cut))
+        print("\n" + "=" * 70)
+        print("新增超基线合计：%d" % len(new))
+        print("★ 本判据**先只告警、不判红**（退出码恒 0）。")
+        print("=" * 70)
+        return 0
+
     print("=" * 70)
     print("对话链可见性域判据（机制 31 ／ `T-063`）★ 先只告警，不判红")
     print("仓库根：%s" % repo)

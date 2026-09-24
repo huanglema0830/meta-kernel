@@ -444,7 +444,11 @@ jobs:
           printf '%s\n' "$OUT"
           ALERTS=$(printf '%s\n' "$OUT" | grep -o '告警合计：[0-9]*' | grep -o '[0-9]*' | head -1)
           echo "::warning::chain_visibility alerts=${ALERTS:-NA}"
-          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ALERTS=${ALERTS:-NA} ---- (自检期望 0；实跑**只告警**、退出码恒 0)"
+          # ★ `T-072`（`C3-011` 裁定丙）：「只减不增」基线 —— **新增即告警**（历史 129 条已登记、不追改）
+          BOUT=$(python3 coordination/tools/check_chain_visibility.py --baseline)
+          NB=$(printf '%s\n' "$BOUT" | grep -o '新增超基线合计：[0-9]*' | grep -o '[0-9]*' | head -1)
+          echo "::warning::chain_visibility baseline_new=${NB:-NA}"
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ALERTS=${ALERTS:-NA} BASELINE_NEW=${NB:-NA} ---- (自检期望 0；实跑**只告警**、退出码恒 0)"
           echo "★ 告警数以 ::warning:: 发出 ⇒ 可经 check-run annotations 未认证读取（C3-010 §二）。"
           echo "★ 证据：step success **只代表 rc 双零**，**不能区分「告警 0」与「告警 N」**（R83 同族）⇒ 必须读 alerts=。"
           echo "★ 覆盖边界：只守「落盘件」；「对话件」仍需人工守（不得当已守）。"
