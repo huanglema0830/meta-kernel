@@ -8008,7 +8008,7 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 
 ### 95.11 `C15` 复算 ＋ 判据明细 ＋ 收口
 
-- **`C15` 双向计数**（`c166933` → 本轮提交后）：`reports` **210 → 210**｜`discussions` **43 → 46**（**＋3**：宿主承载／fidelity 设计／末轮盘点）｜`tools/check_*.py` **16 → 16**（**±0**）｜台账顶层节 **133 → 134**（**＋1**：本节）｜`T` 编号 **113 → 118**（**＋5**）。
+- **`C15` 双向计数**（`c166933` → 本轮提交后）：`reports` **210 → 211**（**＋1**：本轮报告）｜`discussions` **43 → 46**（**＋3**：宿主承载／fidelity 设计／末轮盘点）｜`tools/check_*.py` **16 → 16**（**±0**）｜台账顶层节 **133 → 134**（**＋1**：本节）｜`T` 编号 **113 → 118**（**＋5**）。
 - ★ **编号连续性**：**`T-001`–`T-118` 无缺号、无重号**（复算实测）。
 - **判据全跑**：**16 / 16 rc=0（PASS）**。
 - **逐支告警明细**（`T-101` 格式 · **8 支只告警判据逐支读** —— 收口纪律）：
@@ -8025,7 +8025,7 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 | `version_label` | 0 | 0 | **0** | —— |
 
 - **另三支**：`check_reading_instruction` **PASS**｜`check_doc_consistency` **✅**｜★ `check_private_pointers` **FAIL → PASS**（runner 路径，当场移除）。
-- **收口实测**：`count = 459`（开工）→ 本节提交后见报告「收口」行；**改动的四件**＝`ci.yml`／`TEMPLATES.md`／`check_memory_layers.py`／`BASELINE.md`；**新增三件**＝上述三稿。**未 push 本轮新提交**（`T-081` 口径②）。
+- **收口实测**：`count = 459`（开工）→ **462**（本补 g1／g2／g3 三组提交后）；`HEAD` ＝ **`9786c54`**（g2；**g3 为订正提交**，最终 `HEAD` 以实跑为准）；`origin/main` **`c166933`**；**未推送 3**（g1＋g2＋g3，`T-081` 口径②）。**改动的四件**＝`ci.yml`／`TEMPLATES.md`／`check_memory_layers.py`／`BASELINE.md`；**新增四件**＝上述三稿 ＋ 本轮报告。
 
 ---
 
