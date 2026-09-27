@@ -37,11 +37,14 @@
     ⑧ ★ **目录不存在 ＋ `--ci`** ⇒ **只 warn、不告警**（反例；**CI 场景对照**）
     ⑨ ★ **目录不存在 ＋ 非 CI** ⇒ **必须告警**（正例；★ **"不存在"与"合规"必须可区分** —— **R83／R89**）
     ⑩ **回读真实本机目录**（**C18**）：三文件**实际读到且字节 > 0**，并**打印实测值**（**不静默**）
+      ★★ **CI 降级（`T-113` · `C3-028`）**：本侧**硬依赖「本机记忆目录存在」** ⇒ **CI 上必然 FAIL**
+      （实测 `SELFTEST=1`）⇒ **环境变量 `CI` 为真时降级为「提示」、不计入 `fails`**；
+      ★ **本机（无 `CI`）仍全检** —— 保留 `C18`「回读真实仓库」的要求。
 
 【用法】
   check_memory_layers.py              # 实跑（**只告警**；退出码恒 0）
   check_memory_layers.py --ci          # CI 模式（工作区记忆缺失 ⇒ 只 warn）
-  check_memory_layers.py --selftest    # 自检（十侧正反对照）
+  check_memory_layers.py --selftest    # 自检（十侧正反对照；★ CI 上侧⑩ 自动降级）
 
 【触发再评估】
   告警命中**连续 N=5 轮为 0** ⇒ 再议转判红（与 `check_id_set_diff.py`／`check_report_structure.py` 同一口径）。
@@ -218,21 +221,31 @@ def selftest():
             fails.append("侧⑨")
 
         # 侧⑩ 回读真实本机目录（C18）
+        # ★★ `T-113`（`C3-028` 丁案）：本侧「回读真实本机目录」**硬依赖「本机记忆目录存在」**
+        #    ⇒ **CI 上必然 FAIL**（实测 SELFTEST=1）⇒ 在 **CI 环境降级为「提示」、不计入 fails**。
+        #    ★ **本机（无 CI）仍全检** —— 保留 C18「回读真实仓库」的要求。
+        _in_ci = bool(os.environ.get("CI"))
         real = resolve_memdir(repo_root())
         e, w, rows = evaluate(real)
         got = [r for r in rows if r[2] is not None and r[2] > 0]
         ok = (len(got) == len(LIMITS) + len(CONTENT))
-        print("  侧⑩（对照·回读真实目录 %s：读到 %d/%d 份）: %s"
-              % (os.path.basename(os.path.dirname(real)), len(got), len(LIMITS) + len(CONTENT),
-                 "PASS" if ok else "FAIL"))
-        if not ok:
-            fails.append("侧⑩")
+        if _in_ci and not ok:
+            print("  侧⑩（对照·回读真实目录：读到 %d/%d 份）: **CI 降级**"
+                  "（本侧依赖本机记忆目录，CI 上必然不存在 ⇒ 不计入 fails · `T-113`）"
+                  % (len(got), len(LIMITS) + len(CONTENT)))
+        else:
+            print("  侧⑩（对照·回读真实目录 %s：读到 %d/%d 份）: %s"
+                  % (os.path.basename(os.path.dirname(real)), len(got), len(LIMITS) + len(CONTENT),
+                     "PASS" if ok else "FAIL"))
+            if not ok:
+                fails.append("侧⑩")
 
     print("=" * 62)
     if fails:
         print("自检结论：FAIL %d 项 %s" % (len(fails), fails))
         return 1
-    print("自检结论：PASS（十侧：5 正例 ＋ 3 反例 ＋ 2 对照）")
+    _ci_note = "  ★ CI 降级：侧⑩ 不计入（`T-113`）" if os.environ.get("CI") else ""
+    print("自检结论：PASS（十侧：5 正例 ＋ 3 反例 ＋ 2 对照）%s" % _ci_note)
     return 0
 
 

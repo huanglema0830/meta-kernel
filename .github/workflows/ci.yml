@@ -485,6 +485,7 @@ jobs:
       #   · `migration_closure`  自检 ＋ 实跑（默认 check；封闭 rc 0／不封闭 rc 1 ⇒ 故**不阻断**）
       #   · `migration_fidelity` **只跑 `--selftest`** —— ★ 实跑需 `<源文件> <迁移后文件>` 两参数，
       #       **无参数时只打印用法并 rc=0 ⇒ 属空转**（`R83`）⇒ **有意不入无参数实跑**（`T-104` 盘表已写明）。
+      #   ★★ **更正（`T-117` · `C3-028`）：实测真实 `rc=64`（非 0）** —— 原记 `rc=0` 系「管道后取 `$?` 得 `tail` 的 rc」所致；★ 原判断方向不变且更强（**rc=64 ⇒ 不加 `continue-on-error` 会直接判红**）。
       # 浅克隆安全：4 支只读仓库内文件，**不依赖 HEAD~1**（R68）。
       - name: 判据缺口巡检 —— `check_judge_gaps`（**只告警** · v0.333 第二十四补新增）
       # ★ 覆盖边界（`T-109`）：**只扫 `coordination/` 顶层 5 份治理件**的「`判据：无`／`判据：暂无`」字样；
@@ -544,7 +545,7 @@ jobs:
 
       - name: 迁移保真判据（★ 只跑自检）—— `check_migration_fidelity`（v0.333 第二十四补新增）
       # ★★ 覆盖边界（`T-109`）：**只验「判据自身有效性」（`--selftest`），不验「迁移保真」**。
-      #   ★ 原因：实跑需 **`<源文件> <迁移后文件>` 两参数**；**无参数只打印用法且 `rc=0` ⇒ 属空转**（`R83`）。
+      #   ★ 原因：实跑需 **`<源文件> <迁移后文件>` 两参数**；**无参数只打印用法且 `rc=0` ⇒ 属空转**（`R83`）。 ★★ **更正（`T-117`）：实测 `rc=64`**（非 0；`exit(64)` 属**参数缺失错误**，★ **不加 `continue-on-error` 会判红**）。
       #   ★★ **故本 step 绿 ≠ 迁移已保真** —— 迁移保真须在**迁移轮**由人或脚本**给文件对**后再跑（登记见 `T-109`）。
         shell: bash
         continue-on-error: true
@@ -553,7 +554,7 @@ jobs:
           python3 coordination/tools/check_migration_fidelity.py --selftest
           SELFTEST=$?
           echo "::warning::migration_fidelity selftest=${SELFTEST}"
-          echo "---- SELFTEST=$SELFTEST ---- (★ 有意只跑自检：实跑需两文件参数，无参数 rc=0 属空转（R83）)"
+          echo "---- SELFTEST=$SELFTEST ---- (★ 有意只跑自检：实跑需两文件参数；★ 更正 T-117：无参数实测 rc=64（非 0）)"
           echo "★ 故本判据在 CI 上守的是「判据自身有效性」，不是「迁移保真」；迁移保真须在迁移轮由人/脚本给文件对。"
           set -e
           test "$SELFTEST" -eq 0
