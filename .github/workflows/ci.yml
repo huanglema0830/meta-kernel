@@ -473,6 +473,80 @@ jobs:
           set -e
           test "$SELFTEST" -eq 0 && test "$CHECK" -eq 0
 
+      # ===== v0.333 第二十四补：4 支「已有命令、未入 CI」判据入 CI（`云内核-C3-026` §二 · `T-105`）=====
+      # 为什么：首轮规则可执行性盘点（`T-104`）查出**最高优先缺口** —— 下列 4 支判据
+      #   （`judge_gaps`／`memory_layers`／`migration_closure`／`migration_fidelity`）
+      #   **已有命令、但只在「本机全跑」里跑** ⇒ **CI 绿 ≠ 这 4 支绿**（**R14「本机绿是假绿」同源**）。
+      # ★ 口径（**起步档位**）：**先只告警、不阻断** ⇒ 本组 step 一律 `continue-on-error: true`；
+      #   其「告警数」须**另行读日志输出**（**R83**：空转必须与通过取不同值）。
+      # ★ 逐支差异（**实测得出，非推断**）：
+      #   · `judge_gaps`         自检 ＋ 实跑（只告警、rc 恒 0）
+      #   · `memory_layers`      自检 ＋ 实跑**带 `--ci`**（CI 上工作区记忆不在仓库内 ⇒ 判据自带降级、只 warn）
+      #   · `migration_closure`  自检 ＋ 实跑（默认 check；封闭 rc 0／不封闭 rc 1 ⇒ 故**不阻断**）
+      #   · `migration_fidelity` **只跑 `--selftest`** —— ★ 实跑需 `<源文件> <迁移后文件>` 两参数，
+      #       **无参数时只打印用法并 rc=0 ⇒ 属空转**（`R83`）⇒ **有意不入无参数实跑**（`T-104` 盘表已写明）。
+      # 浅克隆安全：4 支只读仓库内文件，**不依赖 HEAD~1**（R68）。
+      - name: 判据缺口巡检 —— `check_judge_gaps`（**只告警** · v0.333 第二十四补新增）
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          python3 coordination/tools/check_judge_gaps.py --selftest
+          SELFTEST=$?
+          OUT=$(python3 coordination/tools/check_judge_gaps.py)
+          CHECK=$?
+          printf '%s\n' "$OUT"
+          ALERTS=$(printf '%s\n' "$OUT" | grep -o '告警合计：[0-9]*' | grep -o '[0-9]*' | head -1)
+          echo "::warning::judge_gaps alerts=${ALERTS:-NA}"
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ALERTS=${ALERTS:-NA} ---- (自检期望 0；实跑**只告警**、退出码恒 0)"
+          set -e
+          test "$SELFTEST" -eq 0
+
+      - name: MEMORY 三层指针判据 —— `check_memory_layers --ci`（**只告警** · v0.333 第二十四补新增）
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          python3 coordination/tools/check_memory_layers.py --selftest
+          SELFTEST=$?
+          OUT=$(python3 coordination/tools/check_memory_layers.py --ci)
+          CHECK=$?
+          printf '%s\n' "$OUT"
+          ALERTS=$(printf '%s\n' "$OUT" | grep -o '告警合计：[0-9]*' | grep -o '[0-9]*' | head -1)
+          echo "::warning::memory_layers alerts=${ALERTS:-NA}"
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ALERTS=${ALERTS:-NA} ---- (★ CI 降级：工作区记忆不在仓库内 ⇒ 只 warn)"
+          echo "★ 本判据效力范围＝本机；CI 上为降级模式 —— 这是如实的边界，不是把缺陷藏起来。"
+          set -e
+          test "$SELFTEST" -eq 0
+
+      - name: 迁移闭包判据 —— `check_migration_closure`（**只告警** · v0.333 第二十四补新增）
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          python3 coordination/tools/check_migration_closure.py --selftest
+          SELFTEST=$?
+          OUT=$(python3 coordination/tools/check_migration_closure.py)
+          CHECK=$?
+          printf '%s\n' "$OUT"
+          echo "::warning::migration_closure rc=${CHECK}"
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ---- (自检期望 0；实跑封闭=0／不封闭=1 ⇒ 不阻断)"
+          set -e
+          test "$SELFTEST" -eq 0
+
+      - name: 迁移保真判据（★ 只跑自检）—— `check_migration_fidelity`（v0.333 第二十四补新增）
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          python3 coordination/tools/check_migration_fidelity.py --selftest
+          SELFTEST=$?
+          echo "::warning::migration_fidelity selftest=${SELFTEST}"
+          echo "---- SELFTEST=$SELFTEST ---- (★ 有意只跑自检：实跑需两文件参数，无参数 rc=0 属空转（R83）)"
+          echo "★ 故本判据在 CI 上守的是「判据自身有效性」，不是「迁移保真」；迁移保真须在迁移轮由人/脚本给文件对。"
+          set -e
+          test "$SELFTEST" -eq 0
+
       - name: Build NPB cdylib (native)
         run: cargo build -p npb
 
