@@ -7755,7 +7755,7 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 另三支：`check_reading_instruction` **PASS**｜`check_doc_consistency` **✅**｜`check_private_pointers` **PASS**（**连续两轮未写本机路径**）。
 **全量判据 16／16 `rc=0`**。
 
-**收口实测**：`count = 453`（开工）→ **456**（本轮 3 组提交后）；`HEAD` ＝ **见下方订正行**；工作区 **clean**；
+**收口实测**：`count = 453`（开工）→ **456**（本轮 3 组提交后）；`HEAD` ＝ **`06f5a8d`**（g2；**g3 为订正提交**，最终 `HEAD` 以实跑为准）；工作区 **clean**；
 `origin/main = 24ecabc`（**本轮开工已推 3 个**）；**未推送 3**（`T-081` 口径②：**本轮内不再 push**）。
 
 > ★ **口径提示（`T-045`）**：本节与当轮报告正文数字 ＝ **首次提交时点值**；取最终值请实跑 `git rev-list --count <本轮最后一个 commit>`。
