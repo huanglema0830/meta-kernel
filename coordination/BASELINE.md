@@ -7905,7 +7905,7 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 > ★★ **方法论收益（连续第二轮）**：**4 条自捕获中 3 条由判据自动抓到**（②③④）——
 > **若只看 `rc`／PASS，这 3 条会被漏掉**（它们分别在 `private_pointers`／`judge_gaps`／`chain_visibility` 的**输出**里）。
 
-**收口实测**：`count = 456`（开工）→ **459**（本轮 3 组提交后）；`HEAD` ＝ **见下方订正行**；工作区 **clean**；
+**收口实测**：`count = 456`（开工）→ **459**（本轮 3 组提交后）；`HEAD` ＝ **`4d7752e`**（g2；**g3 为订正提交**，最终 `HEAD` 以实跑为准）；工作区 **clean**；
 `origin/main = 04cbcc7`（**本轮开工已推 3 个**）；**未推送 3**（`T-081` 口径②）。
 
 > ★ **口径提示（`T-045`）**：本节与当轮报告正文数字 ＝ **首次提交时点值**；取最终值请实跑 `git rev-list --count <本轮最后一个 commit>`。
