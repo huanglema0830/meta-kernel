@@ -7607,6 +7607,6 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 **另三支（判红类）**：`check_reading_instruction` **PASS**｜`check_doc_consistency` **✅**｜`check_private_pointers` **PASS**
 **全跑**：**16/16 `rc=0`（PASS）**
 
-**收口实测**：`count = 450`（开工）→ 见下行实时值｜`origin/main` ＝ `b8c0a39`（**推走后未再 push**）｜**工作区 clean**｜**本补 0 次 push**（`T-081` 口径②）。
+**收口实测**：`count = 450`（开工）→ **452**（本补 g1／g2 两组提交后）；`HEAD` ＝ **`82148c0`**；`origin/main` ＝ **`b8c0a39`**（**推走后未再 push**）｜**工作区 clean（0 行）**｜**未推送 2**（`T-081` 口径②：留待 `C3-026` 开工首项）｜**本补 0 次 push**。
 **本轮改动件**：`TEMPLATES.md`（**新增 `T-102`／`T-103`／`T-104`** ＋ `T-092` 行末追加第 5 轮）｜新增 `discussions/2026-09-27_规则可执行性首轮盘点主表.md` ＋ `discussions/2026-09-27_L7载具选型.md`｜本节。
 **未做事（写死）**：**未写新脚本**（禁区⑩）｜**未实现 L7 载具**（禁区⑪）｜**未补做 `C3-024`**（`T-102` 边界）｜**未执行任何规则的实跑验证**｜**未盘次轮／末轮**｜**未调整任何平台任务**（禁区⑨）。
