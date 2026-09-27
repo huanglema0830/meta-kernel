@@ -487,6 +487,9 @@ jobs:
       #       **无参数时只打印用法并 rc=0 ⇒ 属空转**（`R83`）⇒ **有意不入无参数实跑**（`T-104` 盘表已写明）。
       # 浅克隆安全：4 支只读仓库内文件，**不依赖 HEAD~1**（R68）。
       - name: 判据缺口巡检 —— `check_judge_gaps`（**只告警** · v0.333 第二十四补新增）
+      # ★ 覆盖边界（`T-109`）：**只扫 `coordination/` 顶层 5 份治理件**的「`判据：无`／`判据：暂无`」字样；
+      #   **不含** `BASELINE.md`／`reports/`／`docs/`／`tools/`（避免把判据自己的文档算作缺口）；含本判据文件名的行**自述剔除**。
+      #   ★ **只判「清单是否变多」**，**不判「该不该立判据」** —— 后者是发起人的裁定。
         shell: bash
         continue-on-error: true
         run: |
@@ -503,6 +506,9 @@ jobs:
           test "$SELFTEST" -eq 0
 
       - name: MEMORY 三层指针判据 —— `check_memory_layers --ci`（**只告警** · v0.333 第二十四补新增）
+      # ★★ 覆盖边界（`T-109`）：**效力范围＝本机** —— CI 上工作区记忆（`.workbuddy/memory/`）**不在仓库内、必然不存在**
+      #   ⇒ 判据自带 `--ci` 降级、**只 warn 不告警**。★ **不得因本 step 绿就认为「CI 侧记忆上限已守」**。
+      #   ★ 这是**如实的边界，不是把缺陷藏起来**（`R14` 同源）。
         shell: bash
         continue-on-error: true
         run: |
@@ -520,6 +526,8 @@ jobs:
           test "$SELFTEST" -eq 0
 
       - name: 迁移闭包判据 —— `check_migration_closure`（**只告警** · v0.333 第二十四补新增）
+      # ★ 覆盖边界（`T-109`）：判**「当前已迁集合是否在目标 crate 内封闭」**（含**测试依赖**，这是本判据的立身之本）。
+      #   ★ **rc 1（不封闭）不阻断** —— 本 step 先只告警；★ 但 **rc 1 是真信号**，须**读日志**而非只看 step 成败（`R83`）。
         shell: bash
         continue-on-error: true
         run: |
@@ -535,6 +543,9 @@ jobs:
           test "$SELFTEST" -eq 0
 
       - name: 迁移保真判据（★ 只跑自检）—— `check_migration_fidelity`（v0.333 第二十四补新增）
+      # ★★ 覆盖边界（`T-109`）：**只验「判据自身有效性」（`--selftest`），不验「迁移保真」**。
+      #   ★ 原因：实跑需 **`<源文件> <迁移后文件>` 两参数**；**无参数只打印用法且 `rc=0` ⇒ 属空转**（`R83`）。
+      #   ★★ **故本 step 绿 ≠ 迁移已保真** —— 迁移保真须在**迁移轮**由人或脚本**给文件对**后再跑（登记见 `T-109`）。
         shell: bash
         continue-on-error: true
         run: |
