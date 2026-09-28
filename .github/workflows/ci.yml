@@ -559,6 +559,29 @@ jobs:
           set -e
           test "$SELFTEST" -eq 0
 
+      - name: 机制 20 禁令③判据 —— `check_forbidden_paths`（**只告警** · v0.333 第二十八补新增）
+      # ★ 覆盖边界（`T-109`）：**只守「公开层（`coordination/TERMS.md`）不得写仓库内真实代码路径」这一条**
+      #   —— 即机制 20 三条禁令中的 **③**。
+      #   ★ 禁令 **①（原名）／②（原名全拼）不可判**（真值只存在于仓库外加密内容层）⇒ **有意不覆盖**（见 `T-124`）。
+      #   ★ 负向白名单**两层、均为「路径级」**：W1＝仓库外占位符 `{PRIVATE_ASSETS}/…`；
+      #     W2＝在「非换壳」三节（`§一之二／之三／之四`）内**被正当登记为公开文档**的真实路径。
+      #   ★**判据同时打印「未过滤命中数」** ⇒ 白名单的代价**当场可见、可被复核**（不隐藏）。
+      #   浅克隆安全：只读仓库内 `TERMS.md` ＋ `git ls-files`，**不依赖 `HEAD~1`**（R68）。
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          python3 coordination/tools/check_forbidden_paths.py --selftest
+          SELFTEST=$?
+          OUT=$(python3 coordination/tools/check_forbidden_paths.py)
+          CHECK=$?
+          printf '%s\n' "$OUT"
+          ALERTS=$(printf '%s\n' "$OUT" | grep -o '告警合计：[0-9]*' | grep -o '[0-9]*' | head -1)
+          echo "::warning::forbidden_paths alerts=${ALERTS:-NA}"
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ALERTS=${ALERTS:-NA} ---- (自检期望 0；实跑**只告警**、退出码恒 0)"
+          set -e
+          test "$SELFTEST" -eq 0
+
       - name: Build NPB cdylib (native)
         run: cargo build -p npb
 

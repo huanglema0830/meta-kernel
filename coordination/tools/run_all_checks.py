@@ -46,6 +46,8 @@ CALLS = [
     # ★ v0.328 新增（`T-052` 效力列判据 · 只告警）
     ("check_effect_column.py", []),
     ("check_endpoint_table.py", []),
+    # ★ v0.333 第二十八补新增（机制 20 禁令③ · `T-124` · 公开层不得写真实代码路径 · 只告警）
+    ("check_forbidden_paths.py", []),
     ("check_id_set_diff.py", []),
     # ★ v0.329 新增（治 `F-5` 的**批量**治法 · 只告警）
     ("check_judge_gaps.py", []),
