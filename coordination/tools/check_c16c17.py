@@ -45,10 +45,15 @@ CONF_OWN = os.path.join(HERE, "scan_exclude_c16c17.json")  # 本判据自有（2
 SCAN_DIRS = ["coordination/reports"]
 SCAN_FILES = ["coordination/BASELINE.md"]
 
-# ★ `C17` 管辖词（**逐字取自 `CONSTRAINTS.md` `C17` ④** —— 不增不减）
-C17_WORDS = ["虚假声明", "自相矛盾", "名实不符", "形同虚设", "挂羊头卖狗肉", "从未", "全库无", "底图落后"]
-# ★ `C16` 断言词（**逐字取自 `CONSTRAINTS.md` `C16` 适用范围**）
-C16_WORDS = ["不存在", "全库无", "从未", "没有定义"]
+# ★★ 强弱词分级（`C3-037` §四 · 用户裁定「组1 甲」）
+#   ★ 依据：★ 首跑实测（`T-161`）—— 10 词命中 395 处，但**强弱不同质**
+#     （★ 强指控词 25 处可人工复核；★ 日常词 285 处远超复核量）。
+#   ★ 强指控词（**命中即告警**）＝ 5 个
+STRONG_WORDS = ["虚假声明", "名实不符", "形同虚设", "底图落后", "挂羊头卖狗肉"]
+#   ★ 日常词（**另册列出、不计告警**）＝ 5 个（含 `C16` 的 4 词）
+WEAK_WORDS = ["不存在", "自相矛盾", "从未", "全库无", "没有定义"]
+# ★ 词源（不增不减）：`C17` 8 词 ＝ 强 5 ＋ 弱 3（自相矛盾／从未／全库无）；
+#   `C16` 4 词 ＝ 全弱（不存在／全库无／从未／没有定义）⇒ 合并去重后 **强 5 ＋ 弱 5 ＝ 10 词**。
 
 
 def load_json(p):
@@ -92,8 +97,12 @@ def is_excluded(line, layers):
     return None
 
 
-def scan_lines(lines, layers, hits_c16, hits_c17):
-    """扫一组行；★ 与实跑**同一函数**（`C18`）。返回 (剔除行数, c16 命中, c17 命中)。"""
+def scan_lines(lines, layers, hits_strong, hits_weak):
+    """扫一组行；★ 与实跑**同一函数**（`C18`）。返回 (剔除行数, 强词命中, 弱词命中)。
+
+    ★★ 强弱分册（`C3-037` §四）：强词 ⇒ **告警**；弱词 ⇒ **另册、不计告警**。
+    ★ 一行可同时含强弱词 ⇒ 两册均记（**不去重**，便于按词统计）。
+    """
     excluded = 0
     for i, raw in enumerate(lines, 1):
         s = raw.rstrip("\n")
@@ -101,13 +110,13 @@ def scan_lines(lines, layers, hits_c16, hits_c17):
         if lay:
             excluded += 1
             continue
-        for w in C17_WORDS:
+        for w in STRONG_WORDS:
             if w in s:
-                hits_c17.append((i, w))
-        for w in C16_WORDS:
+                hits_strong.append((i, w))
+        for w in WEAK_WORDS:
             if w in s:
-                hits_c16.append((i, w))
-    return excluded, hits_c16, hits_c17
+                hits_weak.append((i, w))
+    return excluded, hits_strong, hits_weak
 
 
 def gather():
@@ -138,8 +147,8 @@ def scan_repo():
     files = gather()
     n_files = len(files)
     tot_excl = 0
-    tot_c16 = []
-    tot_c17 = []
+    tot_strong = []
+    tot_weak = []
     per_file = []
     for rel, p in files:
         try:
@@ -147,19 +156,19 @@ def scan_repo():
                 lines = f.readlines()
         except Exception:
             continue
-        e, h16, h17 = scan_lines(lines, layers, [], [])
+        e, hs, hw = scan_lines(lines, layers, [], [])
         tot_excl += e
-        for ln, w in h16:
-            tot_c16.append((rel, ln, w))
-        for ln, w in h17:
-            tot_c17.append((rel, ln, w))
-        if h16 or h17:
-            per_file.append((rel, len(h16), len(h17), e))
+        for ln, w in hs:
+            tot_strong.append((rel, ln, w))
+        for ln, w in hw:
+            tot_weak.append((rel, ln, w))
+        if hs or hw:
+            per_file.append((rel, len(hs), len(hw), e))
     return {
         "n_files": n_files,
         "excluded": tot_excl,
-        "c16": tot_c16,
-        "c17": tot_c17,
+        "strong": tot_strong,
+        "weak": tot_weak,
         "per_file": per_file,
         "n_layers": len(layers),
     }
@@ -173,14 +182,15 @@ def do_run(strict=False):
     print("受检件 ＝ **%d** 份（%s ＋ %s）｜剔除层 ＝ **%d** 层"
           % (res["n_files"], "／".join(SCAN_DIRS), "／".join(SCAN_FILES), res["n_layers"]))
     print("★ 已剔除段数（`T-041` 要求 · 剔除不是静默的）：**%d** 行" % res["excluded"])
-    print("---- `C17` 管辖词命中（**枚举级 · 需人工复核**）----")
-    for rel, ln, w in res["c17"]:
+    print("---- ★ 强指控词命中（**计告警 · 需人工复核**）----")
+    for rel, ln, w in res["strong"]:
         print("  %s:%d  「%s」" % (rel, ln, w))
-    print("---- `C16` 断言词命中（**枚举级 · 需人工复核**）----")
-    for rel, ln, w in res["c16"]:
+    print("---- ☆ 日常词命中（**另册 · 不计告警** · `C3-037` §四 组1 甲）----")
+    for rel, ln, w in res["weak"]:
         print("  %s:%d  「%s」" % (rel, ln, w))
-    n_al = len(res["c17"]) + len(res["c16"])
+    n_al = len(res["strong"])
     print("告警合计：%d" % n_al)
+    print("另册（日常词）合计：%d" % len(res["weak"]))
     print("★ 本判据**先只告警、不判红**（退出码恒 0）；★ 枚举级 —— **命中 ≠ 违规**"
           "（`T-156`：词表 20+ 处命中、0 处真指控）")
     if strict and n_al:
@@ -204,30 +214,30 @@ def do_selftest():
     ok = ok and len(layers) >= 8
 
     # 侧② 正例：普通行无命中
-    e, h16, h17 = scan_lines(["这是一行普通说明，没有任何敏感词。"], layers, [], [])
-    good = (not h16 and not h17)
-    print("[侧②] 正例（普通行）⇒ c16 %d／c17 %d ⇒ %s" % (len(h16), len(h17), "✅" if good else "❌"))
+    e, hs, hw = scan_lines(["这是一行普通说明，没有任何敏感词。"], layers, [], [])
+    good = (not hs and not hw)
+    print("[侧②] 正例（普通行）⇒ 强 %d／弱 %d ⇒ %s" % (len(hs), len(hw), "✅" if good else "❌"))
     ok = ok and good
 
-    # 侧③ 反例：命中 `C17` 词 ⇒ 必告警
-    e, h16, h17 = scan_lines(["| **结论** | 该表述与条文**自相矛盾**。 |"], layers, [], [])
-    good = (len(h17) == 1)
-    print("[侧③] 反例（含「自相矛盾」· 非剔除层）⇒ c17 %d ⇒ %s"
-          % (len(h17), "✅ 判据非空转" if good else "❌ 未命中"))
+    # 侧③ 反例：命中**强指控词** ⇒ 必告警
+    e, hs, hw = scan_lines(["| **结论** | 该表述与条文**名实不符**。 |"], layers, [], [])
+    good = (len(hs) == 1 and len(hw) == 0)
+    print("[侧③] 反例（含强词「名实不符」· 非剔除层）⇒ 告警 %d ⇒ %s"
+          % (len(hs), "✅ 判据非空转" if good else "❌ 未命中"))
     ok = ok and good
 
-    # 侧④ 反例：命中 `C16` 断言词 ⇒ 必告警
-    e, h16, h17 = scan_lines(["经检索，该字段**不存在**。"], layers, [], [])
-    good = (len(h16) == 1)
-    print("[侧④] 反例（含「不存在」· 非剔除层）⇒ c16 %d ⇒ %s"
-          % (len(h16), "✅ 判据非空转" if good else "❌ 未命中"))
+    # 侧④ 反例：命中**日常词** ⇒ 入另册、**不计告警**
+    e, hs, hw = scan_lines(["经检索，该字段**不存在**。"], layers, [], [])
+    good = (len(hs) == 0 and len(hw) == 1)
+    print("[侧④] 反例（含日常词「不存在」）⇒ 告警 %d｜另册 %d ⇒ %s"
+          % (len(hs), len(hw), "✅ 强弱分册生效" if good else "❌ 分册失效"))
     ok = ok and good
 
-    # 侧⑤ 反例：落 L7（风险描述层）⇒ 不命中（剔除生效）
-    e, h16, h17 = scan_lines(["**风险**：若只做形式 ⇒ **形同虚设**。"], layers, [], [])
-    good = (not h16 and not h17 and e == 1)
-    print("[侧⑤] 反例（「形同虚设」但在 L7 风险层）⇒ 命中 %d｜剔除 %d ⇒ %s"
-          % (len(h16) + len(h17), e, "✅ L7 生效" if good else "❌ 剔除边界失效"))
+    # 侧⑤ 反例：**强词**落 L7（风险描述层）⇒ 不命中（剔除生效）
+    e, hs, hw = scan_lines(["**风险**：若只做形式 ⇒ **形同虚设**。"], layers, [], [])
+    good = (not hs and not hw and e == 1)
+    print("[侧⑤] 反例（强词「形同虚设」但在 L7 风险层）⇒ 命中 %d｜剔除 %d ⇒ %s"
+          % (len(hs) + len(hw), e, "✅ L7 生效" if good else "❌ 剔除边界失效"))
     ok = ok and good
 
     # 侧⑥ ★ 回读真实仓库
@@ -237,8 +247,8 @@ def do_selftest():
         ok = False
     else:
         print("[侧⑥] ★ 回读真实仓库：受检 **%d** 份（**>0 期望**）｜剔除 **%d** 行｜"
-              "`C17` 命中 **%d**｜`C16` 命中 **%d** ⇒ %s"
-              % (res["n_files"], res["excluded"], len(res["c17"]), len(res["c16"]),
+              "★ 告警（强词）**%d**｜☆ 另册（弱词）**%d** ⇒ %s"
+              % (res["n_files"], res["excluded"], len(res["strong"]), len(res["weak"]),
                  "✅ 真实仓库可解析" if res["n_files"] > 0 else "❌ 真实仓库零份"))
         ok = ok and (res["n_files"] > 0)
 
