@@ -51,6 +51,8 @@ CALLS = [
     ("check_id_set_diff.py", []),
     # ★ v0.333 第三十一补新增（指令侧「十项」结构判据 · `T-142` · 只告警）
     ("check_instruction_structure.py", []),
+    # ★ v0.333 第三十四补新增（`C16`／`C17` 断言证据判据 · `T-161` · 枚举级 · 只告警）
+    ("check_c16c17.py", []),
     # ★ v0.329 新增（治 `F-5` 的**批量**治法 · 只告警）
     ("check_judge_gaps.py", []),
     ("check_kernel_purity.py", []),

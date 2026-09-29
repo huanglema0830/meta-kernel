@@ -604,6 +604,32 @@ jobs:
           set -e
           test "$SELFTEST" -eq 0
 
+      - name: C16／C17 断言证据判据 —— `check_c16c17`（**枚举级 · 只告警** · v0.333 第三十四补新增）
+      # ★ 覆盖边界（`T-157`）：**只判「`C17` 8 词与 `C16` 4 词是否命中」**，
+      #   ★ **不判"该命中是否真属对底图的诚信类指控"**（**上下文级有意不覆盖** ——
+      #     依据 `T-156`：词表 **20+ 处命中、0 处真指控** ⇒ 上下文判定机器做不到）。
+      #   ★ **扫描范围（先窄）**：`coordination/reports/*.md` ＋ `coordination/BASELINE.md`（**不扫全库**）。
+      #   ★ **剔除（`T-041` 同源机制）**：读 `scan_exclude.json` 既有 **6 层** ＋ 本判据自有
+      #     `scan_exclude_c16c17.json` **2 层**（`L7` 风险/后果描述、`L8` 条文引述）；
+      #     ★ 每次扫描**打印「已剔除段数」**（剔除不是静默的）。
+      #   ★ **首拍 2026-09-29 实测：受检 228 ／ 剔除 1162 行 ／ 告警 395**（**如实记录、未调优**）。
+      #   浅克隆安全：只读仓库内 `reports/` 与 `BASELINE.md`，**不依赖 `HEAD~1`**（R68）。
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          python3 coordination/tools/check_c16c17.py --selftest
+          SELFTEST=$?
+          OUT=$(python3 coordination/tools/check_c16c17.py)
+          CHECK=$?
+          printf '%s\n' "$OUT"
+          ALERTS=$(printf '%s\n' "$OUT" | grep -o '告警合计：[0-9]*' | grep -o '[0-9]*' | head -1)
+          EXCL=$(printf '%s\n' "$OUT" | grep -o '已剔除段数.*：[0-9]*' | grep -o '[0-9]*' | head -1)
+          echo "::warning::c16c17 alerts=${ALERTS:-NA} excluded=${EXCL:-NA}"
+          echo "---- SELFTEST=$SELFTEST CHECK=$CHECK ALERTS=${ALERTS:-NA} EXCLUDED=${EXCL:-NA} ---- (自检期望 0；实跑**只告警**、退出码恒 0)"
+          set -e
+          test "$SELFTEST" -eq 0
+
       - name: Build NPB cdylib (native)
         run: cargo build -p npb
 
