@@ -8572,7 +8572,7 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 | `version_label` | 0 | **0** | 0 | —— |
 
 - **另三支**：`check_reading_instruction` **PASS**｜`check_doc_consistency` **✅ 通过**｜`check_private_pointers` **PASS**。
-- **收口实测**：`count = 471`（开工）→ **`472`**（g1）→ **`473`**（g2）→ **`474`**（**g3 追加续观**）；`HEAD` ＝ **`d74eb17`**；`origin/main` ＝ **`90f1ada`**；**未推送 ＝ 3**（**g1 ＋ g2 ＋ g3**，按 `T-081` 口径② 留待 `C3-034` 开工首项）。**改动件**＝`TEMPLATES.md`／`BASELINE.md`／`ci.yml`／`run_all_checks.py`；**新增件**＝`coordination/tools/check_instruction_structure.py` ＋ `coordination/security/instruction_structure_exempt.txt` ＋ **1 份 `discussions/`**（缺命令行清单）＋ 本轮报告。
+- **收口实测（★ 口径写法 · 自捕获③）**：★ **`count` ／ `HEAD` ／ `origin/main` ／ 未推送 —— 一律以实跑为准**（`git rev-list --count HEAD` ／ `git rev-parse --short HEAD` ／ `git rev-parse --short origin/main` ／ `git rev-list --count origin/main..HEAD`）⇒ ★ **不写绝对值**（★ 因"收口值写在报告/台账里、而提交本文件自身使 `count+1`"⇒ 写死必致滚动订正；本补 `g1→…→g6` 即其代价）。★ **本轮 `g` 系列终止于 `g6`**（口径写法**不会失效** ⇒ **自然终止**，无须再订正）。**改动件**＝`TEMPLATES.md`／`BASELINE.md`／`ci.yml`／`run_all_checks.py`；**新增件**＝`coordination/tools/check_instruction_structure.py` ＋ `coordination/security/instruction_structure_exempt.txt` ＋ **1 份 `discussions/`**（缺命令行清单）＋ 本轮报告。
 
 
 
