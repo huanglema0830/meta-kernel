@@ -8362,7 +8362,7 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 | `version_label` | 0 | **0** | 0 | —— |
 
 - **另三支**：`check_reading_instruction` **PASS**｜`check_doc_consistency` **✅ 通过**｜`check_private_pointers` **PASS**。
-- **收口实测**：`count = 466`（开工）→ **⟨g1 后 count⟩**；`HEAD` ＝ **⟨g1 HEAD⟩**；`origin/main` ＝ **`1f4c32f`**；**未推送 ＝ ⟨g2 未推⟩**。**改动件**＝`TEMPLATES.md`／`BASELINE.md`／`CONSTRAINTS.md`；**新增件**＝**2 份 `discussions/`**（变更稿／设计稿）＋ 本轮报告；**仓库外**＝`.workbuddy/memory/env.md`（**长跑铁律**）＋ `l7-watch/` 四件（**宿主改造**）；**平台侧**＝**2 个夜跑任务书提示词**（`T-131`）。
+- **收口实测**：`count = 466`（开工）→ **`467`**（g1 后）；`HEAD` ＝ **`63a60ff`**（g1）；`origin/main` ＝ **`1f4c32f`**；**未推送 ＝ 1**（g2 订正提交，按 `T-081` 口径② **留待 `C3-032` 开工首项**）。**改动件**＝`TEMPLATES.md`／`BASELINE.md`／`CONSTRAINTS.md`；**新增件**＝**2 份 `discussions/`**（变更稿／设计稿）＋ 本轮报告；**仓库外**＝`.workbuddy/memory/env.md`（**长跑铁律**）＋ `l7-watch/` 四件（**宿主改造**）；**平台侧**＝**2 个夜跑任务书提示词**（`T-131`）。
 
 
 
