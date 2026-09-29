@@ -8571,7 +8571,7 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 | `version_label` | 0 | **0** | 0 | —— |
 
 - **另三支**：`check_reading_instruction` **PASS**｜`check_doc_consistency` **✅ 通过**｜`check_private_pointers` **PASS**。
-- **收口实测**：`count = 471`（开工）→ **`472`**（g1 后）；`HEAD` ＝ **`df5e466`**（g1）；`origin/main` ＝ **`90f1ada`**；**未推送 ＝ 2**（**g1 ＋ g2**，按 `T-081` 口径② 留待 `C3-034` 开工首项）。**改动件**＝`TEMPLATES.md`／`BASELINE.md`／`ci.yml`／`run_all_checks.py`；**新增件**＝`coordination/tools/check_instruction_structure.py` ＋ `coordination/security/instruction_structure_exempt.txt` ＋ **1 份 `discussions/`**（缺命令行清单）＋ 本轮报告。
+- **收口实测**：`count = 471`（开工）→ **`472`**（g1）→ **`473`**（g2）→ **`474`**（**g3 追加续观**）；`HEAD` ＝ **`d74eb17`**；`origin/main` ＝ **`90f1ada`**；**未推送 ＝ 3**（**g1 ＋ g2 ＋ g3**，按 `T-081` 口径② 留待 `C3-034` 开工首项）。**改动件**＝`TEMPLATES.md`／`BASELINE.md`／`ci.yml`／`run_all_checks.py`；**新增件**＝`coordination/tools/check_instruction_structure.py` ＋ `coordination/security/instruction_structure_exempt.txt` ＋ **1 份 `discussions/`**（缺命令行清单）＋ 本轮报告。
 
 
 
