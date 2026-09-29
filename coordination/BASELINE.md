@@ -8166,8 +8166,8 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 - **开工**：`count = 464`｜`HEAD` ＝ `0c10c62`｜`origin/main` ＝ `d4a477c`｜★ **未推送 ＝ 2**（`9c25628` g1／`0c10c62` g2，均属上轮 `C3-029`）。
 - ★ **口径裁定（须用户追认 · 已在报告"待裁定"列明）**：`§一`「push 全部未推送」与禁区⑥「本轮内不再 push」＋ `§五`「清单回库」**三者交集最优解＝把本地全部落地（③④⑤⑥ ＋ apply）后一次性 push** ⇒ **push 放本轮末**（否则回库提交将被"不再 push"落下）。
 - **push 内容**：上轮 2 ＋ 本轮 g1 ⇒ **3 个提交**（`T-081` 口径②：整轮一次）。
-- **push 后**：回读 `origin/main`（实测值见 `97.9`）。
-- **CI**：★ **`test`／`boot-image`／`host-windows` 三 job** ⇒ 结果见 `97.9`（run 号按 `C20` **只记日报、不入库**）。
+- **push 实测**：★ `d4a477c..c034063  main -> main` ⇒ ★ **回读 `origin/main` ＝ `c034063`**（**与本地一致**，`left/right` ＝ `0 0`）。
+- **CI**：★ **三 job**（`test`／`boot-image`／`host-windows`）；★ **按 `C20`：仓库侧只留复核命令 ＋ 取数时点**（`gh run list --limit 3`／`gh run view <id> --json jobs`；**取数时点 ＝ 2026-09-29 09:0x**）—— ★ **run 号与三态结论只入日报**。
 
 ### 97.3 ★★ 载-甲真实 1 小时窗口：**未产出 `summary.json`（33/60 中断）⇒ 报停点**（`T-127`）
 
@@ -8217,7 +8217,7 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 - **注文（逐字）**：「**待核**（2026-09-28 · `云内核-C3-030`）：现存 16 支判据中 0 支以机制 20 三条禁令为对象；"判据当场抓到"归因不明。」
 - ★ **注的性质**：**只标"待核"、不定性"错误"** —— `R28` 的**教训本身仍有效**且**与禁令 ③ 同构**。
 
-### 97.8 自捕获（**5 条** · 逐条处置）
+### 97.8 自捕获（**6 条** · 逐条处置）
 
 | # | 缺陷 | 级别 | 处置 |
 |---|---|---|---|
@@ -8226,6 +8226,7 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 | ③ | ★ **先写后登（`T-049` 自触）**：`R28` 注先引用 `T-125`、登记表未登记 | P2 | ★ **由 `check_id_set_diff` 当场抓出（告警 4 → 3）** ⇒ **补登记后消除**（★ **判据有效性的一次实证**） |
 | ④ | ★ **09-27 批体例缺「未完成项」** | P2 | **登记待裁**（`T-128`，荐丁案）；**未改报告、未改基线** |
 | ⑤ | ★ **apply 引入 4 条只告警** | P2 | ★ **如实登记**（`97.6`）—— **不隐藏副作用** |
+| ⑥ | ★ **口径张力：历轮报告在仓库内写「CI 三 job 全绿」与 `C20`（「CI 结论不入库」）不一致** | P2 | ★ **本轮按 `C20` 从严处理**（**CI 结论只入日报**，仓库侧**只留复核命令 ＋ 取数时点**）；★ **历轮写法不追改**（`C19`）；★ **张力登记待裁**（是否统一为"只留命令"或明确例外） |
 
 ### 97.9 `C15` 复算 ＋ 判据明细 ＋ 收口
 
@@ -8246,6 +8247,8 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 | `version_label` | 0 | **0** | 0 | —— |
 
 - **另三支**：`check_reading_instruction` **PASS**｜`check_doc_consistency` **✅ 通过**｜`check_private_pointers` **PASS**（**6 份新入库报告未引入 ⛔ 泄漏**）。
-- **收口实测**：`count = 464`（开工）→ **⟨g1 后 count⟩**；`HEAD` ＝ **⟨g1 HEAD⟩**；`origin/main` ＝ **⟨push 后回读⟩**；**未推送 ＝ ⟨g2 未推⟩**。**改动件**＝`TEMPLATES.md`／`BASELINE.md`／`ci.yml`／`run_all_checks.py`；**新增件**＝`coordination/tools/check_forbidden_paths.py` ＋ **6 份夜跑报告** ＋ 本轮报告；**仓库外**＝`.workbuddy/memory/env.md`（**ASCII 铁律**）。
+- **收口实测**：`count = 464`（开工）→ **`465`**（g1 后）；`HEAD` ＝ **`c034063`**（g1）；`origin/main` ＝ **`c034063`**（★ **回读一致**；`git rev-list --left-right --count origin/main...HEAD` ＝ **`0 0`**）；**未推送 ＝ 1**（g2 订正提交，按 `T-081` 口径② **留待 `C3-031` 开工首项**）。**改动件**＝`TEMPLATES.md`／`BASELINE.md`／`ci.yml`／`run_all_checks.py`；**新增件**＝`coordination/tools/check_forbidden_paths.py` ＋ **6 份夜跑报告** ＋ 本轮报告；**仓库外**＝`.workbuddy/memory/env.md`（**ASCII 铁律**）。
+- ★ **CI（按 `C20`：只引命令，不写结论）**：**复核命令** ＝ `gh run list --limit 3`／`gh run view <id> --json jobs`；**取数时点 ＝ 2026-09-29 09:0x（+8）**；★ **结论入日报**（`.workbuddy/memory/2026-09-29.md`）。
+- ★ **开工/收口工作区差异（跨日）**：★ **开工**：1 项未跟踪（`2026-09-27_今夜P3清单.md`）⇒ **本轮已回库**；★ **收口（09-29 09:0x）**：**新出现 1 项未跟踪** ＝ `coordination/reports/2026-09-28_今夜P3清单.md`（**48870 B**，**09-28 21:05**，系 **21:00 任务既定落盘**）⇒ ★ **按 `T-098`／`T-099`：属"他任务的合法产物"，本轮一律不动**（**处置属下一轮**）；★ 且 `patches/nightly-p3/2026-09-28/` **已存在**（**09-28 23:08**）⇒ **09-28 夜跑产出正常**。
 
 
