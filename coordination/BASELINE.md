@@ -8471,7 +8471,7 @@ cargo +nightly-x86_64-pc-windows-gnu check -p meta-kernel-boot-kernel \
 | `version_label` | 0 | **0** | 0 | —— |
 
 - **另三支**：`check_reading_instruction` **PASS**｜`check_doc_consistency` **✅ 通过**｜`check_private_pointers` **PASS**。
-- **收口实测**：`count = 469`（开工）→ **⟨g1 后 count⟩**；`HEAD` ＝ **⟨g1 HEAD⟩**；`origin/main` ＝ **`2a5c582`**；**未推送 ＝ ⟨未推数⟩**。**改动件**＝`TEMPLATES.md`／`BASELINE.md`／`CHARTER.md`／`instructions/INDEX.md`／`reports/2026-09-22_…第一部分…md`；**新增件**＝**3 份 `discussions/`**（三处遗漏调研）＋ **3 份 `instructions/`**（指令归档）＋ 本轮报告；**仓库外**＝**纯 ASCII 落点目录**（**平台任务落点**；★ **只写目录名**）＋ `l7-watch/run_state_window.sh`；**平台侧**＝**新增 1 个定时任务**（`T-137`）。
+- **收口实测**：`count = 469`（开工）→ **`470`**（g1 后）；`HEAD` ＝ **`ebff091`**（g1）；`origin/main` ＝ **`2a5c582`**；**未推送 ＝ 2**（**g1 ＋ g2**，按 `T-081` 口径② 留待 `C3-033` 开工首项）。**改动件**＝`TEMPLATES.md`／`BASELINE.md`／`CHARTER.md`／`instructions/INDEX.md`／`reports/2026-09-22_…第一部分…md`；**新增件**＝**3 份 `discussions/`**（三处遗漏调研）＋ **3 份 `instructions/`**（指令归档）＋ 本轮报告；**仓库外**＝**纯 ASCII 落点目录**（**平台任务落点**；★ **只写目录名**）＋ `l7-watch/run_state_window.sh`；**平台侧**＝**新增 1 个定时任务**（`T-137`）。
 
 
 
