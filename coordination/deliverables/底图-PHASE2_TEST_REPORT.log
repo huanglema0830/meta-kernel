@@ -1,0 +1,81 @@
+[1m[92m   Compiling[0m meta-kernel-core v0.1.0 (/home/runner/work/meta-kernel/meta-kernel/meta-kernel-core)
+[1m[92m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.63s
+[1m[92m     Running[0m unittests src/lib.rs (target/debug/deps/meta_kernel_core-80eebd284a077b18)
+
+running 50 tests
+test energy::tests::rich_structure_scores_high_vitality ... ok
+test energy::tests::collapse_maps_bands ... ok
+test energy::tests::vacuum_is_nearly_zero_vitality ... ok
+test energy::tests::verdict_thresholds ... ok
+test expo::tests::collapses_to_half_when_above_threshold ... ok
+test expo::tests::huge_lambda_guarded_no_overflow ... ok
+test expo::tests::grows_but_stays_below_collapse_when_small ... ok
+test fib::tests::anchor_vacuum_stays_zero ... ok
+test fib::tests::first_positive_input_ignites ... ok
+test expo::tests::stays_valid_for_10000_steps ... ok
+test expo::tests::vacuum_stays_zero ... ok
+test fib::tests::recurrence_sequence_matches_formula ... ok
+test hourglass::tests::burst_pair_destructively_interferes ... ok
+test fib::tests::stays_bounded_for_10000_steps ... ok
+test hourglass::tests::overflow_drops_are_counted ... ok
+test hourglass::tests::odd_burst_keeps_one_survivor ... ok
+test hourglass::tests::ring_buffer_roundtrip ... ok
+test linear::tests::anchor_zero_restarts_from_increment ... ok
+test hourglass::tests::single_seed_trickles_through_in_one_tick ... ok
+test linear::tests::saturates_at_one ... ok
+test linear::tests::step_adds_increment ... ok
+test math::tests::sat_add_basic ... ok
+test mirror::tests::echoes_decay_to_exhaustion_then_restart ... ok
+test linear::tests::stays_in_unit_interval_for_10000_steps ... ok
+test math::tests::clamp_and_valid ... ok
+test mirror::tests::reflects_with_friction_decay ... ok
+test hourglass::tests::long_run_stays_valid_and_bounded ... ok
+test mirror::tests::echoes_stay_valid_for_10000_ticks ... ok
+test mirror::tests::vacuum_restart_injects_first_perturbation ... ok
+test ontology::tests::complementary_pair_scores_orange ... ok
+test ontology::tests::abstract_then_recompose_roundtrip ... ok
+test ontology::tests::decompose_splits_down_to_target_level ... ok
+test ontology::tests::level_names_cover_0_to_10 ... ok
+test ontology::tests::empty_pattern_is_black ... ok
+test ontology::tests::monotone_history_scores_white_space ... ok
+test ontology::tests::triple_closure_scores_yellow ... ok
+test ontology::tests::stable_history_scores_blue ... ok
+test positive_source::tests::analyzer_judges_forward_patterns ... ok
+test positive_source::tests::entropy_bounded_and_deterministic ... ok
+test positive_source::tests::governor_selects_by_pressure ... ok
+test positive_source::tests::high_vitality_pattern_gets_adopted ... ok
+test positive_source::tests::process_negative_pattern_recycles_not_kills ... ok
+test sanitizer::tests::abs_guard_protects_fib_from_snowball ... ok
+test positive_source::tests::weave_sandbox_is_bounded_and_decides ... ok
+test sanitizer::tests::cooperative_reward_discourages_attack ... ok
+test sanitizer::tests::finalize_annihilates_negatives ... ok
+test sanitizer::tests::monitor_flags_unhealthy_and_seeds_are_safe ... ok
+test sanitizer::tests::quota_sleeps_instead_of_killing ... ok
+test sanitizer::tests::soft_clamp_maps_to_unit_interval ... ok
+test positive_source::tests::searcher_finds_similar_schema ... ok
+
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+[1m[92m     Running[0m tests/phase1_stability.rs (target/debug/deps/phase1_stability-5355e42e67f5b77f)
+
+running 2 tests
+test each_engine_alone_10000_steps_stays_bounded ... ok
+test closed_loop_10000_iterations_never_overflow ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[92m     Running[0m tests/phase2_safety.rs (target/debug/deps/phase2_safety-93a8a78656e253a0)
+
+running 3 tests
+test negative_input_is_annihilated_everywhere ... ok
+test weave_reuses_ontology_decompose_pipeline ... ok
+test resource_exhaustion_sleeps_then_positive_source_recycles ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[92m   Doc-tests[0m meta_kernel_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
